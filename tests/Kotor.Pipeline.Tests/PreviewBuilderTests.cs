@@ -34,7 +34,12 @@ public sealed class PreviewBuilderTests : IDisposable
         return new ModuleScene(new ModuleInfo("tst", "tst", "Zone", new ModuleEntry(Vector3.Zero, Vector2.UnitX)), [mesh], [floor], tex);
     }
 
-    private ExportOptions Opt() => new("k", Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+    private ExportOptions Opt()
+    {
+        var o = new ExportOptions("k", Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+        Directory.CreateDirectory(o.JaBaseDir);
+        return o;
+    }
 
     [Fact]
     public void FromScene_flips_v_and_scales()

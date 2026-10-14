@@ -103,7 +103,7 @@ public static class Compiler
                     BspWriter.Write(tree, ms, entityLump, limits, surfaces, input.Lighting, GlobalFog.FromWorldspawn(world, input.MapName));
                     break;
                 }
-                catch (BspLimitException) when (attempt < MaxShrinkAttempts && (solidKeep > 0 || walkKeep > 0))
+                catch (BspLimitException bx) when (bx.CollisionRelated && attempt < MaxShrinkAttempts && (solidKeep > 0 || walkKeep > 0))
                 {
                     if (solidKeep > 0) solidKeep = solidKeep * 4 / 5;
                     else walkKeep = walkKeep * 4 / 5;

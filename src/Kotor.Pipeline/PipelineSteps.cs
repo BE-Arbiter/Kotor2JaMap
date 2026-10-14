@@ -50,7 +50,8 @@ public static class PipelineSteps
             log.Warn("OPTIONS_INVALID", invalid);
             throw new PipelineStepException("OPTIONS_INVALID", invalid);
         }
-        string name = (mapName ?? scene.Info.Module).ToLowerInvariant();
+        string name = MapNames.Normalize(mapName ?? scene.Info.Module);
+        if (MapNames.Validate(name) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
         return new ImportStepResult(scene, ModuleExporter.BuildPlan(scene, mapName, opt, log), name);
     }
 
@@ -61,9 +62,11 @@ public static class PipelineSteps
         ArgumentNullException.ThrowIfNull(opt);
         ExportPlan plan = imported.Plan;
         string name = imported.MapName;
+        if (MapNames.Validate(name) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
 
         if (plan.Shaders.Count > ModuleExporter.MaxShaders)
             throw Fail(log, "SHADER_LIMIT", $"{plan.Shaders.Count} shaders distincts : depasse MAX_MAP_SHADERS ({ModuleExporter.MaxShaders}).");
+        RequireJaBaseDir(opt, log);
 
         try
         {
@@ -119,9 +122,10 @@ public static class PipelineSteps
         ArgumentNullException.ThrowIfNull(exported);
         ArgumentNullException.ThrowIfNull(imported);
         ArgumentNullException.ThrowIfNull(opt);
+        if (MapNames.Validate(imported.MapName) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
+        RequireJaBaseDir(opt, log);
         try
         {
-            Directory.CreateDirectory(opt.JaBaseDir);
             string pk3 = Path.Combine(opt.JaBaseDir, "kotor_" + imported.MapName + ".pk3");
             Pk3Builder.Build(exported.StagingDir, pk3);
             return new Pk3StepResult(pk3);
@@ -130,6 +134,13 @@ public static class PipelineSteps
         {
             throw Fail(log, "EXPORT_IO_ERROR", ex.Message);
         }
+    }
+
+    /// <summary>Le dossier <c>base</c> du jeu doit exister : on ne cree jamais d'arborescence fantome.</summary>
+    private static void RequireJaBaseDir(ExportOptions opt, ImportLog log)
+    {
+        if (!Directory.Exists(opt.JaBaseDir))
+            throw Fail(log, "JA_BASE_MISSING", $"Dossier base de Jedi Academy introuvable : {opt.JaBaseDir}");
     }
 
     private static PipelineStepException Fail(ImportLog log, string code, string message)

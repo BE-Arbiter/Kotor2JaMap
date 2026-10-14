@@ -11,12 +11,11 @@ public static class LimitCheck
     public const int MaxShaders = 0x400;
     public const int MaxDrawSurfaces = 0x20000;
     public const int MaxDrawVerts = 0x80000;
-    public const int MaxLeafSurfaces = 0x20000;
 
-    public static void Check(string lumpName, int count, int max)
+    public static void Check(string lumpName, int count, int max, bool collisionRelated = false)
     {
         if (count > max)
-            throw new BspLimitException($"Limite BSP depassee : {lumpName} = {max}, {count} requis. Reduire la geometrie ; aucun BSP partiel n'est ecrit.");
+            throw new BspLimitException($"Limite BSP depassee : {lumpName} = {max}, {count} requis. Reduire la geometrie ; aucun BSP partiel n'est ecrit.", collisionRelated);
     }
 
     /// <summary>Limites par surface de rendu (ParseTriSurf du moteur) : échec propre si le découpage a été contourné.</summary>
@@ -27,12 +26,12 @@ public static class LimitCheck
     }
 
     /// <summary>Lumps liés aux surfaces de rendu.</summary>
-    public static void CheckRenderLimits(int shaders, int surfaces, int verts, int indexes, int leafSurfaces)
+    public static void CheckRenderLimits(int shaders, int surfaces, int verts, int indexes, int leafSurfaces, int maxLeafSurfaces = 0x20000)
     {
         Check("MAX_MAP_SHADERS", shaders, MaxShaders);
         Check("MAX_MAP_DRAW_SURFS", surfaces, MaxDrawSurfaces);
         Check("MAX_MAP_DRAW_VERTS", verts, MaxDrawVerts);
         Check("MAX_MAP_DRAW_INDEXES", indexes, Limits.MaxDrawIndexes);
-        Check("MAX_MAP_LEAFFACES", leafSurfaces, MaxLeafSurfaces);
+        Check("MAX_MAP_LEAFFACES", leafSurfaces, maxLeafSurfaces);
     }
 }

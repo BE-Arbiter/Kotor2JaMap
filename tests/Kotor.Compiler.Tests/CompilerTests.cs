@@ -61,6 +61,21 @@ public sealed class CompilerTests : IDisposable
     }
 
     [Fact]
+    public void Non_collision_limit_fails_immediately_without_reducing_collision()
+    {
+        var log = new ImportLog();
+        var limits = Limits.Vanilla with { MaxLeafSurfaces = 0 };
+
+        var r = BspCompiler.Compile(TestScenes.Input(), BspPath, limits, log);
+
+        Assert.False(r.Ok);
+        Assert.Contains("MAX_MAP_LEAFFACES", r.Error);
+        Assert.False(File.Exists(BspPath));
+        Assert.Contains(log.Warnings, w => w.Code == "BSP_ERROR");
+        Assert.DoesNotContain(log.Warnings, w => w.Code is "COLLISION_CAPPED" or "WALKABLE_CAPPED");
+    }
+
+    [Fact]
     public void Brush_cap_logs_and_does_not_throw()
     {
         var pos = new List<Vector3>();

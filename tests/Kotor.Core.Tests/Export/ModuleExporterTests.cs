@@ -18,7 +18,12 @@ public sealed class ModuleExporterTests : IDisposable
         try { Directory.Delete(_root, true); } catch (IOException) { }
     }
 
-    private ExportOptions Opt() => new("k", Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+    private ExportOptions Opt()
+    {
+        var o = new ExportOptions("k", Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+        Directory.CreateDirectory(o.JaBaseDir);
+        return o;
+    }
 
     private static ModuleInfo Info(Vector3 pos, Vector2 dir) => new("tst", "tst", "Zone", new ModuleEntry(pos, dir));
 
@@ -148,6 +153,7 @@ public sealed class ModuleExporterTests : IDisposable
     {
         Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
         var opt = new ExportOptions(TestEnv.KotorDir!, Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+        Directory.CreateDirectory(opt.JaBaseDir);
         var log = new ImportLog();
         var r = ModuleExporter.Export("tar_m02aa", null, opt, log);
         Assert.True(r.Ok, r.Error);

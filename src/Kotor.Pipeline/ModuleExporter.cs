@@ -34,7 +34,12 @@ public static class ModuleExporter
         ArgumentException.ThrowIfNullOrEmpty(module);
         if (opt.Validate() is { } invalid) return new ExportResult(false, null, invalid, 0, 0, 0);
         module = module.ToLowerInvariant();
-        string name = (mapName ?? module).ToLowerInvariant();
+        string name = MapNames.Normalize(mapName ?? module);
+        if (MapNames.Validate(name) is { } badName)
+        {
+            log.Warn("MAP_NAME_INVALID", badName);
+            return new ExportResult(false, null, badName, 0, 0, 0); // pas de journal : le nom ne doit pas servir de chemin
+        }
         ModuleScene scene;
         try
         {
@@ -51,8 +56,13 @@ public static class ModuleExporter
     /// <summary>Exporte une scene deja assemblee (le nom de carte par defaut est le module de la scene).</summary>
     public static ExportResult Export(ModuleScene scene, string? mapName, ExportOptions opt, ImportLog log)
     {
-        string name = (mapName ?? scene.Info.Module).ToLowerInvariant();
+        string name = MapNames.Normalize(mapName ?? scene.Info.Module);
         if (opt.Validate() is { } invalid) return new ExportResult(false, null, invalid, 0, 0, 0);
+        if (MapNames.Validate(name) is { } badName)
+        {
+            log.Warn("MAP_NAME_INVALID", badName);
+            return new ExportResult(false, null, badName, 0, 0, 0);
+        }
         ImportStepResult imported = PipelineSteps.Import(scene, mapName, opt, log);
         ExportPlan plan = imported.Plan;
         ExportResult result;
@@ -75,7 +85,7 @@ public static class ModuleExporter
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(opt);
-        string name = (mapName ?? scene.Info.Module).ToLowerInvariant();
+        string name = MapNames.Normalize(mapName ?? scene.Info.Module);
         if (opt.Validate() is { } invalidOptions) throw new ArgumentException(invalidOptions, nameof(opt));
         float scale = opt.Scale;
 

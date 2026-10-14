@@ -42,6 +42,11 @@ public static class ExportJaCommand
             error.WriteLine($"Options invalides : {invalid}");
             return 1;
         }
+        if (mapName is not null && MapNames.Validate(MapNames.Normalize(mapName)) is { } badName)
+        {
+            error.WriteLine(badName);
+            return 1;
+        }
         if (!Directory.Exists(opt.KotorDir))
         {
             error.WriteLine($"Installation KOTOR introuvable : {opt.KotorDir}");
@@ -55,7 +60,7 @@ public static class ExportJaCommand
         }
         var log = new ImportLog();
         ExportResult r = ModuleExporter.Export(module, mapName, opt, log);
-        output.WriteLine($"Module {module} -> carte {(mapName ?? module).ToLowerInvariant()}");
+        output.WriteLine($"Module {module} -> carte {MapNames.Normalize(mapName ?? module)}");
         output.WriteLine($"Maillages : {r.Meshes}");
         output.WriteLine($"Triangles : {r.Triangles}");
         output.WriteLine($"Textures manquantes : {r.MissingTextures}");

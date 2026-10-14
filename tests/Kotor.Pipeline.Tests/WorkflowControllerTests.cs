@@ -145,6 +145,7 @@ public sealed class WorkflowControllerTests
         try
         {
             var opt = new ExportOptions(TestEnv.KotorDir!, Path.Combine(root, "base"), Path.Combine(root, "work"));
+            Directory.CreateDirectory(opt.JaBaseDir);
             var c = new WorkflowController(new KotorWorkflowSteps(opt));
             Skip.If(!c.Modules().Any(m => m.Module == "tar_m02aa"), "tar_m02aa absent");
             c.SelectModule("tar_m02aa");
@@ -189,6 +190,7 @@ public sealed class WorkflowControllerTests
         try
         {
             var opt = new ExportOptions(TestEnv.KotorDir!, Path.Combine(root, "base"), Path.Combine(root, "work"));
+            Directory.CreateDirectory(opt.JaBaseDir);
             var c = new WorkflowController(new KotorWorkflowSteps(opt));
             Skip.If(!c.Modules().Any(m => m.Module == "tar_m02aa"), "tar_m02aa absent");
             c.SelectModule("tar_m02aa");

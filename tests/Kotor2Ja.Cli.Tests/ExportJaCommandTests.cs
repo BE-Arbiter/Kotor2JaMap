@@ -39,6 +39,18 @@ public class ExportJaCommandTests
         Assert.Contains("Echelle", err.ToString());
     }
 
+    [Theory]
+    [InlineData("..")]
+    [InlineData("a b")]
+    [InlineData("x/y")]
+    public void Invalid_map_name_returns_1(string name)
+    {
+        var err = new StringWriter();
+        int code = ExportJaCommand.Run(new ExportOptions("k", "b", "w"), "x", name, new StringWriter(), err);
+        Assert.Equal(1, code);
+        Assert.Contains("Nom de carte invalide", err.ToString());
+    }
+
     [Fact]
     public void Unknown_bsp_limits_returns_1()
     {

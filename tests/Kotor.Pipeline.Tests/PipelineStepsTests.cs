@@ -19,7 +19,12 @@ public sealed class PipelineStepsTests : IDisposable
         try { Directory.Delete(_root, true); } catch (IOException) { }
     }
 
-    private ExportOptions Opt(string? kotor = null) => new(kotor ?? "k", Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+    private ExportOptions Opt(bool createBase = true)
+    {
+        var o = new ExportOptions("k", Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+        if (createBase) Directory.CreateDirectory(o.JaBaseDir);
+        return o;
+    }
 
     private static ModuleScene SmallScene()
     {
@@ -128,6 +133,7 @@ public sealed class PipelineStepsTests : IDisposable
         Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
         var optA = new ExportOptions(TestEnv.KotorDir!, Path.Combine(_root, "baseA"), Path.Combine(_root, "workA"));
         var optB = new ExportOptions(TestEnv.KotorDir!, Path.Combine(_root, "baseB"), Path.Combine(_root, "workB"));
+        Directory.CreateDirectory(optA.JaBaseDir); Directory.CreateDirectory(optB.JaBaseDir);
 
         ExportResult r = ModuleExporter.Export("tar_m02aa", null, optA, new ImportLog());
         Assert.True(r.Ok, r.Error);

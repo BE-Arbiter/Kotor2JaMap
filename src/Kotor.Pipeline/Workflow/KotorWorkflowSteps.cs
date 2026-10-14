@@ -104,6 +104,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             // Le BSP ne garde ni reperes ni triangles de collision lisibles : on reprend ceux de l'etape Importer.
             if (_importModel is not null) model = model with { Markers = _importModel.Markers, CollisionTriangles = _importModel.CollisionTriangles };
             _exported = exported;
+            WarnIfCollisionReduced(log);
             progress.Report($"Exporter : {model.TriangleCount} triangle(s) relus dans {Path.GetFileName(exported.BspPath)}.");
             return model;
         }
@@ -139,6 +140,14 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             log.Warn("ENTITIES_UNREADABLE", $"Entites du module illisibles ({ex.Message}) : aucun repere.");
             return [];
         }
+    }
+
+    /// <summary>La vue Exporter reprend la collision de l etape Importer : l avertir si le compilateur l a reduite.</summary>
+    internal static void WarnIfCollisionReduced(ImportLog log)
+    {
+        if (log.Warnings.Any(w => w.Code is "COLLISION_CAPPED" or "WALKABLE_CAPPED"))
+            log.Warn("EXPORT_VIEW_COLLISION_STALE",
+                "Attention : collisions reduites par le compilateur, la vue Exporter montre les collisions d avant reduction.");
     }
 
     private static void Flush(ImportLog log, IProgress<string> progress)

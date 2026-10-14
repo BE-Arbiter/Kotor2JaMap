@@ -148,7 +148,7 @@ public static class BspWriter
         limits.CheckBrushes(brushes.Count);
         CheckMax("MAX_MAP_BRUSHSIDES", sides.Count, limits.MaxBrushSides);
         CheckMax("MAX_MAP_LEAFBRUSHES", leafBrushCount, limits.MaxLeafBrushes);
-        LimitCheck.CheckRenderLimits(shaderNames.Count, surfaces.Count, totalVerts, totalIndexes, leafSurfaceCount);
+        LimitCheck.CheckRenderLimits(shaderNames.Count, surfaces.Count, totalVerts, totalIndexes, leafSurfaceCount, limits.MaxLeafSurfaces);
         foreach (RenderSurface sf in surfaces) LimitCheck.CheckSurface(sf.Shader, sf.Positions.Length, sf.Indices.Length);
 
         // Bornes des nœuds : union des bornes des enfants.
@@ -293,7 +293,7 @@ public static class BspWriter
 
     private static void CheckMax(string name, int count, int max)
     {
-        LimitCheck.Check(name, count, max);
+        LimitCheck.Check(name, count, max, collisionRelated: true);
     }
 
     private static byte[] Make(Action<BinaryWriter> fill)
