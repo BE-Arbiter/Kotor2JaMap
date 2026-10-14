@@ -1,0 +1,76 @@
+using System.Numerics;
+using Kotor.Core.Export;
+using Kotor.Core.Scene;
+using Kotor.Core.Textures;
+
+namespace Kotor.Core.Tests.Export;
+
+public class ShaderPlannerTests
+{
+    private static SceneMesh Mesh(string? lm, string blending = "default", int hint = 0) =>
+        new("r", "n", "a", lm, TxiInfo.Parse("blending " + blending), hint, [Vector3.Zero], [Vector3.UnitZ], [Vector2.Zero],
+            lm is null ? null : [Vector2.Zero], [0, 0, 0]);
+
+    private static KotorTexture Tex(bool alpha) => new(1, 1, [0, 0, 0, 255], alpha, TxiInfo.Empty);
+
+    [Fact]
+    public void Planner_picks_kind_per_table()
+    {
+        var add = ShaderPlanner.Plan(Mesh("b", "additive"), Tex(false));
+        Assert.Equal(ShaderKind.Additive, add.Kind);
+        Assert.Equal("textures/kotor/a", add.Name);
+
+        var blend = ShaderPlanner.Plan(Mesh("b", hint: 1), Tex(true));
+        Assert.Equal(ShaderKind.Blend, blend.Kind);
+        Assert.Equal("textures/kotor/a", blend.Name);
+
+        var cutPunch = ShaderPlanner.Plan(Mesh("b", "punchthrough", hint: 1), Tex(true));
+        Assert.Equal(ShaderKind.LightmappedCutout, cutPunch.Kind);
+        Assert.Equal("textures/kotor/a__b", cutPunch.Name);
+
+        var cutAlpha = ShaderPlanner.Plan(Mesh("b"), Tex(true));
+        Assert.Equal(ShaderKind.LightmappedCutout, cutAlpha.Kind);
+
+        var lit = ShaderPlanner.Plan(Mesh("b"), Tex(false));
+        Assert.Equal(ShaderKind.Lightmapped, lit.Kind);
+        Assert.Equal("textures/kotor/a__b", lit.Name);
+        Assert.Equal("b", lit.Lightmap);
+
+        var unlit = ShaderPlanner.Plan(Mesh(null), Tex(false));
+        Assert.Equal(ShaderKind.Unlit, unlit.Kind);
+        Assert.Equal("textures/kotor/a", unlit.Name);
+        Assert.Null(unlit.Lightmap);
+
+        // hint sans alpha : pas de Blend
+        Assert.Equal(ShaderKind.Unlit, ShaderPlanner.Plan(Mesh(null, hint: 1), Tex(false)).Kind);
+        // texture manquante : sans alpha
+        Assert.Equal(ShaderKind.Lightmapped, ShaderPlanner.Plan(Mesh("b"), null).Kind);
+    }
+
+    [Fact]
+    public void Lightmapped_shader_text_is_exact()
+    {
+        string expected =
+            "textures/kotor/a__b\n{\n\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\trgbGen identity\n\t}\n" +
+            "\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\trgbGen identity\n\t}\n}\n";
+        Assert.Equal(expected, ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", ShaderKind.Lightmapped, "a", "b")));
+    }
+
+    [Fact]
+    public void Other_shader_texts_are_exact()
+    {
+        Assert.Equal(
+            "textures/kotor/a__b\n{\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\talphaFunc GE128\n\t\tdepthWrite\n\t\trgbGen identity\n\t}\n" +
+            "\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\tdepthFunc equal\n\t\trgbGen identity\n\t}\n}\n",
+            ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", ShaderKind.LightmappedCutout, "a", "b")));
+        Assert.Equal(
+            "textures/kotor/a\n{\n\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_ONE GL_ONE\n\t\trgbGen identity\n\t}\n}\n",
+            ShaderPlanner.Write(new PlannedShader("textures/kotor/a", ShaderKind.Additive, "a", null)));
+        Assert.Equal(
+            "textures/kotor/a\n{\n\tsurfaceparm trans\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA\n\t\trgbGen vertex\n\t}\n}\n",
+            ShaderPlanner.Write(new PlannedShader("textures/kotor/a", ShaderKind.Blend, "a", null)));
+        Assert.Equal(
+            "textures/kotor/a\n{\n\t{\n\t\tmap textures/kotor/a.tga\n\t\trgbGen vertex\n\t}\n}\n",
+            ShaderPlanner.Write(new PlannedShader("textures/kotor/a", ShaderKind.Unlit, "a", null)));
+    }
+}

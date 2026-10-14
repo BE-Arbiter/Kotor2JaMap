@@ -5,14 +5,18 @@ namespace Kotor.Core.Export;
 
 /// <summary>
 /// Seul endroit qui calcule le nom court d'un materiau. Le lump SHADERS du BSP limite un nom a 64 octets
-/// (63 caracteres utiles) : <c>textures/tfu2ja/</c> compris, un nom ne doit pas depasser <see cref="MaxFullLength"/>.
+/// (63 caracteres utiles) : <c>textures/kotor/</c> compris, un nom ne doit pas depasser <see cref="MaxFullLength"/>.
 /// </summary>
 public static class ShaderNames
 {
-    public const string Prefix = "textures/tfu2ja/";
+    public const string Prefix = "textures/kotor/";
+    /// <summary>Dossier des lightmaps dans le pk3.</summary>
+    public const string LightmapPrefix = Prefix + "lm/";
+    /// <summary>Nom (sans extension) de la texture de remplacement (damier magenta).</summary>
+    public const string MissingTexture = "missing";
     public const int MaxFullLength = 63;
-    // Le shader reference l'image par "map textures/tfu2ja/<court>.tga" : ".tga" (4) doit aussi tenir dans MAX_QPATH.
-    public const int MaxMaterialLength = MaxFullLength - 16 - 4; // 43, Prefix = 16, ".tga" = 4
+    // Le shader reference l'image par "map textures/kotor/<court>.tga" : ".tga" (4) doit aussi tenir dans MAX_QPATH.
+    public static readonly int MaxMaterialLength = MaxFullLength - Prefix.Length - 4; // 44, Prefix = 15, ".tga" = 4
 
     // Prefixes sans information (tous les materiaux TFU les portent) : les retirer garde des noms lisibles apres troncature.
     private static readonly string[] NoisePrefixes = ["game_disc_levels_", "game_disc_"];
@@ -31,7 +35,7 @@ public static class ShaderNames
         return trimmed[..(MaxMaterialLength - 9)] + "_" + hex;
     }
 
-    /// <summary>Nom complet du shader : <c>textures/tfu2ja/&lt;nom court&gt;</c>.</summary>
+    /// <summary>Nom complet du shader : <c>textures/kotor/&lt;nom court&gt;</c>.</summary>
     public static string FullName(string materialName) => Prefix + Short(materialName);
 
     /// <summary>Nom complet du shader de brouillard global d un niveau (partage entre l export et le compilateur).</summary>

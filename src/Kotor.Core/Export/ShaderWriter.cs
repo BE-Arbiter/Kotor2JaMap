@@ -5,7 +5,7 @@ public static class ShaderWriter
 {
     /// <summary>
     /// Construit le bloc shader. <paramref name="textureRelativePath"/> est relatif a <c>textures/</c>
-    /// (exemple : <c>tfu2ja/Rock.tga</c>). <paramref name="alphaCutout"/> : texture decoupee par alpha
+    /// (exemple : <c>kotor/Rock.tga</c>). <paramref name="alphaCutout"/> : texture decoupee par alpha
     /// (feuillage) : double face et test alpha.
     /// </summary>
     public static string Build(string materialName, string textureRelativePath, bool alphaCutout = false) =>

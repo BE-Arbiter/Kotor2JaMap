@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Kotor.Core\Kotor.Core.csproj" />
+    <ProjectReference Include="..\..\src\Kotor.Compiler\Kotor.Compiler.csproj" />
   </ItemGroup>
 
 </Project>

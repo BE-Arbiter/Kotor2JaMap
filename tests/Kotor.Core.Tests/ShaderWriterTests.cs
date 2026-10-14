@@ -7,15 +7,15 @@ public sealed class ShaderWriterTests
     [Fact]
     public void Shader_block_matches_format()
     {
-        var text = ShaderWriter.Build("Rock", "tfu2ja/Rock.tga");
+        var text = ShaderWriter.Build("Rock", "kotor/Rock.tga");
 
         var expected =
-            "textures/tfu2ja/Rock\n" +
+            "textures/kotor/Rock\n" +
             "{\n" +
-            "\tqer_editorimage textures/tfu2ja/Rock\n" +
+            "\tqer_editorimage textures/kotor/Rock\n" +
             "\tsurfaceparm nolightmap\n" +
             "\t{\n" +
-            "\t\tmap textures/tfu2ja/Rock.tga\n" +
+            "\t\tmap textures/kotor/Rock.tga\n" +
             "\t\trgbGen vertex\n" +
             "\t}\n" +
             "}\n";
@@ -26,7 +26,7 @@ public sealed class ShaderWriterTests
     [Fact]
     public void Cutout_shader_has_cull_disable_alphafunc_depthwrite()
     {
-        var text = ShaderWriter.Build("Grass", "tfu2ja/Grass.tga", alphaCutout: true);
+        var text = ShaderWriter.Build("Grass", "kotor/Grass.tga", alphaCutout: true);
 
         Assert.Contains("\tcull disable\n", text);
         Assert.Contains("\t\talphaFunc GE128\n", text);
@@ -39,7 +39,7 @@ public sealed class ShaderWriterTests
     [Fact]
     public void Opaque_shader_has_no_cutout_directives()
     {
-        var text = ShaderWriter.Build("Rock", "tfu2ja/Rock.tga");
+        var text = ShaderWriter.Build("Rock", "kotor/Rock.tga");
 
         Assert.DoesNotContain("cull", text);
         Assert.DoesNotContain("alphaFunc", text);
@@ -56,7 +56,7 @@ public sealed class ShaderNamesTests
     {
         string full = ShaderNames.FullName(Long90);
         Assert.True(full.Length <= 63, full);
-        Assert.StartsWith("textures/tfu2ja/", full);
+        Assert.StartsWith("textures/kotor/", full);
         Assert.Equal("Rock", ShaderNames.Short("Rock"));
         Assert.Equal(ShaderNames.Short(Long90), ShaderNames.Short(ShaderNames.Short(Long90))); // idempotent
     }

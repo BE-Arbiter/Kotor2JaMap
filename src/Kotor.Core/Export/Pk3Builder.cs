@@ -2,33 +2,20 @@ using System.IO.Compression;
 
 namespace Kotor.Core.Export;
 
-/// <summary>Regroupe bsp, shader et textures d'un niveau dans un pk3 (zip) pour Jedi Academy.</summary>
+/// <summary>Regroupe le contenu d'un dossier de preparation (bsp, shader, textures) dans un pk3 (zip) pour Jedi Academy.</summary>
 public static class Pk3Builder
 {
-    public static void Build(string workDir, string level, string pk3Path)
+    /// <summary>
+    /// Zippe tous les fichiers de <paramref name="stagingDir"/> (noms en minuscules, separateur <c>/</c>). Le pk3 est ecrit dans un
+    /// fichier temporaire puis renomme : un pk3 existant n'est remplace que si tout reussit. Exige au moins un <c>maps/*.bsp</c>.
+    /// </summary>
+    public static void Build(string stagingDir, string pk3Path)
     {
-        string bsp = Path.Combine(workDir, "maps", level + ".bsp");
-        string shader = Path.Combine(workDir, "shaders", level + ".shader");
-        string texDir = Path.Combine(workDir, "textures");
+        string mapsDir = Path.Combine(stagingDir, "maps");
+        if (!Directory.Exists(mapsDir) || Directory.GetFiles(mapsDir, "*.bsp").Length == 0)
+            throw new FileNotFoundException($"Fichier attendu introuvable : {Path.Combine(mapsDir, "*.bsp")}", mapsDir);
 
-        foreach (string f in new[] { bsp, shader })
-        {
-            if (!File.Exists(f)) throw new FileNotFoundException($"Fichier attendu introuvable : {f}", f);
-        }
-
-        if (!Directory.Exists(texDir)) throw new FileNotFoundException($"Dossier de textures introuvable : {texDir}", texDir);
-        // Seules les TGA referencees par le shader du niveau sont embarquees (pas les restes d'anciens exports).
-        var referenced = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        const string prefix = "map textures/tfu2ja/";
-        foreach (string line in File.ReadLines(shader))
-        {
-            string l = line.Trim();
-            if (l.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && l.EndsWith(".tga", StringComparison.OrdinalIgnoreCase))
-                referenced.Add(l.Substring(prefix.Length));
-        }
-
-        string[] tgas = Directory.GetFiles(texDir, "*.tga").Where(t => referenced.Contains(Path.GetFileName(t))).ToArray();
-
+        string[] files = Directory.GetFiles(stagingDir, "*", SearchOption.AllDirectories);
         string tmp = pk3Path + ".tmp";
         try
         {
@@ -36,12 +23,8 @@ public static class Pk3Builder
             using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write))
             using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
             {
-                Add(zip, bsp, $"maps/{level}.bsp");
-                Add(zip, shader, $"shaders/{level}.shader");
-                foreach (string t in tgas.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
-                {
-                    Add(zip, t, "textures/tfu2ja/" + Path.GetFileName(t));
-                }
+                foreach (string f in files.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                    Add(zip, f, Path.GetRelativePath(stagingDir, f));
             }
 
             File.Move(tmp, pk3Path, overwrite: true);

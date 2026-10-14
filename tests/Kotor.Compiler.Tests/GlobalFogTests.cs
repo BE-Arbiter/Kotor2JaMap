@@ -23,10 +23,10 @@ public class GlobalFogTests
     [Fact]
     public void Global_fog_is_one_FOGS_entry_with_brushNum_minus_one_and_all_surfaces_use_it()
     {
-        byte[] b = Write(new GlobalFog("textures/tfu2ja/Test_fog"));
+        byte[] b = Write(new GlobalFog("textures/kotor/Test_fog"));
         var (o, l) = Lump(b, BspWriter.LumpFogs);
         Assert.Equal(72, l); // dfog_t : shader[64] + brushNum + visibleSide
-        Assert.Equal("textures/tfu2ja/Test_fog", Encoding.ASCII.GetString(b, o, 64).TrimEnd('\0'));
+        Assert.Equal("textures/kotor/Test_fog", Encoding.ASCII.GetString(b, o, 64).TrimEnd('\0'));
         Assert.Equal(-1, BitConverter.ToInt32(b, o + 64)); // brushNum
         Assert.Equal(-1, BitConverter.ToInt32(b, o + 68)); // visibleSide
         var (so, sl) = Lump(b, BspWriter.LumpSurfaces);
@@ -46,7 +46,7 @@ public class GlobalFogTests
     [Fact]
     public void Worldspawn_key_is_parsed_and_bad_values_mean_no_fog()
     {
-        Assert.Equal("textures/tfu2ja/DAG_1_fog",
+        Assert.Equal("textures/kotor/DAG_1_fog",
             GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_kotor_fog"] = "0.04 0.32 0.363 4000" }, "DAG_1")?.Shader);
         Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string>(), "L"));
         Assert.Null(GlobalFog.FromWorldspawn(null, "L"));
