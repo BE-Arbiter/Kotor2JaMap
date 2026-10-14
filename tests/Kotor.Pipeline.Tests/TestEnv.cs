@@ -19,8 +19,4 @@ public static class TestEnv
             return Directory.Exists(DefaultKotorDir) ? DefaultKotorDir : null;
         }
     }
-
-    /// <summary>Dossier <c>base</c> de Jedi Academy SWGL ou sont ecrits les <c>kotor_&lt;module&gt;.pk3</c>.</summary>
-    public static string JaBaseDir { get; } =
-        @"C:\Program Files (x86)\Steam\steamapps\common\Jedi Academy - SWGL_DEV\GameData\base";
 }

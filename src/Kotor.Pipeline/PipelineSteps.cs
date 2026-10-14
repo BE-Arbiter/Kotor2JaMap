@@ -89,15 +89,28 @@ public static class PipelineSteps
                     t.Lightmap ? ModuleExporter.Brighten(t.Texture.Rgba, opt.LightmapBrightness) : t.Texture.Rgba);
             }
 
-            BspFile parsed;
-            try { parsed = BspReader.Read(File.ReadAllBytes(bsp)); }
-            catch (InvalidDataException ex) { throw Fail(log, "BSP_READBACK_FAILED", $"Relecture du .bsp impossible : {ex.Message}"); }
-            return new ExportStepResult(bsp, parsed, stage);
+            return new ExportStepResult(bsp, ReadBack(File.ReadAllBytes(bsp), plan, log), stage);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw Fail(log, "EXPORT_IO_ERROR", ex.Message);
         }
+    }
+
+    /// <summary>Relit le .bsp ecrit et verifie qu'il correspond au plan (au moins une surface, meme nombre total d'index).</summary>
+    internal static BspFile ReadBack(byte[] bspBytes, ExportPlan plan, ImportLog log)
+    {
+        BspFile parsed;
+        try { parsed = BspReader.Read(bspBytes); }
+        catch (InvalidDataException ex) { throw Fail(log, "BSP_READBACK_FAILED", $"Relecture du .bsp impossible : {ex.Message}"); }
+
+        long planned = plan.Input.Surfaces.Sum(s => (long)s.Indices.Length);
+        long read = parsed.Surfaces.Sum(s => (long)s.Indices.Length);
+        // Le compilateur ajoute la boite de ciel (SkyBox.IndexCount index) a la geometrie du plan, sans rien retirer.
+        if (parsed.Surfaces.Count == 0 || (read != planned && read != planned + SkyBox.IndexCount))
+            throw Fail(log, "BSP_READBACK_FAILED",
+                $"Le .bsp relu ne correspond pas au plan : {parsed.Surfaces.Count} surface(s), {read} index relus pour {planned} prevus (+{SkyBox.IndexCount} de ciel).");
+        return parsed;
     }
 
     /// <summary>Zippe le staging en <c>&lt;JaBaseDir&gt;\kotor_&lt;carte&gt;.pk3</c> (le pk3 existant n'est remplace que si tout reussit).</summary>

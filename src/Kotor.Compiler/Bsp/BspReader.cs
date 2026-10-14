@@ -76,6 +76,10 @@ public static class BspReader
             if (firstIndex < 0 || numIndexes < 0 || (long)firstIndex + numIndexes > indexCount)
                 throw new InvalidDataException($"Surface {s} : index {firstIndex}+{numIndexes} hors du lump ({indexCount}).");
 
+            if (numVerts == 0) throw new InvalidDataException($"Surface {s} : aucun sommet.");
+            if (numIndexes == 0) throw new InvalidDataException($"Surface {s} : aucun index.");
+            if (numIndexes % 3 != 0) throw new InvalidDataException($"Surface {s} : {numIndexes} index, non multiple de 3.");
+
             var pos = new Vector3[numVerts];
             var nor = new Vector3[numVerts];
             var uv0 = new Vector2[numVerts];

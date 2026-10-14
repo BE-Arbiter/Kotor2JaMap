@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Kotor.Pipeline.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Kotor.Core\Kotor.Core.csproj" />
     <ProjectReference Include="..\Kotor.Compiler\Kotor.Compiler.csproj" />
   </ItemGroup>

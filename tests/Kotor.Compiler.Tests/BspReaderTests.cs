@@ -59,7 +59,6 @@ public sealed class BspReaderTests : IDisposable
         Assert.Contains(bsp.Surfaces, s => s.Shader == "textures/skies/test");
     }
 
-
     private static string[] VertexSet(Vector3[] p, Vector2[] uv0, Vector2[]? uv1) =>
         [.. p.Select((v, i) => $"{v}|{uv0[i]}|{(uv1 is null ? "-" : uv1[i].ToString())}").Order(StringComparer.Ordinal)];
 
@@ -70,6 +69,7 @@ public sealed class BspReaderTests : IDisposable
             r.Add(string.Join(";", new[] { p[idx[t]], p[idx[t + 1]], p[idx[t + 2]] }.Select(v => v.ToString()).Order(StringComparer.Ordinal)));
         return [.. r.Order(StringComparer.Ordinal)];
     }
+
     [Fact]
     public void BspReader_rejects_bad_header()
     {
@@ -107,6 +107,35 @@ public sealed class BspReaderTests : IDisposable
         int idxOfs = BitConverter.ToInt32(bad, 8 + BspWriter.LumpDrawIndexes * 8);
         BitConverter.GetBytes(100000).CopyTo(bad, idxOfs);
         Assert.Throws<InvalidDataException>(() => BspReader.Read(bad));
+    }
+
+    private static byte[] WithSurface0Field(byte[] data, int fieldOffset, int value)
+    {
+        byte[] bad = (byte[])data.Clone();
+        int surfOfs = BitConverter.ToInt32(bad, 8 + BspWriter.LumpSurfaces * 8);
+        BitConverter.GetBytes(value).CopyTo(bad, surfOfs + fieldOffset);
+        return bad;
+    }
+
+    [Fact]
+    public void BspReader_rejects_surface_without_indexes()
+    {
+        var ex = Assert.Throws<InvalidDataException>(() => BspReader.Read(WithSurface0Field(CompileBytes(TwoSurfaces()), 24, 0)));
+        Assert.Contains("Surface 0", ex.Message);
+    }
+
+    [Fact]
+    public void BspReader_rejects_index_count_not_multiple_of_three()
+    {
+        var ex = Assert.Throws<InvalidDataException>(() => BspReader.Read(WithSurface0Field(CompileBytes(TwoSurfaces()), 24, 4)));
+        Assert.Contains("multiple de 3", ex.Message);
+    }
+
+    [Fact]
+    public void BspReader_rejects_surface_without_vertices()
+    {
+        var ex = Assert.Throws<InvalidDataException>(() => BspReader.Read(WithSurface0Field(CompileBytes(TwoSurfaces()), 16, 0)));
+        Assert.Contains("Surface 0", ex.Message);
     }
 
     [Fact]

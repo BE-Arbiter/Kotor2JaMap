@@ -12,6 +12,9 @@ public static class SkyBox
 {
     public const float DefaultMargin = 512f;
 
+    /// <summary>Nombre d'index ajoutes par la boite de ciel : 6 faces, 2 triangles chacune.</summary>
+    public const int IndexCount = 6 * 6;
+
     /// <summary>Boîte englobant les surfaces et les brushes de l'arbre ; <c>false</c> si aucune géométrie.</summary>
     public static bool TryComputeBounds(BspTree tree, IReadOnlyList<RenderSurface> surfaces, out Vector3 min, out Vector3 max)
     {

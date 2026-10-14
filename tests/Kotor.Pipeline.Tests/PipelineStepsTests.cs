@@ -43,7 +43,7 @@ public sealed class PipelineStepsTests : IDisposable
         ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
         Assert.True(File.Exists(exp.BspPath));
         Assert.Contains("info_player_start", exp.Bsp.Entities);
-        Assert.Contains(exp.Bsp.Surfaces, s => s.Shader.EndsWith("/t", StringComparison.Ordinal) || s.Shader.Contains("kotor"));
+        Assert.Contains(exp.Bsp.Surfaces, s => s.Shader == "textures/kotor/t");
         Assert.True(File.Exists(Path.Combine(exp.StagingDir, "shaders", "kotor_demo.shader")));
         Assert.False(File.Exists(Path.Combine(opt.JaBaseDir, "kotor_demo.pk3"))); // pas encore de pk3
 
@@ -51,6 +51,54 @@ public sealed class PipelineStepsTests : IDisposable
         Assert.Equal(Path.Combine(opt.JaBaseDir, "kotor_demo.pk3"), pk3.Pk3Path);
         using var z = ZipFile.OpenRead(pk3.Pk3Path);
         Assert.Contains(z.Entries, e => e.FullName == "maps/demo.bsp");
+    }
+
+    [Fact]
+    public void ReadBack_of_real_compile_matches_plan()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        ImportStepResult imp = PipelineSteps.Import(SmallScene(), "rb", opt, log);
+        ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
+        BspFile again = PipelineSteps.ReadBack(File.ReadAllBytes(exp.BspPath), imp.Plan, log);
+        Assert.Equal(imp.Plan.Input.Surfaces.Sum(s => s.Indices.Length) + SkyBox.IndexCount, again.Surfaces.Sum(s => s.Indices.Length));
+    }
+
+    [Fact]
+    public void ReadBack_fails_when_bsp_is_empty_or_inconsistent_with_plan()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        ImportStepResult imp = PipelineSteps.Import(SmallScene(), "rb2", opt, log);
+        ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
+        byte[] good = File.ReadAllBytes(exp.BspPath);
+
+        // Lump surfaces vide : lisible par BspReader, mais incoherent avec le plan.
+        byte[] empty = (byte[])good.Clone();
+        BitConverter.GetBytes(0).CopyTo(empty, 12 + BspWriter.LumpSurfaces * 8);
+        var ex = Assert.Throws<PipelineStepException>(() => PipelineSteps.ReadBack(empty, imp.Plan, log));
+        Assert.Equal("BSP_READBACK_FAILED", ex.Code);
+
+        // Surface sans index : refusee par BspReader.
+        byte[] noIdx = (byte[])good.Clone();
+        BitConverter.GetBytes(0).CopyTo(noIdx, BitConverter.ToInt32(noIdx, 8 + BspWriter.LumpSurfaces * 8) + 24);
+        ex = Assert.Throws<PipelineStepException>(() => PipelineSteps.ReadBack(noIdx, imp.Plan, log));
+        Assert.Equal("BSP_READBACK_FAILED", ex.Code);
+
+        // Nombre total d'index different du plan.
+        ImportStepResult tooMany = imp with
+        {
+            Plan = imp.Plan with
+            {
+                Input = imp.Plan.Input with
+                {
+                    Surfaces = [.. imp.Plan.Input.Surfaces, .. imp.Plan.Input.Surfaces]
+                }
+            }
+        };
+        ex = Assert.Throws<PipelineStepException>(() => PipelineSteps.ReadBack(good, tooMany.Plan, log));
+        Assert.Equal("BSP_READBACK_FAILED", ex.Code);
+        Assert.Contains(log.Warnings, w => w.Code == "BSP_READBACK_FAILED");
     }
 
     [Fact]
