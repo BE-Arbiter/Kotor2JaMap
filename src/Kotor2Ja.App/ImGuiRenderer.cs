@@ -1,4 +1,4 @@
-// Adapte de l'exemple MonoGame du depot ImGui.NET (https://github.com/ImGuiNET/ImGui.NET,
+﻿// Adapte de l'exemple MonoGame du depot ImGui.NET (https://github.com/ImGuiNET/ImGui.NET,
 // ImGui.NET.SampleProgram.XNA/ImGuiRenderer.cs), licence MIT. Voir THIRD-PARTY-NOTICES.md.
 using System.Runtime.InteropServices;
 using ImGuiNET;
@@ -26,7 +26,7 @@ public sealed class ImGuiRenderer
     private IntPtr? _fontTextureId;
     private int _scrollWheel;
 
-    public ImGuiRenderer(Game game)
+    public unsafe ImGuiRenderer(Game game)
     {
         _game = game;
         _gd = game.GraphicsDevice;
@@ -41,7 +41,9 @@ public sealed class ImGuiRenderer
             SlopeScaleDepthBias = 0,
         };
         var io = ImGui.GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;
+        unsafe { io.NativePtr->IniFilename = null; }  // pas de imgui.ini : disposition fixe
+        // Pas de navigation clavier : aucune touche ne peut activer un bouton d'etape (Importer, Exporter, Creer PK3).
+        io.ConfigFlags &= ~(ImGuiConfigFlags.NavEnableKeyboard | ImGuiConfigFlags.NavEnableGamepad);
         game.Window.TextInput += (_, e) =>
         {
             if (e.Character != '\t') io.AddInputCharacter(e.Character);
@@ -117,8 +119,8 @@ public sealed class ImGuiRenderer
         (Keys.Tab, ImGuiKey.Tab), (Keys.Left, ImGuiKey.LeftArrow), (Keys.Right, ImGuiKey.RightArrow),
         (Keys.Up, ImGuiKey.UpArrow), (Keys.Down, ImGuiKey.DownArrow), (Keys.PageUp, ImGuiKey.PageUp),
         (Keys.PageDown, ImGuiKey.PageDown), (Keys.Home, ImGuiKey.Home), (Keys.End, ImGuiKey.End),
-        (Keys.Delete, ImGuiKey.Delete), (Keys.Back, ImGuiKey.Backspace), (Keys.Enter, ImGuiKey.Enter),
-        (Keys.Escape, ImGuiKey.Escape), (Keys.Space, ImGuiKey.Space),
+        (Keys.Delete, ImGuiKey.Delete), (Keys.Back, ImGuiKey.Backspace), 
+        (Keys.Escape, ImGuiKey.Escape),
         (Keys.A, ImGuiKey.A), (Keys.C, ImGuiKey.C), (Keys.V, ImGuiKey.V), (Keys.X, ImGuiKey.X),
         (Keys.Y, ImGuiKey.Y), (Keys.Z, ImGuiKey.Z),
     };

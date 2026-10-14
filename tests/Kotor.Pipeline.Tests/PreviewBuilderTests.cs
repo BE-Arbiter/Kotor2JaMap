@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
 using Kotor.Core.Diagnostics;
@@ -137,4 +137,36 @@ public sealed class PreviewBuilderTests : IDisposable
         Assert.Equal(new Vector2(0.5f, 0.5f), v[0].Uv0);
         Assert.Equal(Vector2.Zero, v[2].Uv0);
     }
-}
+
+    // Enroulement : le compilateur ecrit v0,v2,v1 (JA) ; la vue doit retrouver la convention KOTOR (face avant = antihoraire,
+    // normale geometrique (b-a)x(c-a) dans le sens de la normale du sommet), comme pour la vue Importer.
+    [Fact]
+    public void FromBsp_triangles_are_counter_clockwise_like_import_view()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        ImportStepResult imp = PipelineSteps.Import(Scene(), "demo", opt, log);
+        ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
+        PreviewModel bsp = PreviewBuilder.FromBsp(exp.Bsp, new Dictionary<string, PreviewTexture>());
+        PreviewModel imported = PreviewBuilder.FromImport(imp, [], 40f);
+
+        static (int agree, int total) Agreement(PreviewModel m)
+        {
+            int agree = 0, total = 0;
+            foreach (PreviewBatch b in m.Batches.Where(b => !b.IsSky))
+                for (int i = 0; i + 2 < b.Indices.Length; i += 3)
+                {
+                    PreviewVertex a = b.Vertices[b.Indices[i]], v1 = b.Vertices[b.Indices[i + 1]], c = b.Vertices[b.Indices[i + 2]];
+                    Vector3 n = Vector3.Cross(v1.Position - a.Position, c.Position - a.Position);
+                    if (n.LengthSquared() < 1e-6f) continue;
+                    total++;
+                    if (Vector3.Dot(n, a.Normal + v1.Normal + c.Normal) > 0) agree++;
+                }
+            return (agree, total);
+        }
+        (int ba, int bt) = Agreement(bsp);
+        (int ia, int it) = Agreement(imported);
+        Assert.True(bt > 0 && it > 0);
+        Assert.Equal(it, ia);   // la vue Importer est la reference
+        Assert.Equal(bt, ba);   // la vue BSP suit la meme convention
+    }}

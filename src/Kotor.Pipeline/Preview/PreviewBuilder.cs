@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Numerics;
 using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
@@ -144,8 +144,12 @@ public static class PreviewBuilder
             for (int i = 0; i < verts.Length; i++)
                 verts[i] = new PreviewVertex(s.Positions[i], i < s.Normals.Length ? s.Normals[i] : Vector3.UnitZ,
                     i < s.Uv0.Length ? s.Uv0[i] : Vector2.Zero, lm is not null && i < s.Uv1.Length ? s.Uv1[i] : Vector2.Zero);
+            // Le compilateur ecrit l'enroulement JA (v0,v2,v1) : on echange deux indices pour revenir a la convention
+            // des autres vues (KOTOR, face avant = antihoraire).
+            var idx = (int[])s.Indices.Clone();
+            for (int i = 0; i + 2 < idx.Length; i += 3) (idx[i + 1], idx[i + 2]) = (idx[i + 2], idx[i + 1]);
             batches.Add(new PreviewBatch(s.Shader, diffuse, lm, ps is null ? PreviewBlend.Opaque : BlendOf(ps.Kind),
-                ps?.DoubleSided ?? false, verts, s.Indices, isSky));
+                ps?.DoubleSided ?? false, verts, idx, isSky));
         }
 
         (Vector3? spawn, float yaw) = SpawnOf(ParseEntities(bsp.Entities));

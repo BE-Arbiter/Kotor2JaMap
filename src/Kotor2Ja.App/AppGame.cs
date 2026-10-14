@@ -1,3 +1,4 @@
+﻿using System.Text.Json;
 using ImGuiNET;
 using Kotor.Core.Export;
 using Kotor.Pipeline.Preview;
@@ -38,6 +39,8 @@ public sealed class AppGame : Game
         IsMouseVisible = true;
     }
 
+    private PreviewModel? _failedPreview;
+
     protected override void Initialize()
     {
         _imgui = new ImGuiRenderer(this);
@@ -46,9 +49,22 @@ public sealed class AppGame : Game
 
         // Meme fichier de configuration que la CLI, copie a cote de l'executable.
         string configPath = Path.Combine(AppContext.BaseDirectory, "kotor2ja.config.json");
-        ExportOptions options = ConfigLoader.Load(configPath);
+        ExportOptions options;
+        string? configWarning = null;
+        try
+        {
+            options = ConfigLoader.Load(configPath);
+            if (!File.Exists(configPath)) configWarning = $"AVERTISSEMENT : {configPath} absent, valeurs par défaut utilisées.";
+            else if (options.Validate() is { } bad) { configWarning = $"ERREUR : configuration invalide ({configPath}) : {bad}"; options = ConfigLoader.Defaults(); }
+        }
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException)
+        {
+            configWarning = $"ERREUR : configuration illisible ({configPath}) : {e.Message} Valeurs par défaut utilisées.";
+            options = ConfigLoader.Defaults();
+        }
         _workflow = new WorkflowController(new KotorWorkflowSteps(options));
         _screen = new MainScreen(_workflow, _options);
+        if (configWarning is not null) _screen.AddLog(configWarning);
         _screen.AddLog($"KOTOR : {options.KotorDir} (échelle {options.Scale:0.##})");
 
         // La liste des modules lit les noms de zone un par un : hors du fil d'interface.
@@ -78,7 +94,7 @@ public sealed class AppGame : Game
 
         // Nouvelle vue : envoi GPU dans le fil de rendu quand la reference change.
         PreviewModel? preview = _workflow.Preview;
-        if (!ReferenceEquals(preview, _renderer.Model))
+        if (!ReferenceEquals(preview, _renderer.Model) && !ReferenceEquals(preview, _failedPreview))
         {
             try
             {
@@ -88,6 +104,7 @@ public sealed class AppGame : Game
             catch (Exception e) when (e is not OutOfMemoryException)
             {
                 _renderer.Upload(null);
+                _failedPreview = preview;  // ne plus reessayer (ni journaliser) tant que la vue ne change pas
                 _screen.AddLog("ERREUR : affichage de la vue : " + e.Message);
             }
         }
@@ -95,7 +112,7 @@ public sealed class AppGame : Game
         int left = (int)MainScreen.LeftWidth;
         var center = new Point(left + (Window.ClientBounds.Width - left) / 2, Window.ClientBounds.Height / 2);
         _camera.Update((float)gameTime.ElapsedGameTime.TotalSeconds, kb, mouse, _lastWheel,
-            io.WantCaptureMouse && !_looking, io.WantCaptureKeyboard, IsActive, center, out _looking);
+            io.WantCaptureMouse && !_looking, io.WantTextInput, IsActive, center, out _looking);
         _lastWheel = mouse.ScrollWheelValue;
         IsMouseVisible = !_looking;
         base.Update(gameTime);

@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using ImGuiNET;
 using Kotor.Core.Entities;
 using Kotor.Pipeline.Preview;
@@ -113,7 +113,7 @@ public sealed class PreviewRenderer : IDisposable
             if (b.Vertices.Length == 0 || b.Indices.Length == 0) continue;
             Texture2D diffuse = _textures.TryGetValue(b.DiffuseKey, out var d) ? d : missing;
             Texture2D? lm = b.LightmapKey is not null && _textures.TryGetValue(b.LightmapKey, out var l) ? l : null;
-            bool dual = lm is not null && b.Blend != PreviewBlend.Cutout && !b.IsSky;
+            bool dual = lm is not null && !b.IsSky;
             VertexBuffer vb;
             if (dual)
             {
@@ -260,7 +260,7 @@ public sealed class PreviewRenderer : IDisposable
         bool blended = s.Blend is PreviewBlend.Additive or PreviewBlend.Alpha;
         _gd.BlendState = s.Blend switch
         {
-            PreviewBlend.Additive => BlendState.Additive,
+            PreviewBlend.Additive => AddBlend,
             PreviewBlend.Alpha => BlendState.NonPremultiplied,
             _ => BlendState.Opaque,
         };
@@ -275,6 +275,25 @@ public sealed class PreviewRenderer : IDisposable
             _flat.World = Matrix.Identity; _flat.View = _view; _flat.Projection = _proj;
             _flat.VertexColorEnabled = false; _flat.TextureEnabled = false; _flat.DiffuseColor = SkyColor.ToVector3();
             effect = _flat;
+        }
+        else if (b.Dual && s.Blend == PreviewBlend.Cutout)
+        {
+            // Cutout + lightmap, deux passes : 1) profondeur seule des texels opaques (alpha test), 2) diffuse x lightmap
+            // sur exactement ces pixels (profondeur Equal, sans ecriture).
+            _alphaTest.World = Matrix.Identity; _alphaTest.View = _view; _alphaTest.Projection = _proj;
+            _alphaTest.Texture = b.Diffuse;
+            _gd.BlendState = DepthOnly;
+            _gd.DepthStencilState = DepthStencilState.Default;
+            foreach (EffectPass pass in _alphaTest.CurrentTechnique.Passes)
+            {
+                pass.Apply();
+                _gd.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, b.Triangles);
+            }
+            _gd.BlendState = BlendState.Opaque;
+            _gd.DepthStencilState = DepthEqual;
+            _dual.World = Matrix.Identity; _dual.View = _view; _dual.Projection = _proj;
+            _dual.Texture = b.Diffuse; _dual.Texture2 = b.Lightmap;
+            effect = _dual;
         }
         else if (b.Dual)
         {
@@ -378,6 +397,17 @@ public sealed class PreviewRenderer : IDisposable
         }
     }
 
+    private static readonly BlendState AddBlend = new()
+    {
+        ColorSourceBlend = Blend.One, ColorDestinationBlend = Blend.One,
+        AlphaSourceBlend = Blend.One, AlphaDestinationBlend = Blend.One,
+    };
+    private static readonly BlendState DepthOnly = new() { ColorWriteChannels = ColorWriteChannels.None };
+    private static readonly DepthStencilState DepthEqual = new()
+    {
+        DepthBufferEnable = true, DepthBufferWriteEnable = false, DepthBufferFunction = CompareFunction.Equal,
+    };
+
     private Texture2D Fallback()
     {
         if (_fallback is null)
@@ -423,7 +453,7 @@ public sealed class PreviewRenderer : IDisposable
     {
         foreach (GpuBatch b in _batches) { b.Vb.Dispose(); b.Ib.Dispose(); }
         _batches.Clear();
-        foreach (Texture2D t in _textures.Values) t.Dispose();
+        foreach (Texture2D t in _textures.Values) if (!ReferenceEquals(t, _fallback)) t.Dispose();  // le damier partage est libere par Dispose()
         _textures.Clear();
         foreach (VertexBuffer v in _markerCubes.Values) v.Dispose();
         foreach (VertexBuffer v in _markerLines.Values) v.Dispose();
