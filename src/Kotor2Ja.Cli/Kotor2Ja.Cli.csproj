@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
     <ProjectReference Include="..\Kotor.Core\Kotor.Core.csproj" />
     <ProjectReference Include="..\Kotor.Compiler\Kotor.Compiler.csproj" />
   </ItemGroup>
