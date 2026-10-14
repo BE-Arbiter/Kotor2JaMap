@@ -53,26 +53,38 @@ public static class ModuleEntitiesReader
         if (data is null) { log.Warn("GIT_MISSING", $"{info.AreaResRef}.git introuvable : aucune entite du GIT."); return; }
         GffStruct git;
         try { git = GffReader.Read(data, out _); }
-        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException)
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException
+            or EndOfStreamException or IndexOutOfRangeException)
         {
-            log.Warn("GIT_MISSING", $"{info.AreaResRef}.git illisible ({ex.Message}) : aucune entite du GIT.");
+            // ArgumentOutOfRangeException est une ArgumentException.
+            log.Warn("GIT_UNREADABLE", $"{info.AreaResRef}.git illisible ({ex.Message}) : aucune entite du GIT.");
             return;
         }
         foreach (var spec in Specs)
         {
-            var list = git.GetList(spec.List);
+            if (!git.Fields.TryGetValue(spec.List, out var raw) || raw is not IReadOnlyList<GffStruct> list)
+            {
+                log.Warn("GIT_LIST_MISSING", git.Fields.ContainsKey(spec.List)
+                    ? $"{spec.List} presente mais n'est pas une liste : aucune entite {spec.Kind}."
+                    : $"{spec.List} absente du GIT : aucune entite {spec.Kind}.");
+                continue;
+            }
+            int noOrientation = 0;
             for (int i = 0; i < list.Count; i++)
             {
-                var e = ReadEntry(list[i], spec, out string? error);
+                var e = ReadEntry(list[i], spec, out string? error, out bool orientMissing);
                 if (e is null) log.Warn("GIT_ENTRY_INVALID", $"{spec.List}[{i}] : {error}, entree sautee.");
-                else result.Add(e);
+                else { result.Add(e); if (orientMissing) noOrientation++; }
             }
+            if (noOrientation > 0)
+                log.Warn("GIT_ORIENTATION_MISSING", $"{spec.List} : {noOrientation} entree(s) sans orientation exploitable, Yaw = 0.");
         }
     }
 
-    private static ModuleEntity? ReadEntry(GffStruct s, ListSpec spec, out string? error)
+    private static ModuleEntity? ReadEntry(GffStruct s, ListSpec spec, out string? error, out bool orientMissing)
     {
         error = null;
+        orientMissing = false;
         Vector3 pos;
         float yaw;
         if (spec.Kind == EntityKind.Camera)
@@ -88,11 +100,20 @@ public static class ModuleEntitiesReader
             string x = spec.BearingStyle ? "X" : "XPosition", y = spec.BearingStyle ? "Y" : "YPosition", z = spec.BearingStyle ? "Z" : "ZPosition";
             if (!s.Fields.ContainsKey(x) || !s.Fields.ContainsKey(y) || !s.Fields.ContainsKey(z))
             { error = $"champs {x}/{y}/{z} absents"; return null; }
-            pos = new Vector3(s.Get<float>(x), s.Get<float>(y), s.Get<float>(z));
-            if (spec.BearingStyle) yaw = Normalize(s.Get<float>("Bearing") * 180f / MathF.PI);
+            if (s.Fields[x] is not float fx || s.Fields[y] is not float fy || s.Fields[z] is not float fz)
+            { error = $"champs {x}/{y}/{z} de type inattendu (float attendu)"; return null; }
+            pos = new Vector3(fx, fy, fz);
+            if (spec.BearingStyle)
+            {
+                if (s.Fields.TryGetValue("Bearing", out var b) && b is float bf) yaw = Normalize(bf * 180f / MathF.PI);
+                else { yaw = 0f; orientMissing = true; }
+            }
             else
             {
-                float ox = s.Get<float>("XOrientation"), oy = s.Get<float>("YOrientation");
+                float ox = 0, oy = 0;
+                if (s.Fields.TryGetValue("XOrientation", out var oxv) && oxv is float oxf
+                    && s.Fields.TryGetValue("YOrientation", out var oyv) && oyv is float oyf) { ox = oxf; oy = oyf; }
+                else orientMissing = true;
                 // Vecteur d'orientation -> rotation autour de Z, meme convention que Bearing (0 = face a +Y).
                 yaw = ox == 0 && oy == 0 ? 0 : Normalize(MathF.Atan2(-ox, oy) * 180f / MathF.PI);
             }
@@ -137,7 +158,8 @@ public static class ModuleEntitiesReader
             }
             KotorModel model;
             try { model = MdlReader.Read(mdl, mdx); }
-            catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
+            catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or ArgumentException
+                or OverflowException or EndOfStreamException or IndexOutOfRangeException)
             {
                 log.Warn("ROOM_MODEL_UNREADABLE", $"{room.Model} : {ex.Message}");
                 continue;

@@ -111,6 +111,76 @@ public class ModuleEntitiesReaderTests
     }
 
     [Fact]
+    public void Git_without_lists_logs_one_entry_per_list()
+    {
+        var g = new GffBuilder();
+        g.Add(g.Root, "Tag", 10, "x");
+        using var k = new FakeKotor(g.Build("GIT "));
+        var log = new ImportLog();
+        var ents = ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
+        Assert.Empty(ents);
+        Assert.Equal(9, log.Warnings.Count(w => w.Code == "GIT_LIST_MISSING"));
+        Assert.Contains(log.Warnings, w => w.Code == "GIT_LIST_MISSING" && w.Message.Contains("Placeable List"));
+    }
+
+    [Fact]
+    public void Non_list_field_logs_list_missing()
+    {
+        var g = new GffBuilder();
+        g.Add(g.Root, "Placeable List", 10, "pas une liste");
+        using var k = new FakeKotor(g.Build("GIT "));
+        var log = new ImportLog();
+        ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
+        Assert.Contains(log.Warnings, w => w.Code == "GIT_LIST_MISSING" && w.Message.Contains("n'est pas une liste"));
+    }
+
+    [Fact]
+    public void Position_of_wrong_type_is_invalid_not_zero()
+    {
+        var g = new GffBuilder();
+        int plc = g.AddStruct(9);
+        g.Add(plc, "X", 5, 1).Add(plc, "Y", 8, 2f).Add(plc, "Z", 8, 3f).Add(plc, "Bearing", 8, 0f);
+        g.Add(g.Root, "Placeable List", 15, new[] { plc });
+        using var k = new FakeKotor(g.Build("GIT "));
+        var log = new ImportLog();
+        var ents = ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
+        Assert.Empty(ents);
+        Assert.Contains(log.Warnings, w => w.Code == "GIT_ENTRY_INVALID" && w.Message.Contains("type inattendu"));
+    }
+
+    [Fact]
+    public void Missing_orientation_is_logged_and_yaw_zero()
+    {
+        var g = new GffBuilder();
+        int plc = g.AddStruct(9);
+        g.Add(plc, "X", 8, 1f).Add(plc, "Y", 8, 2f).Add(plc, "Z", 8, 3f);
+        int wp = g.AddStruct(5);
+        g.Add(wp, "XPosition", 8, 1f).Add(wp, "YPosition", 8, 2f).Add(wp, "ZPosition", 8, 3f);
+        g.Add(g.Root, "Placeable List", 15, new[] { plc });
+        g.Add(g.Root, "WaypointList", 15, new[] { wp });
+        using var k = new FakeKotor(g.Build("GIT "));
+        var log = new ImportLog();
+        var ents = ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
+        Assert.Equal(2, ents.Count);
+        Assert.All(ents, e => Assert.Equal(0f, e.Yaw));
+        Assert.Equal(2, log.Warnings.Count(w => w.Code == "GIT_ORIENTATION_MISSING"));
+    }
+
+    [Fact]
+    public void Truncated_git_is_logged_not_thrown()
+    {
+        var full = SyntheticGit();
+        foreach (int len in new[] { 8, 20, 56, full.Length / 2, full.Length - 5 })
+        {
+            using var k = new FakeKotor(full.AsSpan(0, len).ToArray());
+            var log = new ImportLog();
+            var ents = ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
+            Assert.Empty(ents);
+            Assert.Contains(log.Warnings, w => w.Code == "GIT_UNREADABLE");
+        }
+    }
+
+    [Fact]
     public void Missing_git_is_logged()
     {
         using var k = new FakeKotor(null);
