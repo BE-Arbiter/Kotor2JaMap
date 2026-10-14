@@ -14,6 +14,7 @@ public static class Program
         };
         var root = new RootCommand("Convertit des modules KOTOR vers Jedi Academy.");
         root.Subcommands.Add(ListModulesCommand.Create(kotorOption));
+        root.Subcommands.Add(ExportObjCommand.Create(kotorOption));
         return root.Parse(args).Invoke();
     }
 }
