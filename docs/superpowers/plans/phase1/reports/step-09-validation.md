@@ -16,3 +16,13 @@ Retour de l'utilisateur (variantes tar_m02aa_s32/s36/s40, SWGL SP, Vulkan) :
 
 ## Décision
 - Échelle par défaut : 40.
+
+## Deuxième passage (après la correction 1)
+- Textures : OK.
+- FPS : toujours environ 5. `com_speeds 1` donne `all` ≈ 195 ms, et presque tout tombe dans `cl` (≈ 195 ms). Les autres compteurs sont presque nuls : `sv` 0, `gm` 0-1, `tr` 0, `rf` 0-2, `bk` 0.
+  - Les traces de collision ne sont pas en cause (`tr` = 0).
+  - `cl` = temps client hors rendu mesuré (`code/qcommon/common.cpp:1550-1552`). Le rendu Vulkan ne remplit peut-être pas `rf`/`bk`.
+- Avec `r_drawworld 0`, `cg_shadows 0` et `cg_thirdPerson 0` tous désactivés : environ 20 FPS, toujours mauvais. Les essais n'ont pas été faits un par un.
+
+## Statut
+L'optimisation est mise de côté à la demande de l'utilisateur (2026-10-14). Il veut d'abord l'interface graphique. La cause racine n'est pas trouvée. Pistes restantes : un coût côté client indépendant de la carte (comparer avec une carte SWGL standard), les sons et ambiances, les entités, l'absence de grille de lumière (lightgrid) ou de clusters de visibilité, et un mesure du rendu Vulkan.
