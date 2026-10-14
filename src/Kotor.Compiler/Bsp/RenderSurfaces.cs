@@ -1,6 +1,7 @@
 // Inspiré de la démarche de q3map2 / NetRadiant-custom (surfaces triangle soup rattachées aux feuilles, GPL-2.0) : aucun code copié.
 // Licence : GPL-2.0, voir THIRD-PARTY-NOTICES.md.
 using System.Numerics;
+using Kotor.Core.Diagnostics;
 
 namespace Kotor.Compiler.Bsp;
 
@@ -38,7 +39,7 @@ public static class RenderSurfaces
     /// de son centroïde), chacune sous les limites du moteur. Les UV de lightmap suivent les sommets.
     /// Les UV0 sont recopiés tels quels (convention Quake : t = 0 en haut, à la charge de l'appelant).
     /// </summary>
-    public static IReadOnlyList<RenderSurface> FromInput(SurfaceInput s, BspTree tree)
+    public static IReadOnlyList<RenderSurface> FromInput(SurfaceInput s, BspTree tree, ImportLog? log = null)
     {
         ArgumentNullException.ThrowIfNull(s);
         ArgumentNullException.ThrowIfNull(tree);
@@ -46,6 +47,12 @@ public static class RenderSurfaces
         bool hasN = s.Normals.Length == nv;
         bool hasUv0 = s.Uv0.Length == nv;
         bool hasUv1 = s.Uv1 is not null && s.Uv1.Length == nv;
+        if (log is not null)
+        {
+            if (!hasN) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}' : {s.Normals.Length} normale(s) pour {nv} sommet(s), normales de face utilisees.");
+            if (!hasUv0) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}' : {s.Uv0.Length} UV0 pour {nv} sommet(s), UV a zero utilisees.");
+            if (s.Uv1 is not null && !hasUv1) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}' : {s.Uv1.Length} UV1 pour {nv} sommet(s), pas de lightmap (eclairage par sommet).");
+        }
 
         var byLeaf = new SortedDictionary<int, List<Builder>>();
         for (int t = 0; t + 2 < s.Indices.Length; t += 3)

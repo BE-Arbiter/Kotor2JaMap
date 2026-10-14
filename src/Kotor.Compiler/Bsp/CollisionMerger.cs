@@ -1,5 +1,6 @@
 // Licence : GPL-2.0, voir THIRD-PARTY-NOTICES.md. Fusion maison de triangles coplanaires (aucun code de q3map2).
 using System.Numerics;
+using Kotor.Core.Diagnostics;
 using Kotor.Core.Geometry;
 
 namespace Kotor.Compiler.Bsp;
@@ -27,7 +28,8 @@ public static class CollisionMerger
         public float Dist;
     }
 
-    public static IReadOnlyList<Vector3[]> MergeCoplanar(ModelMesh mesh, float normalEpsilonDeg = 0.5f, float planeEpsilon = 0.05f)
+    public static IReadOnlyList<Vector3[]> MergeCoplanar(ModelMesh mesh, float normalEpsilonDeg = 0.5f, float planeEpsilon = 0.05f,
+        ImportLog? log = null)
     {
         ArgumentNullException.ThrowIfNull(mesh);
         float cosEps = MathF.Cos(normalEpsilonDeg * MathF.PI / 180f);
@@ -35,6 +37,7 @@ public static class CollisionMerger
         var polys = new Dictionary<int, Poly>();
         var edges = new Dictionary<((long, long, long), (long, long, long)), int>();
         int next = 0;
+        int degenerate = 0;
 
         void Register(int id, Poly p)
         {
@@ -56,11 +59,14 @@ public static class CollisionMerger
             for (int t = 0; t + 2 < sm.Triangles.Length; t += 3)
             {
                 Vector3 a = sm.Positions[sm.Triangles[t]], b = sm.Positions[sm.Triangles[t + 1]], c = sm.Positions[sm.Triangles[t + 2]];
-                if (Vector3.Cross(b - a, c - a).Length() * 0.5f < DegenerateArea) continue;
+                if (Vector3.Cross(b - a, c - a).Length() * 0.5f < DegenerateArea) { degenerate++; continue; }
                 Poly? p = Make([a, b, c]);
-                if (p is null || HasDuplicateKey(p)) continue;
+                if (p is null || HasDuplicateKey(p)) { degenerate++; continue; }
                 Register(next++, p);
             }
+
+        if (degenerate > 0)
+            log?.Warn("COLLISION_DEGENERATE", $"Collision : {degenerate} triangle(s) degenere(s) ou a sommets soudes ignore(s) (aire < {DegenerateArea}).");
 
         // Fusion gloutonne jusqu'à stabilité.
         bool changed = true;

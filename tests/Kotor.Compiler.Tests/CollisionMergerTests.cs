@@ -58,4 +58,18 @@ public class CollisionMergerTests
         }
         return true;
     }
+
+    [Fact]
+    public void Degenerate_triangles_are_counted_in_one_journal_entry()
+    {
+        var mesh = TestScenes.Mesh([new(0, 0, 0), new(10, 0, 0), new(20, 0, 0), new(0, 0, 0), new(100, 0, 0), new(100, 100, 0)],
+            [0, 1, 2, 0, 1, 2, 3, 4, 5]);
+        var log = new Kotor.Core.Diagnostics.ImportLog();
+
+        var polys = CollisionMerger.MergeCoplanar(mesh, log: log);
+
+        Assert.Single(polys);
+        var w = Assert.Single(log.Warnings, x => x.Code == "COLLISION_DEGENERATE");
+        Assert.Contains("2 triangle", w.Message);
+    }
 }

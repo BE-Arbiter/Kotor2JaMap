@@ -33,24 +33,39 @@ public static class Compiler
         {
             var world = input.Entities.Count > 0 ? input.Entities[0] : null;
 
-            // Collision solide : triangles fusionnes en polygones convexes -> brushes.
-            var polygons = CollisionMerger.MergeCoplanar(input.Solid);
-            if (polygons.Count == 0) Warn("Avertissement : pas de maillage de collision, aucun brush genere.");
-            polygons = CapPolygons(polygons, limits, log, warnings, out int sidesUsed);
-            IReadOnlyList<Brush> brushes = BrushBuilder.FromPolygons(polygons, log: polygons.Count == 0 ? null : Warn);
+            // Budget de collision : brushes, plans et cotes de brush (BspWriter ecrit 6 plans axiaux + les plans du brush).
+            // Le sol marchable est prioritaire : son budget est reserve en premier, le solide recoit le reste.
+            int brushMargin = Math.Min(50, limits.MaxBrushes / 10);
+            int planeMargin = Math.Min(50 * 11, limits.MaxPlanes / 10);
+            int budgetBrushes = Math.Max(0, limits.MaxBrushes - brushMargin);
+            int budgetSides = Math.Max(0, Limits.MaxBrushSides - 50 * 11);
+            int budgetPlanes = Math.Max(0, limits.MaxPlanes - planeMargin);
 
-            // Collision du terrain : triangles marchables du maillage visible. Les brushes solides sont comptes comme
-            // des brushes de 11 cotes (hypothese de MaxBrushesFor), le plafond de cotes de brush reste ainsi respecte.
-            int equivalent = (sidesUsed + 10) / 11;
-            int cap = WalkableCollision.MaxBrushesFor(limits, Math.Max(equivalent, brushes.Count), margin: 0);
-            var wr = WalkableCollision.Build(input.Walkable, cap, log: Warn);
-            if (wr.LimitReached) Warn($"Avertissement : limite de brushes atteinte pour le terrain ({cap}).");
+            // Collision du terrain : triangles marchables du maillage visible (brush prismatique : au plus 11 cotes et 11 plans).
+            int walkCap = Math.Min(budgetBrushes, Math.Min(budgetSides / 11, budgetPlanes / 11));
+            var wr = WalkableCollision.Build(input.Walkable, walkCap, log: Warn);
+            if (wr.LimitReached)
+            {
+                string wmsg = $"Collision du terrain plafonnee : brushes marchables tronques a {walkCap} (limites brushes/plans/cotes).";
+                warnings.Add(wmsg);
+                log.Warn("WALKABLE_CAPPED", wmsg);
+            }
+            int usedBrushes = wr.Brushes.Count;
+            int usedSides = wr.Brushes.Sum(b => 6 + b.Planes.Count);
+            int usedPlanes = usedSides;
+
+            // Collision solide : triangles fusionnes en polygones convexes -> brushes, avec ce qui reste du budget.
+            var polygons = CollisionMerger.MergeCoplanar(input.Solid, log: log);
+            if (polygons.Count == 0) Warn("Avertissement : pas de maillage de collision, aucun brush genere.");
+            polygons = CapPolygons(polygons, Math.Max(0, budgetBrushes - usedBrushes), Math.Max(0, budgetSides - usedSides),
+                Math.Max(0, budgetPlanes - usedPlanes), log, warnings);
+            IReadOnlyList<Brush> brushes = BrushBuilder.FromPolygons(polygons, log: polygons.Count == 0 ? null : Warn);
             brushes = brushes.Concat(wr.Brushes).ToList();
             BspTree tree = BspTree.Build(brushes, limits);
 
             // Surfaces de rendu.
             var surfaces = new List<RenderSurface>();
-            foreach (SurfaceInput s in input.Surfaces) surfaces.AddRange(RenderSurfaces.FromInput(s, tree));
+            foreach (SurfaceInput s in input.Surfaces) surfaces.AddRange(RenderSurfaces.FromInput(s, tree, log));
 
             // Boite de ciel : 6 faces autour de toute la geometrie.
             string sky = input.SkyShader;
@@ -78,30 +93,29 @@ public static class Compiler
     }
 
     /// <summary>
-    /// Plafonne la collision solide : au-delà de <c>MaxBrushes - 50</c> brushes (ou du budget de côtés), les polygones de plus
-    /// petite aire sont retirés d'abord. Journalise <c>COLLISION_CAPPED</c> ; ne lève jamais.
+    /// Plafonne la collision solide selon le budget restant (brushes, cotes de brush, plans) : les polygones de plus petite
+    /// aire sont retires d'abord. Chaque polygone coute 1 brush, <c>8 + n</c> cotes et au pire <c>8 + n</c> plans (6 plans axiaux
+    /// ecrits par BspWriter + 2 faces + 1 par arete). Journalise <c>COLLISION_CAPPED</c> ; ne leve jamais.
     /// </summary>
-    private static IReadOnlyList<Vector3[]> CapPolygons(IReadOnlyList<Vector3[]> polygons, Limits limits, ImportLog log,
-        List<string> warnings, out int sidesUsed)
+    private static IReadOnlyList<Vector3[]> CapPolygons(IReadOnlyList<Vector3[]> polygons, int maxCount, int maxSides, int maxPlanes,
+        ImportLog log, List<string> warnings)
     {
-        int maxCount = WalkableCollision.MaxBrushesFor(limits, 0);
-        int maxSides = Limits.MaxBrushSides - 50 * 11;
-        int Sides(Vector3[] p) => 6 + 2 + p.Length; // 6 plans axiaux ecrits par BspWriter + 2 faces + 1 par arete
+        int Cost(Vector3[] p) => 6 + 2 + p.Length;
 
         var keep = new HashSet<int>();
-        int sides = 0;
+        int sides = 0, planes = 0;
         foreach (int i in Enumerable.Range(0, polygons.Count).OrderByDescending(i => Area(polygons[i])).ThenBy(i => i))
         {
-            int s = Sides(polygons[i]);
-            if (keep.Count >= maxCount || sides + s > maxSides) continue;
+            int c = Cost(polygons[i]);
+            if (keep.Count >= maxCount || sides + c > maxSides || planes + c > maxPlanes) continue;
             keep.Add(i);
-            sides += s;
+            sides += c;
+            planes += c;
         }
-        sidesUsed = sides;
         int removed = polygons.Count - keep.Count;
         if (removed == 0) return polygons;
 
-        string msg = $"Collision plafonnee : {removed} polygone(s) de plus petite aire retire(s) sur {polygons.Count} (limite {maxCount} brushes).";
+        string msg = $"Collision plafonnee : {removed} polygone(s) de plus petite aire retire(s) sur {polygons.Count} (budget restant : {maxCount} brushes, {maxSides} cotes, {maxPlanes} plans).";
         warnings.Add(msg);
         log.Warn("COLLISION_CAPPED", msg);
         return polygons.Where((_, i) => keep.Contains(i)).ToList();

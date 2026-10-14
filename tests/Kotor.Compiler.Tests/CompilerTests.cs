@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text;
 using Kotor.Compiler.Bsp;
 using Kotor.Core.Diagnostics;
+using Kotor.Core.Geometry;
 using BspCompiler = Kotor.Compiler.Compiler;
 
 namespace Kotor.Compiler.Tests;
@@ -24,11 +25,11 @@ public sealed class CompilerTests : IDisposable
     public void Limit_exceeded_writes_no_bsp()
     {
         var log = new ImportLog();
-        // Le depassement de brushes est desormais plafonne (COLLISION_CAPPED) : on force une vraie limite dure, les plans.
-        var r = BspCompiler.Compile(TestScenes.Input(), BspPath, new Limits(0x8000, 1, 0x20000, 0x20000), log);
+        // Brushes et plans sont desormais plafonnes (COLLISION_CAPPED) : on force une vraie limite dure, les feuilles.
+        var r = BspCompiler.Compile(TestScenes.Input(), BspPath, new Limits(0x8000, 0x20000, 0x20000, 0), log);
 
         Assert.False(r.Ok);
-        Assert.Contains("MAX_MAP_PLANES", r.Error);
+        Assert.Contains("MAX_MAP_LEAFS", r.Error);
         Assert.False(File.Exists(BspPath));
     }
 
@@ -82,6 +83,67 @@ public sealed class CompilerTests : IDisposable
         Assert.Contains(log.Warnings, w => w.Code == "COLLISION_CAPPED");
     }
 
+
+    private static ModelMesh Triangles(int count)
+    {
+        var pos = new List<Vector3>();
+        var tri = new List<int>();
+        for (int i = 0; i < count; i++)
+        {
+            int b = pos.Count;
+            float x = i * 50f;
+            pos.AddRange([new(x, 0, 0), new(x + 10, 0, 0), new(x, 10, 0)]);
+            tri.AddRange([b, b + 1, b + 2]);
+        }
+        return TestScenes.Mesh(pos.ToArray(), tri.ToArray());
+    }
+
+    [Fact]
+    public void Plane_budget_caps_solid_collision_and_compilation_succeeds()
+    {
+        var log = new ImportLog();
+        var input = TestScenes.Input(solid: Triangles(100));
+
+        // Brushes largement suffisants : seul le budget de plans (400, marge 40) force le plafond.
+        var r = BspCompiler.Compile(input, BspPath, new Limits(0x8000, 400, 0x20000, 0x20000), log);
+
+        Assert.True(r.Ok, r.Error);
+        byte[] b = File.ReadAllBytes(BspPath);
+        Assert.True(LumpLen(b, BspWriter.LumpPlanes) / 16 <= 400);
+        Assert.True(LumpLen(b, BspWriter.LumpBrushes) / 12 > 0);
+        Assert.Contains(log.Warnings, w => w.Code == "COLLISION_CAPPED");
+    }
+
+    [Fact]
+    public void Walkable_terrain_has_priority_over_saturated_solid()
+    {
+        var log = new ImportLog();
+        var input = TestScenes.Input(solid: Triangles(100), walkable: Triangles(30));
+
+        var r = BspCompiler.Compile(input, BspPath, new Limits(60, 0x20000, 0x20000, 0x20000), log);
+
+        Assert.True(r.Ok, r.Error);
+        byte[] b = File.ReadAllBytes(BspPath);
+        // Budget 54 : les 30 brushes marchables sont conserves en entier, le solide recoit les 24 restants.
+        Assert.Equal(54, LumpLen(b, BspWriter.LumpBrushes) / 12);
+        Assert.Contains(log.Warnings, w => w.Code == "COLLISION_CAPPED");
+        Assert.DoesNotContain(log.Warnings, w => w.Code == "WALKABLE_CAPPED");
+    }
+
+    [Fact]
+    public void Walkable_truncation_logs_walkable_capped()
+    {
+        var log = new ImportLog();
+        var input = TestScenes.Input(solid: Triangles(10), walkable: Triangles(100));
+        // MaxPlanes = 10 : le budget de plans ne laisse aucun brush marchable, la troncature est inevitable.
+
+        var r = BspCompiler.Compile(input, BspPath, new Limits(0x8000, 10, 0x20000, 0x20000), log);
+
+        Assert.True(r.Ok, r.Error);
+        byte[] b = File.ReadAllBytes(BspPath);
+        Assert.True(LumpLen(b, BspWriter.LumpPlanes) / 16 <= 10);
+        Assert.Contains(log.Warnings, w => w.Code == "WALKABLE_CAPPED");
+    }
     [Fact]
     public void Double_sided_comes_from_surface_input()
     {

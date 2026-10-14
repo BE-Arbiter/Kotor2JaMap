@@ -91,4 +91,22 @@ public sealed class RenderSurfacesTests
     }
 
     private static string Key((Vector3, Vector3, Vector3) t) => t.ToString();
+
+    [Fact]
+    public void Mismatched_attribute_lengths_are_logged_with_shader_name()
+    {
+        var log = new Kotor.Core.Diagnostics.ImportLog();
+        var s = TestScenes.FloorSurface("textures/kotor/bad") with
+        {
+            Normals = [Vector3.UnitZ], Uv0 = [new Vector2(0, 0)], Uv1 = [new Vector2(0, 0)],
+        };
+
+        var surfaces = RenderSurfaces.FromInput(s, BspTree.Build([]), log);
+
+        Assert.NotEmpty(surfaces);
+        Assert.Null(surfaces[0].LightmapUvs);
+        var w = log.Warnings.Where(x => x.Code == "SURFACE_ATTRIBUTE_MISMATCH").ToList();
+        Assert.Equal(3, w.Count);
+        Assert.All(w, x => Assert.Contains("textures/kotor/bad", x.Message));
+    }
 }
