@@ -3,15 +3,13 @@ using System.Numerics;
 using System.Text;
 using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
-using Kotor.Core.Archives;
 using Kotor.Core.Diagnostics;
 using Kotor.Core.Export;
 using Kotor.Core.Geometry;
 using Kotor.Core.Scene;
 using Kotor.Core.Textures;
-using Kotor.Core.Tlk;
 
-namespace Kotor.Compiler.Export;
+namespace Kotor.Pipeline;
 
 /// <param name="JournalError">Message si le journal .journal.txt n a pas pu etre ecrit (n echoue pas l export), sinon null.</param>
 public sealed record ExportResult(bool Ok, string? Pk3Path, string? Error, int Meshes, int Triangles, int MissingTextures,
@@ -24,10 +22,7 @@ public sealed record ExportTexture(string RelPath, KotorTexture? Texture, bool L
 public sealed record ExportPlan(CompileInput Input, IReadOnlyList<PlannedShader> Shaders, IReadOnlyList<ExportTexture> Textures,
     int Meshes, int Triangles, int MissingTextures);
 
-/// <remarks>
-/// Vit dans Kotor.Compiler (et non Kotor.Core, comme le disait l'etape) : il consomme <see cref="CompileInput"/>, et Kotor.Compiler
-/// reference deja Kotor.Core. Namespace <c>Kotor.Compiler.Export</c>.
-/// </remarks>
+/// <remarks>Vit dans Kotor.Pipeline : <c>Export</c> enchaine les etapes de <see cref="PipelineSteps"/> (Previsualiser, Importer, Exporter, Creer PK3).</remarks>
 public static class ModuleExporter
 {
     public const int MaxShaders = 1024; // MAX_MAP_SHADERS
@@ -43,24 +38,12 @@ public static class ModuleExporter
         ModuleScene scene;
         try
         {
-            TlkFile? tlk = null;
-            string tlkPath = Path.Combine(opt.KotorDir, "dialog.tlk");
-            if (File.Exists(tlkPath))
-            {
-                try { tlk = TlkFile.Open(tlkPath); }
-                catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
-                {
-                    log.Warn("TLK_UNREADABLE", $"dialog.tlk illisible ({ex.Message}), noms de module non traduits.");
-                }
-            }
-            using var res = ResourceResolver.ForModule(opt.KotorDir, module);
-            scene = ModuleSceneBuilder.Build(res, module, tlk, log);
+            scene = PipelineSteps.Preview(module, opt, log);
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        catch (PipelineStepException ex)
         {
-            log.Warn("MODULE_UNREADABLE", ex.Message);
             string? je = WriteJournal(opt, name, log);
-            return new ExportResult(false, null, $"Module illisible : {ex.Message}", 0, 0, 0, je);
+            return new ExportResult(false, null, ex.Message, 0, 0, 0, je);
         }
         return Export(scene, mapName, opt, log);
     }
@@ -70,57 +53,21 @@ public static class ModuleExporter
     {
         string name = (mapName ?? scene.Info.Module).ToLowerInvariant();
         if (opt.Validate() is { } invalid) return new ExportResult(false, null, invalid, 0, 0, 0);
-        ExportPlan plan = BuildPlan(scene, mapName, opt, log);
+        ImportStepResult imported = PipelineSteps.Import(scene, mapName, opt, log);
+        ExportPlan plan = imported.Plan;
         ExportResult result;
         try
         {
-            result = Run(plan, name, opt, log);
+            ExportStepResult exported = PipelineSteps.Export(imported, opt, log);
+            Pk3StepResult pk3 = PipelineSteps.CreatePk3(exported, imported, opt, log);
+            result = new ExportResult(true, pk3.Pk3Path, null, plan.Meshes, plan.Triangles, plan.MissingTextures);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (PipelineStepException ex)
         {
-            log.Warn("EXPORT_IO_ERROR", ex.Message);
             result = new ExportResult(false, null, ex.Message, plan.Meshes, plan.Triangles, plan.MissingTextures);
         }
         string? journalError = WriteJournal(opt, name, log);
         return journalError is null ? result : result with { JournalError = journalError };
-    }
-
-    private static ExportResult Run(ExportPlan plan, string name, ExportOptions opt, ImportLog log)
-    {
-        ExportResult Fail(string code, string error)
-        {
-            log.Warn(code, error);
-            return new ExportResult(false, null, error, plan.Meshes, plan.Triangles, plan.MissingTextures);
-        }
-
-        if (plan.Shaders.Count > MaxShaders)
-            return Fail("SHADER_LIMIT", $"{plan.Shaders.Count} shaders distincts : depasse MAX_MAP_SHADERS ({MaxShaders}).");
-
-        string stage = Path.Combine(opt.WorkDir, name, "pk3");
-        if (Directory.Exists(stage)) Directory.Delete(stage, true);
-        Directory.CreateDirectory(stage);
-
-        string bsp = Path.Combine(stage, "maps", name + ".bsp");
-        var cr = global::Kotor.Compiler.Compiler.Compile(plan.Input, bsp, Limits.FromName(opt.BspLimits), log);
-        if (!cr.Ok) return new ExportResult(false, null, cr.Error ?? "Echec de compilation.", plan.Meshes, plan.Triangles, plan.MissingTextures);
-
-        Directory.CreateDirectory(Path.Combine(stage, "shaders")); // le moteur SWGL ne liste que shaders/*.shader (tr_shader.cpp)
-        File.WriteAllText(Path.Combine(stage, "shaders", "kotor_" + name + ".shader"),
-            string.Join("\n", plan.Shaders.Select(ShaderPlanner.Write)));
-
-        foreach (ExportTexture t in plan.Textures)
-        {
-            string path = Path.Combine(stage, t.RelPath.Replace('/', Path.DirectorySeparatorChar));
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            using var fs = File.Create(path);
-            if (t.Texture is null) TgaWriter.Write(fs, 8, 8, Checker());
-            else TgaWriter.Write(fs, t.Texture.Width, t.Texture.Height, t.Lightmap ? Brighten(t.Texture.Rgba, opt.LightmapBrightness) : t.Texture.Rgba);
-        }
-
-        Directory.CreateDirectory(opt.JaBaseDir);
-        string pk3 = Path.Combine(opt.JaBaseDir, "kotor_" + name + ".pk3");
-        Pk3Builder.Build(stage, pk3);
-        return new ExportResult(true, pk3, null, plan.Meshes, plan.Triangles, plan.MissingTextures);
     }
 
     /// <summary>Convertit la scene KOTOR (metres) en entree du compilateur (unites JA) et prepare shaders et textures.</summary>
@@ -279,7 +226,7 @@ public static class ModuleExporter
         return r;
     }
 
-    private static byte[] Brighten(byte[] rgba, float k)
+    internal static byte[] Brighten(byte[] rgba, float k)
     {
         if (k == 1f) return rgba;
         var r = (byte[])rgba.Clone();
@@ -288,7 +235,7 @@ public static class ModuleExporter
         return r;
     }
 
-    private static byte[] Checker()
+    internal static byte[] Checker()
     {
         var b = new byte[8 * 8 * 4];
         for (int y = 0; y < 8; y++)
