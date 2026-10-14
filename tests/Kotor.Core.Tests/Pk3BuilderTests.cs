@@ -18,10 +18,10 @@ public sealed class Pk3BuilderTests : IDisposable
     private void Seed(bool bsp = true)
     {
         Directory.CreateDirectory(Path.Combine(_stage, "maps"));
-        Directory.CreateDirectory(Path.Combine(_stage, "scripts"));
+        Directory.CreateDirectory(Path.Combine(_stage, "shaders"));
         Directory.CreateDirectory(Path.Combine(_stage, "textures", "kotor"));
         if (bsp) File.WriteAllBytes(Path.Combine(_stage, "maps", "x.bsp"), [1, 2, 3]);
-        File.WriteAllText(Path.Combine(_stage, "scripts", "kotor_x.shader"), "textures/kotor/t\n{\n}\n");
+        File.WriteAllText(Path.Combine(_stage, "shaders", "kotor_x.shader"), "textures/kotor/t\n{\n}\n");
         File.WriteAllBytes(Path.Combine(_stage, "textures", "kotor", "t.tga"), [4, 5]);
     }
 
@@ -39,7 +39,7 @@ public sealed class Pk3BuilderTests : IDisposable
         string pk3 = Path.Combine(_base, "out.pk3");
         Pk3Builder.Build(_stage, pk3);
 
-        Assert.Equal(["maps/x.bsp", "scripts/kotor_x.shader", "textures/kotor/t.tga"], Names(pk3));
+        Assert.Equal(["maps/x.bsp", "shaders/kotor_x.shader", "textures/kotor/t.tga"], Names(pk3));
     }
 
     [Fact]

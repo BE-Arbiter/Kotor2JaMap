@@ -14,7 +14,7 @@ public static class ExportJaCommand
         var cmd = new Command("export-ja", "Exporte un module KOTOR en pk3 pour Jedi Academy (BSP, shaders, textures).");
         var module = new Argument<string>("module") { Description = "Nom du module (ex. tar_m02aa)." };
         var nameOpt = new Option<string?>("--name") { Description = "Nom de la carte (defaut : le module)." };
-        var scaleOpt = new Option<float?>("--scale") { Description = "Echelle metres KOTOR vers unites JA (defaut : config, 36)." };
+        var scaleOpt = new Option<float?>("--scale") { Description = "Echelle metres KOTOR vers unites JA (defaut : config, 40)." };
         var lmOpt = new Option<float?>("--lightmap-brightness") { Description = "Multiplicateur de luminosite des lightmaps." };
         var limOpt = new Option<string?>("--bsp-limits") { Description = "Profil de limites BSP : swgl (defaut) ou vanilla." };
         var cfgOpt = new Option<string?>("--config") { Description = "Fichier de configuration JSON (defaut : kotor2ja.config.json a cote de l'exe)." };

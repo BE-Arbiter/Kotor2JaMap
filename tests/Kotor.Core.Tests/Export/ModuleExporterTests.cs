@@ -45,7 +45,7 @@ public sealed class ModuleExporterTests : IDisposable
     public void Scale_is_applied_to_positions_not_normals()
     {
         var scene = Scene([Quad("t", null)], ["t"]);
-        var plan = ModuleExporter.BuildPlan(scene, null, Opt(), new ImportLog());
+        var plan = ModuleExporter.BuildPlan(scene, null, Opt() with { Scale = 36f }, new ImportLog());
         var s = Assert.Single(plan.Input.Surfaces);
         Assert.Equal(new Vector3(36, 72, 108), s.Positions[0]);
         Assert.Equal(Vector3.UnitZ, s.Normals[0]);
@@ -76,7 +76,7 @@ public sealed class ModuleExporterTests : IDisposable
     {
         var scene = Scene([Quad("t", null)], ["t"], entry: new Vector3(1, 0, 0), dir: new Vector2(0, 1));
         var log = new ImportLog();
-        var plan = ModuleExporter.BuildPlan(scene, null, Opt(), log);
+        var plan = ModuleExporter.BuildPlan(scene, null, Opt() with { Scale = 36f }, log);
         var spawn = plan.Input.Entities.Single(e => e["classname"] == "info_player_start");
         Assert.Equal("36 0 25", spawn["origin"]);
         Assert.Equal("90", spawn["angle"]);
@@ -134,7 +134,7 @@ public sealed class ModuleExporterTests : IDisposable
         {
             var names = z.Entries.Select(e => e.FullName).ToList();
             Assert.Contains("maps/mymap.bsp", names);
-            Assert.Contains("scripts/kotor_mymap.shader", names);
+            Assert.Contains("shaders/kotor_mymap.shader", names);
             Assert.Contains("textures/kotor/t.tga", names);
             Assert.Contains("textures/kotor/lm/l.tga", names);
         }

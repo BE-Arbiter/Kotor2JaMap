@@ -72,7 +72,7 @@ public class VertexLightingTests
     {
         var tree = BspTree.Build([]);
         var up = new RenderSurface("a", [Vector3.Zero, Vector3.UnitX, Vector3.UnitY], [default, default, default],
-            [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ], [0, 1, 2], 0);
+            [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ], [0, 1, 2], [0]);
         var sky = up with { Shader = "sky", Sky = true };
         var ms = new MemoryStream();
         BspWriter.Write(tree, ms, null, null, [up, sky], L);

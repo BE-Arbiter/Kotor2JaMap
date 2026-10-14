@@ -8,9 +8,9 @@ public class ConfigLoaderTests
     public void Config_defaults_when_missing()
     {
         var o = ConfigLoader.Load(Path.Combine(Path.GetTempPath(), "nope_" + Guid.NewGuid().ToString("N") + ".json"));
-        Assert.Equal(36f, o.Scale);
+        Assert.Equal(40f, o.Scale);
         Assert.Equal(1.0f, o.LightmapBrightness);
-        Assert.Equal(36f, ConfigLoader.Load(null).Scale);
+        Assert.Equal(40f, ConfigLoader.Load(null).Scale);
     }
 
     [Fact]

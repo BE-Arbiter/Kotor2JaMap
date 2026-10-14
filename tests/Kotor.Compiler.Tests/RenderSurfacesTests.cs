@@ -109,4 +109,78 @@ public sealed class RenderSurfacesTests
         Assert.Equal(3, w.Count);
         Assert.All(w, x => Assert.Contains("textures/kotor/bad", x.Message));
     }
+
+    private static SurfaceInput Quad(string shader, float x0, bool doubleSided = false, bool uv1 = false) =>
+        new(shader, [new(x0, 0, 0), new(x0 + 10, 0, 0), new(x0 + 10, 10, 0), new(x0, 10, 0)],
+            [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ], [new(0, 0), new(1, 0), new(1, 1), new(0, 1)],
+            uv1 ? [new(0, 0), new(1, 0), new(1, 1), new(0, 1)] : null, [0, 1, 2, 0, 2, 3], doubleSided);
+
+    private static Brush Box(Vector3 min, Vector3 max) => new(
+    [
+        new BspPlane(-Vector3.UnitX, -min.X), new BspPlane(Vector3.UnitX, max.X),
+        new BspPlane(-Vector3.UnitY, -min.Y), new BspPlane(Vector3.UnitY, max.Y),
+        new BspPlane(-Vector3.UnitZ, -min.Z), new BspPlane(Vector3.UnitZ, max.Z),
+    ], min, max);
+
+    [Fact]
+    public void Inputs_with_same_shader_merge_into_one_surface()
+    {
+        var surfaces = RenderSurfaces.FromInputs([Quad("a", 0), Quad("a", 50)], BspTree.Build([]));
+        var s = Assert.Single(surfaces);
+        Assert.Equal(8, s.Positions.Length);
+        Assert.Equal(12, s.Indices.Length);
+    }
+
+    [Fact]
+    public void Different_shaders_never_merge()
+    {
+        var surfaces = RenderSurfaces.FromInputs([Quad("a", 0), Quad("b", 0), Quad("a", 20)], BspTree.Build([]));
+        Assert.Equal(2, surfaces.Count);
+        Assert.Equal(["a", "b"], surfaces.Select(s => s.Shader).OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public void DoubleSided_and_lightmap_presence_split_groups()
+    {
+        var tree = BspTree.Build([]);
+        Assert.Equal(2, RenderSurfaces.FromInputs([Quad("a", 0), Quad("a", 20, doubleSided: true)], tree).Count);
+        Assert.Equal(2, RenderSurfaces.FromInputs([Quad("a", 0), Quad("a", 20, uv1: true)], tree).Count);
+    }
+
+    [Fact]
+    public void Mesh_spanning_several_leaves_is_one_surface_referenced_by_each_overlapped_leaf()
+    {
+        // 10 petits brushes alignes sur X : l arbre est coupe en plusieurs feuilles.
+        var brushes = Enumerable.Range(0, 10).Select(i => Box(new(i * 100, 0, -20), new(i * 100 + 10, 10, -10))).ToList();
+        var tree = BspTree.Build(brushes);
+        Assert.True(tree.Leaves.Count > 2);
+        var wide = new SurfaceInput("a", [new(0, 0, 0), new(450, 0, 0), new(450, 10, 0), new(0, 10, 0)],
+            [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ], [default, default, default, default], null, [0, 1, 2, 0, 2, 3]);
+
+        var s = Assert.Single(RenderSurfaces.FromInput(wide, tree));
+
+        Assert.True(s.Leaves.Count > 1);
+        Assert.Equal(s.Leaves.Count, s.Leaves.Distinct().Count());
+        // Les feuilles de cet arbre contiennent toutes un brush (solides) : repli sur les feuilles touchees, mais pas sur les autres.
+        Assert.True(s.Leaves.Count < tree.Leaves.Count);
+        foreach (Vector3 v in s.Positions)
+        {
+            int l = RenderSurfaces.FindLeaf(tree, v);
+            Assert.Contains(l, s.Leaves);
+        }
+    }
+
+    [Fact]
+    public void Merged_chunks_respect_limits_and_keep_every_triangle()
+    {
+        var inputs = new List<SurfaceInput> { Grid(30, 30), Grid(30, 30), Grid(47, 37) };
+        var surfaces = RenderSurfaces.FromInputs(inputs, BspTree.Build([]));
+        Assert.Equal(29 * 29 * 2 * 2 + 46 * 36 * 2, surfaces.Sum(s => s.Indices.Length / 3));
+        Assert.All(surfaces, s =>
+        {
+            Assert.True(s.Positions.Length <= RenderSurfaces.MaxSurfaceVerts);
+            Assert.True(s.Indices.Length <= RenderSurfaces.MaxSurfaceIndexes);
+        });
+        Assert.True(surfaces.Count <= 8, $"{surfaces.Count} surfaces");
+    }
 }

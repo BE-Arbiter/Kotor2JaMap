@@ -112,15 +112,19 @@ public static class BspWriter
         for (int si = 0; si < surfaces.Count; si++)
         {
             RenderSurface sf = surfaces[si];
-            if (sf.Leaf < 0 || sf.Leaf >= leaves.Count)
-                throw new ArgumentException($"Surface {si} rattachee a une feuille inexistante ({sf.Leaf}).");
+            if (sf.Leaves.Count == 0) throw new ArgumentException($"Surface {si} sans feuille.");
+            foreach (int leaf in sf.Leaves)
+                if (leaf < 0 || leaf >= leaves.Count)
+                    throw new ArgumentException($"Surface {si} rattachee a une feuille inexistante ({leaf}).");
             if (!shaderIndex.ContainsKey(sf.Shader)) { shaderIndex[sf.Shader] = shaderNames.Count; shaderNames.Add(sf.Shader); }
             if (sf.Sky) skyShaders.Add(sf.Shader);
-            (leafSurfaces[sf.Leaf] ??= []).Add(si);
-            foreach (Vector3 v in sf.Positions)
+            Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
+            foreach (Vector3 v in sf.Positions) { lo = Vector3.Min(lo, v); hi = Vector3.Max(hi, v); }
+            foreach (int leaf in sf.Leaves)
             {
-                leafLo[sf.Leaf] = Vector3.Min(leafLo[sf.Leaf], v);
-                leafHi[sf.Leaf] = Vector3.Max(leafHi[sf.Leaf], v);
+                (leafSurfaces[leaf] ??= []).Add(si);
+                leafLo[leaf] = Vector3.Min(leafLo[leaf], lo);
+                leafHi[leaf] = Vector3.Max(leafHi[leaf], hi);
             }
         }
         for (int i = 0; i < leaves.Count; i++)

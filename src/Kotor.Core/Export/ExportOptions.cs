@@ -4,7 +4,7 @@ namespace Kotor.Core.Export;
 public sealed record ExportOptions(string KotorDir, string JaBaseDir, string WorkDir, float Scale = ExportOptions.DefaultScale,
     float LightmapBrightness = 1.0f, string BspLimits = ExportOptions.DefaultBspLimits)
 {
-    public const float DefaultScale = 36f;
+    public const float DefaultScale = 40f;
     public const string DefaultBspLimits = "swgl";
 
     /// <summary>Message d'erreur si les options sont inutilisables (echelle ou luminosite non finie ou &lt;= 0, profil de limites inconnu), sinon null.</summary>

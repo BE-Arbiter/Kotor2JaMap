@@ -53,7 +53,7 @@ public static class SkyBox
                 if (Vector3.Dot(Vector3.Cross(b - a, c - a), inward) > 0) idx = [0, 2, 1, 0, 3, 2];
                 Vector3 center = (a + c) * 0.5f;
                 list.Add(new RenderSurface(shader, pos, [Vector2.Zero, Vector2.UnitX, Vector2.One, Vector2.UnitY],
-                    [inward, inward, inward, inward], idx, RenderSurfaces.FindLeaf(tree, center), Sky: true));
+                    [inward, inward, inward, inward], idx, [RenderSurfaces.FindLeaf(tree, center)], Sky: true));
             }
         return list;
     }

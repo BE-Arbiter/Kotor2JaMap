@@ -9,7 +9,7 @@ public class GlobalFogTests
 {
     private static RenderSurface Tri(string shader, bool sky = false) =>
         new(shader, [Vector3.Zero, Vector3.UnitX, Vector3.UnitY], [default, default, default],
-            [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ], [0, 1, 2], 0) { Sky = sky };
+            [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ], [0, 1, 2], [0]) { Sky = sky };
 
     private static byte[] Write(GlobalFog? fog)
     {

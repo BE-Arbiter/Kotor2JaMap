@@ -104,8 +104,8 @@ public static class ModuleExporter
         var cr = global::Kotor.Compiler.Compiler.Compile(plan.Input, bsp, Limits.FromName(opt.BspLimits), log);
         if (!cr.Ok) return new ExportResult(false, null, cr.Error ?? "Echec de compilation.", plan.Meshes, plan.Triangles, plan.MissingTextures);
 
-        Directory.CreateDirectory(Path.Combine(stage, "scripts"));
-        File.WriteAllText(Path.Combine(stage, "scripts", "kotor_" + name + ".shader"),
+        Directory.CreateDirectory(Path.Combine(stage, "shaders")); // le moteur SWGL ne liste que shaders/*.shader (tr_shader.cpp)
+        File.WriteAllText(Path.Combine(stage, "shaders", "kotor_" + name + ".shader"),
             string.Join("\n", plan.Shaders.Select(ShaderPlanner.Write)));
 
         foreach (ExportTexture t in plan.Textures)

@@ -193,6 +193,6 @@ public sealed class CompilerTests : IDisposable
         Assert.Equal("textures/kotor/floor", s.Shader);
         Assert.Equal(6, s.Indices.Length);
         Assert.Equal(4, s.Positions.Length);
-        Assert.Equal(0, s.Leaf);
+        Assert.Equal([0], s.Leaves);
     }
 }

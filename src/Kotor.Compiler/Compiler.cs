@@ -87,7 +87,7 @@ public static class Compiler
 
                     // Surfaces de rendu.
                     var surfaces = new List<RenderSurface>();
-                    foreach (SurfaceInput s in input.Surfaces) surfaces.AddRange(RenderSurfaces.FromInput(s, tree, iterLog));
+                    surfaces.AddRange(RenderSurfaces.FromInputs(input.Surfaces, tree, iterLog));
 
                     // Boite de ciel : 6 faces autour de toute la geometrie.
                     string sky = input.SkyShader;
