@@ -26,3 +26,6 @@ Retour de l'utilisateur (variantes tar_m02aa_s32/s36/s40, SWGL SP, Vulkan) :
 
 ## Statut
 L'optimisation est mise de côté à la demande de l'utilisateur (2026-10-14). Il veut d'abord l'interface graphique. La cause racine n'est pas trouvée. Pistes restantes : un coût côté client indépendant de la carte (comparer avec une carte SWGL standard), les sons et ambiances, les entités, l'absence de grille de lumière (lightgrid) ou de clusters de visibilité, et un mesure du rendu Vulkan.
+
+## Résolution des FPS (2026-10-15)
+L'utilisateur indique que les 5 FPS venaient du pilote NVIDIA, que Windows avait remplacé par un pilote générique. La carte n'était pas en cause : la mesure `cl` ≈ 195 ms reflétait ce pilote. Aucune optimisation n'est nécessaire de ce côté.
