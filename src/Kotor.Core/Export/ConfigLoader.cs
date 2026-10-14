@@ -27,7 +27,7 @@ public static class ConfigLoader
         float Num(string key, float def) =>
             Find(root, key) is { ValueKind: JsonValueKind.Number } e ? e.GetSingle() : def;
         return new ExportOptions(Str("kotorDir", o.KotorDir), Str("jaBaseDir", o.JaBaseDir), Str("workDir", o.WorkDir),
-            Num("scale", o.Scale), Num("lightmapBrightness", o.LightmapBrightness));
+            Num("scale", o.Scale), Num("lightmapBrightness", o.LightmapBrightness), Str("bspLimits", o.BspLimits));
     }
 
     private static JsonElement? Find(JsonElement obj, string key)

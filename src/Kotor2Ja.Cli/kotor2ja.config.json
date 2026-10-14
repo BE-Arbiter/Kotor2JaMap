@@ -1,7 +1,7 @@
 {
-  "kotorDir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\swkotor",
   "jaBaseDir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Jedi Academy - SWGL_DEV\\GameData\\base",
   "workDir": "C:\\jka_maps\\kotor_work",
   "scale": 36,
-  "lightmapBrightness": 1.0
+  "lightmapBrightness": 1.0,
+  "bspLimits": "swgl"
 }

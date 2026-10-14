@@ -25,7 +25,7 @@ public sealed class BspTree
 
     public static BspTree Build(IReadOnlyList<Brush> brushes, Limits? limits = null)
     {
-        limits ??= Limits.Default;
+        limits ??= Limits.Vanilla;
         limits.CheckBrushes(brushes.Count);
 
         var nodes = new List<BspNode>();

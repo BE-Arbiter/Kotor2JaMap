@@ -37,7 +37,7 @@ public sealed class CompilerTests : IDisposable
     public void Compile_in_memory_writes_bsp()
     {
         var log = new ImportLog();
-        var r = BspCompiler.Compile(TestScenes.Input(), BspPath, Limits.Default, log);
+        var r = BspCompiler.Compile(TestScenes.Input(), BspPath, Limits.Vanilla, log);
 
         Assert.True(r.Ok, r.Error);
         byte[] b = File.ReadAllBytes(BspPath);
@@ -54,7 +54,7 @@ public sealed class CompilerTests : IDisposable
     {
         var log = new ImportLog();
         var input = TestScenes.Input(solid: new Kotor.Core.Geometry.ModelMesh { Name = "empty" });
-        var r = BspCompiler.Compile(input, BspPath, Limits.Default, log);
+        var r = BspCompiler.Compile(input, BspPath, Limits.Vanilla, log);
         Assert.True(r.Ok, r.Error);
         Assert.Contains(r.Warnings, w => w.Contains("collision"));
         Assert.Contains(log.Warnings, w => w.Code == "BSP_WARNING");

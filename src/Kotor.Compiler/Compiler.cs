@@ -1,4 +1,4 @@
-﻿// InspirÃ© de la dÃ©marche de q3map2 / NetRadiant-custom (chaÃ®ne scÃ¨ne vers .bsp, GPL-2.0) : aucun code copiÃ©.
+// Inspiré de la démarche de q3map2 / NetRadiant-custom (chaîne scène vers .bsp, GPL-2.0) : aucun code copié.
 // Licence : GPL-2.0, voir THIRD-PARTY-NOTICES.md.
 using System.Numerics;
 using System.Text;
@@ -9,7 +9,7 @@ namespace Kotor.Compiler;
 
 public sealed record CompileResult(bool Ok, IReadOnlyList<string> Warnings, string? Error);
 
-/// <summary>Point d'entrÃ©e : scÃ¨ne en mÃ©moire (unitÃ©s JA) vers <c>.bsp</c> RBSP.</summary>
+/// <summary>Point d'entrée : scène en mémoire (unités JA) vers <c>.bsp</c> RBSP.</summary>
 public static class Compiler
 {
     /// <summary>Ciel par defaut si <see cref="CompileInput.SkyShader"/> et la cle <c>_kotor_sky</c> du worldspawn manquent.</summary>
@@ -19,8 +19,8 @@ public static class Compiler
     private const int MaxShrinkAttempts = 80;
 
     /// <summary>
-    /// Compile <paramref name="input"/> en <paramref name="bspPath"/>. Les avertissements sont renvoyÃ©s dans le rÃ©sultat et
-    /// inscrits dans <paramref name="log"/> (code <c>BSP_WARNING</c>). En cas d'erreur (dont lump plein) aucun <c>.bsp</c> n'est Ã©crit.
+    /// Compile <paramref name="input"/> en <paramref name="bspPath"/>. Les avertissements sont renvoyés dans le résultat et
+    /// inscrits dans <paramref name="log"/> (code <c>BSP_WARNING</c>). En cas d'erreur (dont lump plein) aucun <c>.bsp</c> n'est écrit.
     /// </summary>
     public static CompileResult Compile(CompileInput input, string bspPath, Limits limits, ImportLog log)
     {
@@ -41,7 +41,7 @@ public static class Compiler
             int brushMargin = Math.Min(50, limits.MaxBrushes / 10);
             int planeMargin = Math.Min(50 * 11, limits.MaxPlanes / 10);
             int budgetBrushes = Math.Max(0, limits.MaxBrushes - brushMargin);
-            int budgetSides = Math.Max(0, Limits.MaxBrushSides - 50 * 11);
+            int budgetSides = Math.Max(0, limits.MaxBrushSides - 50 * 11);
             int budgetPlanes = Math.Max(0, limits.MaxPlanes - planeMargin);
 
             // Collision du terrain : triangles marchables du maillage visible (brush prismatique : au plus 11 cotes et 11 plans).
@@ -173,7 +173,7 @@ public static class Compiler
         return n.Length() * 0.5f;
     }
 
-    /// <summary>Lump entitÃ©s : les entitÃ©s fournies telles quelles. Au moins un worldspawn.</summary>
+    /// <summary>Lump entités : les entités fournies telles quelles. Au moins un worldspawn.</summary>
     private static string BuildEntityLump(IReadOnlyList<IReadOnlyDictionary<string, string>> entities)
     {
         var sb = new StringBuilder();

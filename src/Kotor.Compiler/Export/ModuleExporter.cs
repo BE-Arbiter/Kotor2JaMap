@@ -5,14 +5,17 @@ using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
 using Kotor.Core.Archives;
 using Kotor.Core.Diagnostics;
+using Kotor.Core.Export;
 using Kotor.Core.Geometry;
 using Kotor.Core.Scene;
 using Kotor.Core.Textures;
 using Kotor.Core.Tlk;
 
-namespace Kotor.Core.Export;
+namespace Kotor.Compiler.Export;
 
-public sealed record ExportResult(bool Ok, string? Pk3Path, string? Error, int Meshes, int Triangles, int MissingTextures);
+/// <param name="JournalError">Message si le journal .journal.txt n a pas pu etre ecrit (n echoue pas l export), sinon null.</param>
+public sealed record ExportResult(bool Ok, string? Pk3Path, string? Error, int Meshes, int Triangles, int MissingTextures,
+    string? JournalError = null);
 
 /// <summary>Un fichier TGA a ecrire dans le pk3. <c>Texture</c> null : damier de remplacement. <c>RelPath</c> relatif au dossier du pk3.</summary>
 public sealed record ExportTexture(string RelPath, KotorTexture? Texture, bool Lightmap);
@@ -23,7 +26,7 @@ public sealed record ExportPlan(CompileInput Input, IReadOnlyList<PlannedShader>
 
 /// <remarks>
 /// Vit dans Kotor.Compiler (et non Kotor.Core, comme le disait l'etape) : il consomme <see cref="CompileInput"/>, et Kotor.Compiler
-/// reference deja Kotor.Core. Le namespace reste <c>Kotor.Core.Export</c>.
+/// reference deja Kotor.Core. Namespace <c>Kotor.Compiler.Export</c>.
 /// </remarks>
 public static class ModuleExporter
 {
@@ -34,6 +37,7 @@ public static class ModuleExporter
     public static ExportResult Export(string module, string? mapName, ExportOptions opt, ImportLog log)
     {
         ArgumentException.ThrowIfNullOrEmpty(module);
+        if (opt.Validate() is { } invalid) return new ExportResult(false, null, invalid, 0, 0, 0);
         module = module.ToLowerInvariant();
         string name = (mapName ?? module).ToLowerInvariant();
         ModuleScene scene;
@@ -55,8 +59,8 @@ public static class ModuleExporter
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             log.Warn("MODULE_UNREADABLE", ex.Message);
-            WriteJournal(opt, name, log);
-            return new ExportResult(false, null, $"Module illisible : {ex.Message}", 0, 0, 0);
+            string? je = WriteJournal(opt, name, log);
+            return new ExportResult(false, null, $"Module illisible : {ex.Message}", 0, 0, 0, je);
         }
         return Export(scene, mapName, opt, log);
     }
@@ -65,6 +69,7 @@ public static class ModuleExporter
     public static ExportResult Export(ModuleScene scene, string? mapName, ExportOptions opt, ImportLog log)
     {
         string name = (mapName ?? scene.Info.Module).ToLowerInvariant();
+        if (opt.Validate() is { } invalid) return new ExportResult(false, null, invalid, 0, 0, 0);
         ExportPlan plan = BuildPlan(scene, mapName, opt, log);
         ExportResult result;
         try
@@ -76,8 +81,8 @@ public static class ModuleExporter
             log.Warn("EXPORT_IO_ERROR", ex.Message);
             result = new ExportResult(false, null, ex.Message, plan.Meshes, plan.Triangles, plan.MissingTextures);
         }
-        WriteJournal(opt, name, log);
-        return result;
+        string? journalError = WriteJournal(opt, name, log);
+        return journalError is null ? result : result with { JournalError = journalError };
     }
 
     private static ExportResult Run(ExportPlan plan, string name, ExportOptions opt, ImportLog log)
@@ -96,7 +101,7 @@ public static class ModuleExporter
         Directory.CreateDirectory(stage);
 
         string bsp = Path.Combine(stage, "maps", name + ".bsp");
-        var cr = Compiler.Compiler.Compile(plan.Input, bsp, Limits.Default, log);
+        var cr = global::Kotor.Compiler.Compiler.Compile(plan.Input, bsp, Limits.FromName(opt.BspLimits), log);
         if (!cr.Ok) return new ExportResult(false, null, cr.Error ?? "Echec de compilation.", plan.Meshes, plan.Triangles, plan.MissingTextures);
 
         Directory.CreateDirectory(Path.Combine(stage, "scripts"));
@@ -124,6 +129,7 @@ public static class ModuleExporter
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(opt);
         string name = (mapName ?? scene.Info.Module).ToLowerInvariant();
+        if (opt.Validate() is { } invalidOptions) throw new ArgumentException(invalidOptions, nameof(opt));
         float scale = opt.Scale;
 
         var shaders = new Dictionary<string, PlannedShader>(StringComparer.Ordinal);
@@ -297,7 +303,7 @@ public static class ModuleExporter
 
     private static string Num(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
-    private static void WriteJournal(ExportOptions opt, string name, ImportLog log)
+    private static string? WriteJournal(ExportOptions opt, string name, ImportLog log)
     {
         try
         {
@@ -309,7 +315,13 @@ public static class ModuleExporter
             foreach (var g in log.Warnings.GroupBy(w => w.Code).OrderBy(g => g.Key, StringComparer.Ordinal))
                 sb.Append("  ").Append(g.Key).Append(" : ").Append(g.Count()).Append('\n');
             File.WriteAllText(Path.Combine(dir, name + ".journal.txt"), sb.ToString());
+            return null;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            string msg = $"Journal non ecrit ({ex.Message}).";
+            log.Warn("JOURNAL_WRITE_FAILED", msg);
+            return msg;
+        }
     }
 }

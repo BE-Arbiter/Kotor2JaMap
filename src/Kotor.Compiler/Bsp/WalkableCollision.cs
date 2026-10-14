@@ -18,7 +18,7 @@ public static class WalkableCollision
 {
     /// <summary>Nombre de brushes maximal compatible avec la limite des cotes de brush (11 cotes par brush), moins ceux deja presents.</summary>
     public static int MaxBrushesFor(Limits limits, int existingBrushes, int margin = 50) =>
-        Math.Max(0, Math.Min(limits.MaxBrushes, Limits.MaxBrushSides / 11) - existingBrushes - margin);
+        Math.Max(0, Math.Min(limits.MaxBrushes, limits.MaxBrushSides / 11) - existingBrushes - margin);
 
     public static WalkableCollisionResult Build(ModelMesh walkable, int maxBrushes, float thickness = BrushBuilder.DefaultThickness,
         Action<string>? log = null)

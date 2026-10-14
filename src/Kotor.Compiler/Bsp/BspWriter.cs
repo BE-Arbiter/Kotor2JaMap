@@ -19,7 +19,6 @@ public static class BspWriter
         LumpDrawVerts = 10, LumpDrawIndexes = 11, LumpFogs = 12, LumpSurfaces = 13, LumpLightmaps = 14,
         LumpLightGrid = 15, LumpVisibility = 16, LumpLightArray = 17;
 
-    public const int MaxLeafBrushes = 0x40000;
     public const string CollisionShader = CompilerNames.CollisionShader;
     private const int ContentsSolid = 1;
     /// <summary>SURF_SKY de JA : bit 0x2000, releve dans les BSP d'origine (textures/skies/yavin = 0x182000 dans academy1.bsp). Contents = 0 (non solide).</summary>
@@ -33,7 +32,7 @@ public static class BspWriter
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(output);
-        limits ??= Limits.Default;
+        limits ??= Limits.Vanilla;
 
         var lumps = Build(tree, entities ?? DefaultEntities, limits, surfaces ?? [], lighting ?? VertexLighting.Default, fog);
 
@@ -143,8 +142,8 @@ public static class BspWriter
         limits.CheckNodes(nodes.Count);
         limits.CheckLeaves(leaves.Count);
         limits.CheckBrushes(brushes.Count);
-        CheckMax("MAX_MAP_BRUSHSIDES", sides.Count, Limits.MaxBrushSides);
-        CheckMax("MAX_MAP_LEAFBRUSHES", leafBrushCount, MaxLeafBrushes);
+        CheckMax("MAX_MAP_BRUSHSIDES", sides.Count, limits.MaxBrushSides);
+        CheckMax("MAX_MAP_LEAFBRUSHES", leafBrushCount, limits.MaxLeafBrushes);
         LimitCheck.CheckRenderLimits(shaderNames.Count, surfaces.Count, totalVerts, totalIndexes, leafSurfaceCount);
         foreach (RenderSurface sf in surfaces) LimitCheck.CheckSurface(sf.Shader, sf.Positions.Length, sf.Indices.Length);
 

@@ -1,3 +1,4 @@
+using Kotor.Compiler.Export;
 using Kotor.Core.Export;
 using Kotor2Ja.Cli.Commands;
 
@@ -27,5 +28,31 @@ public class ExportJaCommandTests
         string absent = Path.Combine(Path.GetTempPath(), "absent_" + Guid.NewGuid().ToString("N"));
         int code = ExportJaCommand.Run(new ExportOptions(absent, "b", "w"), "x", null, new StringWriter(), new StringWriter());
         Assert.Equal(2, code);
+    }
+
+    [Fact]
+    public void Invalid_scale_returns_1()
+    {
+        var err = new StringWriter();
+        int code = ExportJaCommand.Run(new ExportOptions("k", "b", "w", Scale: -2f), "x", null, new StringWriter(), err);
+        Assert.Equal(1, code);
+        Assert.Contains("Echelle", err.ToString());
+    }
+
+    [Fact]
+    public void Unknown_bsp_limits_returns_1()
+    {
+        int code = ExportJaCommand.Run(new ExportOptions("k", "b", "w", BspLimits: "x"), "x", null, new StringWriter(), new StringWriter());
+        Assert.Equal(1, code);
+    }
+
+    [Fact]
+    public void Bsp_limits_option_is_parsed()
+    {
+        var kotor = new System.CommandLine.Option<string?>("--kotor");
+        var cmd = ExportJaCommand.Create(kotor);
+        var pr = cmd.Parse(["--bsp-limits", "vanilla", "m"]);
+        Assert.Empty(pr.Errors);
+        Assert.Contains(cmd.Options, o => o.Name == "--bsp-limits");
     }
 }

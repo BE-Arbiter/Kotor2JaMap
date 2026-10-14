@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Numerics;
 using Kotor.Core.Diagnostics;
+using Kotor.Compiler.Export;
 using Kotor.Core.Export;
 using Kotor.Core.Modules;
 using Kotor.Core.Scene;
@@ -156,5 +157,35 @@ public sealed class ModuleExporterTests : IDisposable
         int tgas = z.Entries.Count(e => e.FullName.StartsWith("textures/kotor/") && !e.FullName.Contains("/lm/") && e.FullName.EndsWith(".tga"));
         Assert.True(tgas >= 1);
         Assert.True(File.Exists(Path.Combine(_root, "work", "tar_m02aa", "tar_m02aa.journal.txt")));
+    }
+
+    [Fact]
+    public void Invalid_scale_gives_error_result()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        var r = ModuleExporter.Export(scene, "bad", Opt() with { Scale = 0f }, new ImportLog());
+        Assert.False(r.Ok);
+        Assert.Contains("Echelle", r.Error);
+        Assert.Throws<ArgumentException>(() => ModuleExporter.BuildPlan(scene, null, Opt() with { Scale = float.NaN }, new ImportLog()));
+    }
+
+    [Fact]
+    public void Journal_failure_is_reported_but_export_succeeds()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        Directory.CreateDirectory(Path.Combine(_root, "work", "jf", "jf.journal.txt")); // bloque l'ecriture du journal
+        var log = new ImportLog();
+        var r = ModuleExporter.Export(scene, "jf", Opt(), log);
+        Assert.True(r.Ok, r.Error);
+        Assert.NotNull(r.JournalError);
+        Assert.Contains(log.Warnings, w => w.Code == "JOURNAL_WRITE_FAILED");
+    }
+
+    [Fact]
+    public void Vanilla_profile_is_accepted_by_exporter()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        var r = ModuleExporter.Export(scene, "van", Opt() with { BspLimits = "vanilla" }, new ImportLog());
+        Assert.True(r.Ok, r.Error);
     }
 }

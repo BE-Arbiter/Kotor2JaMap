@@ -45,7 +45,7 @@ public sealed class SkyBoxTests : IDisposable
     {
         string bsp = Path.Combine(_root, "Test.bsp");
 
-        var r = BspCompiler.Compile(TestScenes.Input(sky: key ?? ""), bsp, Limits.Default, new Kotor.Core.Diagnostics.ImportLog());
+        var r = BspCompiler.Compile(TestScenes.Input(sky: key ?? ""), bsp, Limits.Vanilla, new Kotor.Core.Diagnostics.ImportLog());
 
         Assert.True(r.Ok, r.Error);
         Parsed p = ReadBsp(File.ReadAllBytes(bsp));
