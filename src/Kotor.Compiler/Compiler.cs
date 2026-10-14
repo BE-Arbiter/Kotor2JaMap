@@ -1,4 +1,4 @@
-// Inspiré de la démarche de q3map2 / NetRadiant-custom (chaîne scène vers .bsp, GPL-2.0) : aucun code copié.
+﻿// InspirÃ© de la dÃ©marche de q3map2 / NetRadiant-custom (chaÃ®ne scÃ¨ne vers .bsp, GPL-2.0) : aucun code copiÃ©.
 // Licence : GPL-2.0, voir THIRD-PARTY-NOTICES.md.
 using System.Numerics;
 using System.Text;
@@ -9,15 +9,18 @@ namespace Kotor.Compiler;
 
 public sealed record CompileResult(bool Ok, IReadOnlyList<string> Warnings, string? Error);
 
-/// <summary>Point d'entrée : scène en mémoire (unités JA) vers <c>.bsp</c> RBSP.</summary>
+/// <summary>Point d'entrÃ©e : scÃ¨ne en mÃ©moire (unitÃ©s JA) vers <c>.bsp</c> RBSP.</summary>
 public static class Compiler
 {
     /// <summary>Ciel par defaut si <see cref="CompileInput.SkyShader"/> et la cle <c>_kotor_sky</c> du worldspawn manquent.</summary>
     public const string DefaultSkyShader = Kotor.Core.Export.JaDefaults.SkyShader;
 
+    /// <summary>Nombre maximal de reconstructions (reduction de 20 % de la collision a chaque depassement de limite BSP).</summary>
+    private const int MaxShrinkAttempts = 80;
+
     /// <summary>
-    /// Compile <paramref name="input"/> en <paramref name="bspPath"/>. Les avertissements sont renvoyés dans le résultat et
-    /// inscrits dans <paramref name="log"/> (code <c>BSP_WARNING</c>). En cas d'erreur (dont lump plein) aucun <c>.bsp</c> n'est écrit.
+    /// Compile <paramref name="input"/> en <paramref name="bspPath"/>. Les avertissements sont renvoyÃ©s dans le rÃ©sultat et
+    /// inscrits dans <paramref name="log"/> (code <c>BSP_WARNING</c>). En cas d'erreur (dont lump plein) aucun <c>.bsp</c> n'est Ã©crit.
     /// </summary>
     public static CompileResult Compile(CompileInput input, string bspPath, Limits limits, ImportLog log)
     {
@@ -59,26 +62,68 @@ public static class Compiler
             if (polygons.Count == 0) Warn("Avertissement : pas de maillage de collision, aucun brush genere.");
             polygons = CapPolygons(polygons, Math.Max(0, budgetBrushes - usedBrushes), Math.Max(0, budgetSides - usedSides),
                 Math.Max(0, budgetPlanes - usedPlanes), log, warnings);
-            IReadOnlyList<Brush> brushes = BrushBuilder.FromPolygons(polygons, log: polygons.Count == 0 ? null : Warn);
-            brushes = brushes.Concat(wr.Brushes).ToList();
-            BspTree tree = BspTree.Build(brushes, limits);
-
-            // Surfaces de rendu.
-            var surfaces = new List<RenderSurface>();
-            foreach (SurfaceInput s in input.Surfaces) surfaces.AddRange(RenderSurfaces.FromInput(s, tree, log));
-
-            // Boite de ciel : 6 faces autour de toute la geometrie.
-            string sky = input.SkyShader;
-            if (string.IsNullOrWhiteSpace(sky) && world is not null && world.TryGetValue(CompilerNames.SkyKey, out string? key)) sky = key;
-            if (string.IsNullOrWhiteSpace(sky)) sky = DefaultSkyShader;
-            if (SkyBox.TryComputeBounds(tree, surfaces, out Vector3 skyMin, out Vector3 skyMax))
-                surfaces.AddRange(SkyBox.Build(tree, sky.Trim(), skyMin, skyMax));
-            else
-                Warn("Avertissement : aucune geometrie, pas de boite de ciel.");
-
-            // Tout est construit en memoire : en cas de depassement, aucun fichier n'est ecrit.
+            // Les plans de separation de l'arbre (un par noeud interne), les noeuds et les feuilles ne sont connus qu'apres
+            // construction : on construit tout en memoire et, si une limite BSP est depassee, on reduit la collision
+            // (plus petites aires d'abord, sol marchable prioritaire) puis on reconstruit, jusqu'a tenir dans les limites.
+            polygons = polygons.OrderByDescending(Area).ToList();
+            var walkBrushes = wr.Brushes;
+            int solidKeep = polygons.Count, walkKeep = walkBrushes.Count;
+            int solidInitial = solidKeep, walkInitial = walkKeep;
+            string entityLump = BuildEntityLump(input.Entities);
             using var ms = new MemoryStream();
-            BspWriter.Write(tree, ms, BuildEntityLump(input.Entities), limits, surfaces, input.Lighting, GlobalFog.FromWorldspawn(world, input.MapName));
+            ImportLog iterLog;
+            List<string> iterWarnings;
+            for (int attempt = 0; ; attempt++)
+            {
+                iterLog = new ImportLog();
+                iterWarnings = [];
+                void IterWarn(string message) { iterWarnings.Add(message); iterLog.Warn("BSP_WARNING", message); }
+                try
+                {
+                    var solidPolys = polygons.Take(solidKeep).ToList();
+                    IReadOnlyList<Brush> brushes = BrushBuilder.FromPolygons(solidPolys, log: solidPolys.Count == 0 ? null : IterWarn);
+                    brushes = brushes.Concat(walkBrushes.Take(walkKeep)).ToList();
+                    BspTree tree = BspTree.Build(brushes, limits);
+
+                    // Surfaces de rendu.
+                    var surfaces = new List<RenderSurface>();
+                    foreach (SurfaceInput s in input.Surfaces) surfaces.AddRange(RenderSurfaces.FromInput(s, tree, iterLog));
+
+                    // Boite de ciel : 6 faces autour de toute la geometrie.
+                    string sky = input.SkyShader;
+                    if (string.IsNullOrWhiteSpace(sky) && world is not null && world.TryGetValue(CompilerNames.SkyKey, out string? key)) sky = key;
+                    if (string.IsNullOrWhiteSpace(sky)) sky = DefaultSkyShader;
+                    if (SkyBox.TryComputeBounds(tree, surfaces, out Vector3 skyMin, out Vector3 skyMax))
+                        surfaces.AddRange(SkyBox.Build(tree, sky.Trim(), skyMin, skyMax));
+                    else
+                        IterWarn("Avertissement : aucune geometrie, pas de boite de ciel.");
+
+                    // Tout est construit en memoire : en cas de depassement, aucun fichier n'est ecrit.
+                    ms.SetLength(0);
+                    BspWriter.Write(tree, ms, entityLump, limits, surfaces, input.Lighting, GlobalFog.FromWorldspawn(world, input.MapName));
+                    break;
+                }
+                catch (BspLimitException) when (attempt < MaxShrinkAttempts && (solidKeep > 0 || walkKeep > 0))
+                {
+                    if (solidKeep > 0) solidKeep = solidKeep * 4 / 5;
+                    else walkKeep = walkKeep * 4 / 5;
+                }
+            }
+            foreach (string w in iterWarnings) warnings.Add(w);
+            foreach (var (code, message) in iterLog.Warnings) log.Warn(code, message);
+
+            if (solidKeep < solidInitial)
+            {
+                string msg = $"Collision plafonnee : {solidInitial - solidKeep} polygone(s) de plus petite aire retire(s) pour tenir dans les limites BSP ({solidKeep} conserve(s) sur {solidInitial}).";
+                warnings.Add(msg);
+                log.Warn("COLLISION_CAPPED", msg);
+            }
+            if (walkKeep < walkInitial)
+            {
+                string msg = $"Collision du terrain plafonnee : {walkKeep} brush(es) marchable(s) conserve(s) sur {walkInitial} (limites BSP).";
+                warnings.Add(msg);
+                log.Warn("WALKABLE_CAPPED", msg);
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(bspPath))!);
             File.WriteAllBytes(bspPath, ms.ToArray());
         }
@@ -128,7 +173,7 @@ public static class Compiler
         return n.Length() * 0.5f;
     }
 
-    /// <summary>Lump entités : les entités fournies telles quelles. Au moins un worldspawn.</summary>
+    /// <summary>Lump entitÃ©s : les entitÃ©s fournies telles quelles. Au moins un worldspawn.</summary>
     private static string BuildEntityLump(IReadOnlyList<IReadOnlyDictionary<string, string>> entities)
     {
         var sb = new StringBuilder();

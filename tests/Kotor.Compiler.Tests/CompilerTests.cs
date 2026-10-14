@@ -114,6 +114,38 @@ public sealed class CompilerTests : IDisposable
         Assert.Contains(log.Warnings, w => w.Code == "COLLISION_CAPPED");
     }
 
+    // Petits triangles disjoints et inclines : chaque brush apporte ~11 plans uniques, et l'arbre ajoute un plan par noeud.
+    private static ModelMesh TiltedTriangles(int count)
+    {
+        var pos = new List<Vector3>();
+        var tri = new List<int>();
+        for (int i = 0; i < count; i++)
+        {
+            int b = pos.Count;
+            float x = i * 50f;
+            pos.AddRange([new(x, i * 0.01f, i * 0.007f), new(x + 10, 3 + i * 0.013f, 2 + i % 5 + i * 0.011f), new(x + 2, 10 + i * 0.017f, 5 + i % 3 + i * 0.009f)]);
+            tri.AddRange([b, b + 1, b + 2]);
+        }
+        return TestScenes.Mesh(pos.ToArray(), tri.ToArray());
+    }
+
+    [Fact]
+    public void Tree_node_planes_are_enforced_by_rebuild_and_compilation_succeeds()
+    {
+        const int maxPlanes = 25000;
+        var log = new ImportLog();
+        var input = TestScenes.Input(solid: TiltedTriangles(3000));
+
+        var r = BspCompiler.Compile(input, BspPath, new Limits(0x8000, maxPlanes, 0x20000, 0x20000), log);
+
+        Assert.True(r.Ok, r.Error);
+        byte[] b = File.ReadAllBytes(BspPath);
+        Assert.True(LumpLen(b, BspWriter.LumpPlanes) / 16 <= maxPlanes);
+        Assert.True(LumpLen(b, BspWriter.LumpBrushes) / 12 > 1000, $"info planes={LumpLen(b, BspWriter.LumpPlanes) / 16} brushes={LumpLen(b, BspWriter.LumpBrushes) / 12} nodes={LumpLen(b, BspWriter.LumpNodes) / 36}");
+        Assert.Contains(log.Warnings, w => w.Code == "COLLISION_CAPPED");
+        Assert.DoesNotContain(log.Warnings, w => w.Code == "BSP_ERROR");
+    }
+
     [Fact]
     public void Walkable_terrain_has_priority_over_saturated_solid()
     {
