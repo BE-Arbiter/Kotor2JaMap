@@ -20,7 +20,7 @@ public static class BspWriter
         LumpLightGrid = 15, LumpVisibility = 16, LumpLightArray = 17;
 
     public const int MaxLeafBrushes = 0x40000;
-    public const string CollisionShader = "textures/tfu2ja/collision";
+    public const string CollisionShader = CompilerNames.CollisionShader;
     private const int ContentsSolid = 1;
     /// <summary>SURF_SKY de JA : bit 0x2000, releve dans les BSP d'origine (textures/skies/yavin = 0x182000 dans academy1.bsp). Contents = 0 (non solide).</summary>
     public const int SurfaceSky = 0x2000;
@@ -251,10 +251,12 @@ public static class BspWriter
                 {
                     Vec(w, sf.Positions[i]);
                     w.Write(sf.Uvs[i].X); w.Write(sf.Uvs[i].Y);
-                    for (int k = 0; k < 8; k++) w.Write(0f);          // lightmap[4][2]
+                    // lightmap[4][2] : style 0 = UV1 si la surface a une lightmap, sinon 0.
+                    if (sf.LightmapUvs is { } lm) { w.Write(lm[i].X); w.Write(lm[i].Y); } else { w.Write(0f); w.Write(0f); }
+                    for (int k = 2; k < 8; k++) w.Write(0f);
                     Vec(w, sf.Normals[i]);
-                    // couleurs[4][4] : style 0 = eclairage cuit (ciel : blanc), les 3 autres styles inutilises.
-                    byte[] rgba = sf.Sky ? [255, 255, 255, 255] : lighting.Evaluate(sf.Normals[i], sf.DoubleSided);
+                    // couleurs[4][4] : style 0. Lightmap : blanc (l'eclairage vient de la lightmap via le shader) ; ciel : blanc ; sinon eclairage cuit.
+                    byte[] rgba = sf.Sky || sf.LightmapUvs is not null ? [255, 255, 255, 255] : lighting.Evaluate(sf.Normals[i], sf.DoubleSided);
                     w.Write(rgba);
                     for (int k = 4; k < 16; k++) w.Write((byte)255);
                 }

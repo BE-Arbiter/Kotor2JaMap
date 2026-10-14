@@ -1,45 +1,32 @@
-using System.Globalization;
 using System.Numerics;
-using System.Text;
 using Kotor.Compiler.Bsp;
 
 namespace Kotor.Compiler.Tests;
 
-public sealed class RenderSurfacesTests : IDisposable
+public sealed class RenderSurfacesTests
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "tfu2ja-rs-" + Guid.NewGuid().ToString("N"));
-
-    public RenderSurfacesTests() => Directory.CreateDirectory(_dir);
-
-    public void Dispose()
+    // Grille w x h sommets (sommets uniques), 2 triangles par case, UV1 = UV0 + 0.5 si demande.
+    private static SurfaceInput Grid(int w, int h, bool withUv1 = false)
     {
-        try { Directory.Delete(_dir, true); } catch (IOException) { }
-    }
-
-    // Grille w x h sommets (sommets uniques), 2 triangles par case.
-    private string WriteGrid(int w, int h)
-    {
-        var sb = new StringBuilder();
+        var pos = new List<Vector3>();
+        var uv = new List<Vector2>();
         for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-                sb.Append(string.Create(CultureInfo.InvariantCulture, $"v {x} {y} 0\nvt {(float)x / w} {(float)y / h}\n"));
-        sb.Append("vn 0 0 1\n");
+            for (int x = 0; x < w; x++) { pos.Add(new(x, y, 0)); uv.Add(new((float)x / w, (float)y / h)); }
+        var idx = new List<int>();
         for (int y = 0; y + 1 < h; y++)
             for (int x = 0; x + 1 < w; x++)
             {
-                int a = y * w + x + 1, b = a + 1, c = a + w, d = c + 1;
-                sb.Append($"f {a}/{a}/1 {b}/{b}/1 {d}/{d}/1\nf {a}/{a}/1 {d}/{d}/1 {c}/{c}/1\n");
+                int a = y * w + x, b = a + 1, c = a + w, d = c + 1;
+                idx.AddRange([a, b, d, a, d, c]);
             }
-        string path = Path.Combine(_dir, "Grid.obj");
-        File.WriteAllText(path, sb.ToString());
-        return path;
+        return new SurfaceInput("textures/kotor/grid", pos.ToArray(), pos.Select(_ => Vector3.UnitZ).ToArray(), uv.ToArray(),
+            withUv1 ? uv.Select(u => u + new Vector2(0.5f)).ToArray() : null, idx.ToArray());
     }
 
     [Fact]
     public void Split_keeps_each_surface_under_vertex_limit()
     {
-        string obj = WriteGrid(47, 37); // 1739 sommets
-        var surfaces = RenderSurfaces.FromObj(obj, Vector3.Zero, BspTree.Build([]));
+        var surfaces = RenderSurfaces.FromInput(Grid(47, 37), BspTree.Build([])); // 1739 sommets
         Assert.True(surfaces.Count > 1);
         foreach (var s in surfaces)
         {
@@ -54,10 +41,8 @@ public sealed class RenderSurfacesTests : IDisposable
     [Fact]
     public void Split_keeps_triangle_count_and_winding()
     {
-        string obj = WriteGrid(47, 37);
-        var surfaces = RenderSurfaces.FromObj(obj, Vector3.Zero, BspTree.Build([]));
-        int tris = 46 * 36 * 2;
-        Assert.Equal(tris, surfaces.Sum(s => s.Indices.Length / 3));
+        var surfaces = RenderSurfaces.FromInput(Grid(47, 37), BspTree.Build([]));
+        Assert.Equal(46 * 36 * 2, surfaces.Sum(s => s.Indices.Length / 3));
 
         var got = new List<(Vector3, Vector3, Vector3)>();
         foreach (var s in surfaces)
@@ -79,23 +64,30 @@ public sealed class RenderSurfacesTests : IDisposable
     public void Horizontal_triangle_with_up_normal_uses_JA_winding()
     {
         // Mesure (etape 15) : dans les cartes JA d origine, cross(v1-v0, v2-v0) . normale < 0 (enroulement horaire vu de la normale).
-        string path = Path.Combine(_dir, "Tri.obj");
-        File.WriteAllText(path, "v 0 0 0\nv 1 0 0\nv 0 1 0\nvn 0 0 1\nf 1//1 2//1 3//1\n");
-        var s = Assert.Single(RenderSurfaces.FromObj(path, Vector3.Zero, BspTree.Build([])));
-        Assert.Equal(3, s.Indices.Length);
+        var input = new SurfaceInput("s", [new(0, 0, 0), new(1, 0, 0), new(0, 1, 0)], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+            [default, default, default], null, [0, 1, 2]);
+        var s = Assert.Single(RenderSurfaces.FromInput(input, BspTree.Build([])));
         Vector3 p0 = s.Positions[s.Indices[0]], p1 = s.Positions[s.Indices[1]], p2 = s.Positions[s.Indices[2]];
         Assert.True(Vector3.Dot(Vector3.Cross(p1 - p0, p2 - p0), s.Normals[s.Indices[0]]) < 0);
     }
 
     [Fact]
-    public void Obj_vt_is_flipped_to_Quake_st()
+    public void Uv1_follows_vertices_through_split()
     {
-        // OBJ : v = 0 en bas ; Quake/DirectX : t = 0 en haut. Le compilateur re-inverse : t = 1 - vt.
-        string path = Path.Combine(_dir, "Uv.obj");
-        File.WriteAllText(path, "v 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0.25 0.9\nvt 0.5 0.9\nvt 0.25 0.4\nvn 0 0 1\nf 1/1/1 2/2/1 3/3/1\n");
-        var s = Assert.Single(RenderSurfaces.FromObj(path, Vector3.Zero, BspTree.Build([])));
-        Assert.Contains(s.Uvs, uv => Math.Abs(uv.X - 0.25f) < 1e-5f && Math.Abs(uv.Y - 0.1f) < 1e-5f);
-        Assert.Contains(s.Uvs, uv => Math.Abs(uv.X - 0.25f) < 1e-5f && Math.Abs(uv.Y - 0.6f) < 1e-5f);
+        var surfaces = RenderSurfaces.FromInput(Grid(47, 37, withUv1: true), BspTree.Build([]));
+        Assert.True(surfaces.Count > 1);
+        foreach (var s in surfaces)
+        {
+            Assert.NotNull(s.LightmapUvs);
+            Assert.Equal(s.Positions.Length, s.LightmapUvs!.Length);
+            for (int i = 0; i < s.Uvs.Length; i++) Assert.Equal(s.Uvs[i] + new Vector2(0.5f), s.LightmapUvs[i]);
+        }
+    }
+
+    [Fact]
+    public void Without_uv1_lightmap_uvs_are_null()
+    {
+        Assert.All(RenderSurfaces.FromInput(Grid(3, 3), BspTree.Build([])), s => Assert.Null(s.LightmapUvs));
     }
 
     private static string Key((Vector3, Vector3, Vector3) t) => t.ToString();

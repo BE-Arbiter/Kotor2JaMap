@@ -7,32 +7,13 @@ namespace Kotor.Compiler.Tests;
 
 public sealed class SkyBoxTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "tfu2ja-sky-" + Guid.NewGuid().ToString("N"));
-    private string MapsDir => Path.Combine(_root, "maps");
-    private string ModelsDir => Path.Combine(_root, "tfu2ja", "models", "Test");
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "kotor-sky-" + Guid.NewGuid().ToString("N"));
 
-    public SkyBoxTests()
-    {
-        Directory.CreateDirectory(MapsDir);
-        Directory.CreateDirectory(ModelsDir);
-    }
+    public SkyBoxTests() => Directory.CreateDirectory(_root);
 
     public void Dispose()
     {
         try { Directory.Delete(_root, true); } catch (IOException) { }
-    }
-
-    private string WriteMap(string? skyKey)
-    {
-        string sky = skyKey is null ? "" : $"\"_tfu_sky\" \"{skyKey}\"\n";
-        string path = Path.Combine(MapsDir, "Test.map");
-        File.WriteAllText(path, "{\n\"classname\" \"worldspawn\"\n" + sky + "}\n" +
-            "{\n\"classname\" \"misc_model\"\n\"model\" \"models/Test/floor.obj\"\n\"origin\" \"0 0 0\"\n}\n");
-        File.WriteAllText(Path.Combine(ModelsDir, "floor.obj"),
-            "v 0 0 0\nv 100 0 0\nv 100 100 0\nv 0 100 0\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nvn 0 0 1\nf 1/1/1 2/2/1 3/3/1\nf 1/1/1 3/3/1 4/4/1\n");
-        File.WriteAllText(Path.Combine(ModelsDir, "Test_collision.obj"),
-            "v 0 0 0\nv 100 0 0\nv 100 100 0\nv 0 100 0\nf 1 2 3\nf 1 3 4\n");
-        return path;
     }
 
     private sealed record Parsed(List<(string Name, int Surf, int Cont)> Shaders, List<(int Shader, int FirstVert, int NumVerts, int FirstIdx, int NumIdx)> Surfaces,
@@ -62,10 +43,9 @@ public sealed class SkyBoxTests : IDisposable
     [InlineData("textures/skies/korriban", "textures/skies/korriban")]
     public void Bsp_contains_sky_shader_and_12_enclosing_triangles(string? key, string expected)
     {
-        string map = WriteMap(key);
-        string bsp = Path.Combine(MapsDir, "Test.bsp");
+        string bsp = Path.Combine(_root, "Test.bsp");
 
-        var r = BspCompiler.Compile(map, bsp, Limits.Default);
+        var r = BspCompiler.Compile(TestScenes.Input(sky: key ?? ""), bsp, Limits.Default, new Kotor.Core.Diagnostics.ImportLog());
 
         Assert.True(r.Ok, r.Error);
         Parsed p = ReadBsp(File.ReadAllBytes(bsp));

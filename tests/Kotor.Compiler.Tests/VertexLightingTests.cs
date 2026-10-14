@@ -52,7 +52,7 @@ public class VertexLightingTests
     [Fact]
     public void Worldspawn_keys_are_read()
     {
-        var w = new Dictionary<string, string> { ["_tfu_sun_dir"] = "0 0 -2", ["_tfu_sun"] = "0.5", ["_tfu_ambient"] = "0.1 0.2 0.3" };
+        var w = new Dictionary<string, string> { ["_kotor_sun_dir"] = "0 0 -2", ["_kotor_sun"] = "0.5", ["_kotor_ambient"] = "0.1 0.2 0.3" };
         var l = VertexLighting.FromWorldspawn(w);
         Assert.Equal(new Vector3(0, 0, -1), l.SunDir);
         Assert.Equal(new Vector3(0.5f), l.Sun);
@@ -63,7 +63,7 @@ public class VertexLightingTests
     public void Missing_or_bad_keys_fall_back_to_defaults()
     {
         Assert.Equal(VertexLighting.Default, VertexLighting.FromWorldspawn(new Dictionary<string, string>()));
-        var bad = new Dictionary<string, string> { ["_tfu_sun_dir"] = "x", ["_tfu_sun"] = "-3" };
+        var bad = new Dictionary<string, string> { ["_kotor_sun_dir"] = "x", ["_kotor_sun"] = "-3" };
         Assert.Equal(VertexLighting.Default, VertexLighting.FromWorldspawn(bad));
     }
 
@@ -81,19 +81,5 @@ public class VertexLightingTests
         Assert.Equal((byte)Math.Round(0.75 * 255), b[vo + 64]);
         Assert.Equal(255, b[vo + 67]);
         Assert.Equal(255, b[vo + 3 * 80 + 64]); // premier sommet du ciel
-    }
-
-    [Fact]
-    public void Double_sided_shaders_are_read_from_shader_file()
-    {
-        string p = Path.GetTempFileName();
-        try
-        {
-            File.WriteAllText(p, "textures/tfu2ja/A\n{\n\tcull disable\n\t{\n\t\tmap x\n\t}\n}\ntextures/tfu2ja/B\n{\n\t{\n\t\tmap y\n\t}\n}\n");
-            var set = Compiler.ReadDoubleSidedShaders(p);
-            Assert.Contains("textures/tfu2ja/A", set);
-            Assert.DoesNotContain("textures/tfu2ja/B", set);
-        }
-        finally { File.Delete(p); }
     }
 }

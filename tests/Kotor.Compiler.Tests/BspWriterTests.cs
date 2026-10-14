@@ -74,4 +74,43 @@ public class BspWriterTests
         Assert.Throws<BspLimitException>(() => BspWriter.Write(BspTree.Build(brushes), ms));
         Assert.Equal(0, ms.Length);
     }
+
+    private static byte[] WriteSurface(SurfaceInput input)
+    {
+        var tree = BspTree.Build([]);
+        var ms = new MemoryStream();
+        BspWriter.Write(tree, ms, null, null, RenderSurfaces.FromInput(input, tree), VertexLighting.Default);
+        return ms.ToArray();
+    }
+
+    private static SurfaceInput Tri(Vector2[]? uv1) =>
+        new("textures/kotor/t", [new(0, 0, 0), new(10, 0, 0), new(0, 10, 0)], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+            [new(0, 0), new(1, 0), new(0, 1)], uv1, [0, 1, 2]);
+
+    [Fact]
+    public void Lightmap_uvs_written_to_drawverts()
+    {
+        byte[] b = WriteSurface(Tri([new(0.25f, 0.75f), new(0.25f, 0.75f), new(0.25f, 0.75f)]));
+        int vo = BitConverter.ToInt32(b, 8 + 8 * BspWriter.LumpDrawVerts);
+        // drawvert : xyz(12) st(8) lightmap[4][2](32) normal(12) color[4][4](16) = 80 octets
+        Assert.Equal(0.25f, BitConverter.ToSingle(b, vo + 20));
+        Assert.Equal(0.75f, BitConverter.ToSingle(b, vo + 24));
+        Assert.Equal(new byte[] { 255, 255, 255, 255 }, b.AsSpan(vo + 64, 4).ToArray());
+    }
+
+    [Fact]
+    public void Surface_without_uv1_uses_vertex_lighting()
+    {
+        byte[] b = WriteSurface(Tri(null));
+        int vo = BitConverter.ToInt32(b, 8 + 8 * BspWriter.LumpDrawVerts);
+        Assert.Equal(0f, BitConverter.ToSingle(b, vo + 20));
+        Assert.Equal(0f, BitConverter.ToSingle(b, vo + 24));
+        Assert.NotEqual(255, b[vo + 64]);
+    }
+
+    [Fact]
+    public void Collision_shader_is_kotor_namespaced()
+    {
+        Assert.Equal("textures/kotor/collision", BspWriter.CollisionShader);
+    }
 }

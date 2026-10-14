@@ -12,10 +12,10 @@ namespace Kotor.Compiler.Bsp;
 /// <param name="Shader">Nom complet du shader de brouillard (<see cref="ShaderNames.FogName"/>).</param>
 public sealed record GlobalFog(string Shader)
 {
-    public const string WorldspawnKey = "_tfu_fog";
+    public const string WorldspawnKey = CompilerNames.FogKey;
 
     /// <summary>
-    /// Lit la cle <c>_tfu_fog</c> ("r g b distance") du worldspawn. Cle absente ou illisible (pas 4 nombres, distance &lt;= 0,
+    /// Lit la cle <c>_kotor_fog</c> ("r g b distance") du worldspawn. Cle absente ou illisible (pas 4 nombres, distance &lt;= 0,
     /// couleur negative) = pas de brouillard, car sans le shader de l'export le nom ne designerait rien.
     /// </summary>
     public static GlobalFog? FromWorldspawn(IReadOnlyDictionary<string, string>? world, string level)

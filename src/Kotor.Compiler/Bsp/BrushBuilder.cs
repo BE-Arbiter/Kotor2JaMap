@@ -39,6 +39,51 @@ public static class BrushBuilder
         return brushes;
     }
 
+    /// <summary>
+    /// Un brush prismatique par polygone convexe (2 faces + 1 plan par arête), épaisseur centrée sur le plan du polygone.
+    /// Les sommets sont en sens direct autour de la normale (règle de la main droite). Polygones dégénérés ignorés.
+    /// </summary>
+    public static IReadOnlyList<Brush> FromPolygons(IReadOnlyList<Vector3[]> polygons, float thickness = DefaultThickness, Action<string>? log = null)
+    {
+        var brushes = new List<Brush>();
+        int skipped = 0;
+        foreach (Vector3[] poly in polygons)
+        {
+            Brush? b = FromPolygon(poly, thickness);
+            if (b is null) skipped++; else brushes.Add(b);
+        }
+        if (brushes.Count == 0)
+            log?.Invoke("Avertissement : maillage de collision vide, aucun brush genere.");
+        else
+            log?.Invoke($"Collision : {brushes.Count} brushes prismatiques, epaisseur {thickness}, {skipped} polygone(s) degenere(s) ignore(s).");
+        return brushes;
+    }
+
+    private static Brush? FromPolygon(Vector3[] v, float thickness)
+    {
+        if (v.Length < 3) return null;
+        Vector3 n = Vector3.Zero;
+        for (int i = 0; i < v.Length; i++) n += Vector3.Cross(v[i], v[(i + 1) % v.Length]);
+        float len = n.Length();
+        if (len < 1e-6f) return null;
+        n /= len;
+        float d = Vector3.Dot(n, v[0]);
+        float h = thickness / 2f;
+        var planes = new List<BspPlane>(2 + v.Length) { new(n, d + h), new(-n, -(d - h)) };
+        Vector3 lo = v[0], hi = v[0];
+        for (int i = 0; i < v.Length; i++)
+        {
+            Vector3 p = v[i], q = v[(i + 1) % v.Length];
+            Vector3 e = Vector3.Cross(q - p, n);
+            if (e.LengthSquared() < 1e-12f) return null;
+            Vector3 en = Vector3.Normalize(e);
+            planes.Add(new BspPlane(en, Vector3.Dot(en, p)));
+            lo = Vector3.Min(lo, q); hi = Vector3.Max(hi, q);
+        }
+        Vector3 off = Vector3.Abs(n * h);
+        return new Brush(planes, lo - off, hi + off);
+    }
+
     private static Brush? FromTriangle(Vector3 a, Vector3 b, Vector3 c, float thickness)
     {
         var n = Vector3.Cross(b - a, c - a);

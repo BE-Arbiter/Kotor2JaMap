@@ -7,8 +7,8 @@ namespace Kotor.Compiler.Bsp;
 
 /// <summary>
 /// Eclairage simple cuit dans les couleurs de sommet : un soleil directionnel plus une ambiante, evalues par sommet
-/// a partir de la normale (pas d'ombres, pas de lightmap). Les cles du worldspawn <c>_tfu_sun_dir</c>, <c>_tfu_sun</c>
-/// et <c>_tfu_ambient</c> les reglent ; les defauts sont ceux de <see cref="JaDefaults"/>.
+/// a partir de la normale (pas d'ombres, pas de lightmap). Les cles du worldspawn <c>_kotor_sun_dir</c>, <c>_kotor_sun</c>
+/// et <c>_kotor_ambient</c> les reglent ; les defauts sont ceux de <see cref="JaDefaults"/>.
 /// </summary>
 /// <param name="SunDir">Direction de propagation de la lumiere (normalisee), axes Quake.</param>
 /// <param name="Sun">Couleur x intensite du soleil (RGB).</param>
@@ -36,9 +36,9 @@ public sealed record VertexLighting(Vector3 SunDir, Vector3 Sun, Vector3 Ambient
     {
         var d = Default;
         if (world is null) return d;
-        Vector3 dir = TryVec(world, "_tfu_sun_dir", out var v) && v.LengthSquared() > 0 ? Vector3.Normalize(v) : d.SunDir;
-        Vector3 sun = TryColor(world, "_tfu_sun", out var s) ? s : d.Sun;
-        Vector3 amb = TryColor(world, "_tfu_ambient", out var a) ? a : d.Ambient;
+        Vector3 dir = TryVec(world, CompilerNames.SunDirKey, out var v) && v.LengthSquared() > 0 ? Vector3.Normalize(v) : d.SunDir;
+        Vector3 sun = TryColor(world, CompilerNames.SunKey, out var s) ? s : d.Sun;
+        Vector3 amb = TryColor(world, CompilerNames.AmbientKey, out var a) ? a : d.Ambient;
         return new VertexLighting(dir, sun, amb, d.OverbrightShift);
     }
 

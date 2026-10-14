@@ -47,12 +47,12 @@ public class GlobalFogTests
     public void Worldspawn_key_is_parsed_and_bad_values_mean_no_fog()
     {
         Assert.Equal("textures/tfu2ja/DAG_1_fog",
-            GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_tfu_fog"] = "0.04 0.32 0.363 4000" }, "DAG_1")?.Shader);
+            GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_kotor_fog"] = "0.04 0.32 0.363 4000" }, "DAG_1")?.Shader);
         Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string>(), "L"));
         Assert.Null(GlobalFog.FromWorldspawn(null, "L"));
-        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_tfu_fog"] = "0.1 0.1 0.1" }, "L"));
-        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_tfu_fog"] = "0.1 0.1 0.1 0" }, "L"));
-        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_tfu_fog"] = "-1 0.1 0.1 100" }, "L"));
-        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_tfu_fog"] = "a b c d" }, "L"));
+        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_kotor_fog"] = "0.1 0.1 0.1" }, "L"));
+        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_kotor_fog"] = "0.1 0.1 0.1 0" }, "L"));
+        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_kotor_fog"] = "-1 0.1 0.1 100" }, "L"));
+        Assert.Null(GlobalFog.FromWorldspawn(new Dictionary<string, string> { ["_kotor_fog"] = "a b c d" }, "L"));
     }
 }
