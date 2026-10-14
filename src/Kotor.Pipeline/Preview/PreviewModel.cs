@@ -12,7 +12,7 @@ public enum PreviewBlend { Opaque, Cutout, Additive, Alpha }
 public sealed record PreviewTexture(int Width, int Height, byte[] Rgba);
 
 public sealed record PreviewBatch(string Name, string DiffuseKey, string? LightmapKey, PreviewBlend Blend, bool DoubleSided,
-    PreviewVertex[] Vertices, int[] Indices);
+    PreviewVertex[] Vertices, int[] Indices, bool IsSky = false);
 
 /// <summary>Repere d'entite. Position et Polygon en unites JA ; Yaw en degres autour de Z.</summary>
 public sealed record PreviewMarker(EntityKind Kind, string Label, Vector3 Position, float Yaw, Vector3[]? Polygon);

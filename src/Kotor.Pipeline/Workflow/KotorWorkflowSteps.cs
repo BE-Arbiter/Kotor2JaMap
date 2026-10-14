@@ -45,14 +45,13 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
 
     public PreviewModel Preview(string module, IProgress<string> progress)
     {
-        _scene = null; _entities = []; _imported = null; _exported = null; _importModel = null;
         var log = new ImportLog();
         try
         {
             ModuleScene scene = PipelineSteps.Preview(module, _opt, log);
             IReadOnlyList<ModuleEntity> entities = ReadEntities(scene, module, log);
             PreviewModel model = PreviewBuilder.FromScene(scene, _opt.Scale);
-            _scene = scene;
+            _scene = scene; _imported = null; _exported = null; _importModel = null;
             _entities = entities;
             progress.Report($"Previsualiser : {scene.Meshes.Count} maillage(s), {model.TriangleCount} triangle(s), {entities.Count} entite(s).");
             return model;
@@ -63,13 +62,12 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
     public PreviewModel Import(IProgress<string> progress)
     {
         ModuleScene scene = _scene ?? throw new InvalidOperationException("Previsualiser d'abord.");
-        _imported = null; _exported = null; _importModel = null;
         var log = new ImportLog();
         try
         {
             ImportStepResult imported = PipelineSteps.Import(scene, null, _opt, log);
             PreviewModel model = PreviewBuilder.FromImport(imported, _entities, _opt.Scale, _opt.LightmapBrightness);
-            _imported = imported;
+            _imported = imported; _exported = null;
             _importModel = model;
             progress.Report($"Importer : {model.TriangleCount} triangle(s), {model.Markers.Count} repere(s), {imported.Plan.Shaders.Count} shader(s).");
             return model;
@@ -80,7 +78,6 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
     public PreviewModel Export(IProgress<string> progress)
     {
         ImportStepResult imported = _imported ?? throw new InvalidOperationException("Importer d'abord.");
-        _exported = null;
         var log = new ImportLog();
         try
         {

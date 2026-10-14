@@ -1,4 +1,6 @@
 using System.Numerics;
+using Kotor.Compiler;
+using Kotor.Compiler.Bsp;
 using Kotor.Core.Diagnostics;
 using Kotor.Core.Entities;
 using Kotor.Core.Export;
@@ -80,7 +82,7 @@ public sealed class PreviewBuilderTests : IDisposable
     }
 
     [Fact]
-    public void FromBsp_one_batch_per_surface()
+    public void FromBsp_one_batch_per_surface_sky_included()
     {
         var opt = Opt();
         var log = new ImportLog();
@@ -88,11 +90,51 @@ public sealed class PreviewBuilderTests : IDisposable
         ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
         var textures = new Dictionary<string, PreviewTexture> { ["t"] = new(2, 2, new byte[16]) };
         PreviewModel m = PreviewBuilder.FromBsp(exp.Bsp, textures);
-        var nonSky = exp.Bsp.Surfaces.Where(s => s.Shader != JaDefaults.SkyShader).ToList();
-        Assert.Equal(nonSky.Count, m.Batches.Count);
-        Assert.Equal(nonSky.Sum(s => s.Indices.Length / 3), m.TriangleCount);
-        Assert.Equal("t", m.Batches[0].DiffuseKey);
+        Assert.Equal(exp.Bsp.Surfaces.Count, m.Batches.Count);
+        Assert.Equal(exp.Bsp.Surfaces.Sum(s => s.Indices.Length / 3), m.TriangleCount);
+        var sky = m.Batches.Where(b => b.IsSky).ToList();
+        Assert.NotEmpty(sky);
+        Assert.All(m.Batches, b => Assert.Equal(b.Name == JaDefaults.SkyShader, b.IsSky));
+        long skyTris = sky.Sum(b => (long)b.Indices.Length / 3);
+        Assert.Equal(SkyBox.IndexCount / 3, skyTris);
+
+        // Hors ciel : identique a la vue Importer ; total BSP = Importer + ciel.
+        PreviewModel imported = PreviewBuilder.FromImport(imp, [], 40f);
+        Assert.Equal(imported.TriangleCount, m.Batches.Where(b => !b.IsSky).Sum(b => (long)b.Indices.Length / 3));
+        Assert.Equal(imported.TriangleCount + skyTris, m.TriangleCount);
+
+        Assert.Equal("t", m.Batches.First(b => !b.IsSky).DiffuseKey);
         Assert.Contains("missing", m.Textures.Keys);
         Assert.NotNull(m.Spawn);
+    }
+
+    [Fact]
+    public void Duplicate_shader_names_do_not_throw()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        ImportStepResult imp = PipelineSteps.Import(Scene(), "demo", opt, log);
+        PlannedShader first = imp.Plan.Shaders[0];
+        var dup = imp.Plan with { Shaders = [first, first with { Texture = "autre" }] };
+        PreviewModel m = PreviewBuilder.FromImport(imp with { Plan = dup }, [], 40f);
+        Assert.NotEmpty(m.Batches);
+
+        ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
+        PreviewModel b = PreviewBuilder.FromBsp(exp.Bsp, new Dictionary<string, PreviewTexture>(), [first, first with { Texture = "autre" }]);
+        Assert.NotEmpty(b.Batches);
+    }
+
+    [Fact]
+    public void FromBsp_short_vertex_arrays_fall_back()
+    {
+        var s = new BspSurface("textures/kotor/x", 1, [Vector3.Zero, Vector3.UnitX, Vector3.UnitY], [], [new(0.5f, 0.5f)], [],
+            [], [0, 1, 2]);
+        var bsp = new BspFile([], [s], "", new BspBrushInfo(0, 0, 0));
+        PreviewModel m = PreviewBuilder.FromBsp(bsp, new Dictionary<string, PreviewTexture>());
+        PreviewVertex[] v = Assert.Single(m.Batches).Vertices;
+        Assert.Equal(3, v.Length);
+        Assert.Equal(Vector3.UnitZ, v[1].Normal);
+        Assert.Equal(new Vector2(0.5f, 0.5f), v[0].Uv0);
+        Assert.Equal(Vector2.Zero, v[2].Uv0);
     }
 }

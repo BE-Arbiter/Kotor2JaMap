@@ -99,7 +99,7 @@ public sealed class WorkflowController
             WorkflowStage.Exported => Run(() => _stage == WorkflowStage.Exported, (_, p) =>
             {
                 string pk3 = _steps.CreatePk3(p);
-                _log.Enqueue("PK3 : " + pk3);
+                p.Report("PK3 : " + pk3);
                 return (WorkflowStage.Packed, null); // la vue ne change pas
             }),
             _ => Task.CompletedTask,

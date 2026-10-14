@@ -69,7 +69,7 @@ public static class PreviewBuilder
         ArgumentNullException.ThrowIfNull(imported);
         ArgumentNullException.ThrowIfNull(entities);
         ExportPlan plan = imported.Plan;
-        var planned = plan.Shaders.ToDictionary(s => s.Name, StringComparer.Ordinal);
+        var planned = IndexShaders(plan.Shaders);
         var textures = NewTextures();
         foreach (ExportTexture t in plan.Textures)
         {
@@ -107,7 +107,7 @@ public static class PreviewBuilder
     }
 
     /// <summary>
-    /// Etape Exporter : un lot par surface du BSP relu (la boite de ciel est ignoree). La lightmap est retrouvee par le nom du shader
+    /// Etape Exporter : un lot par surface du BSP relu, boite de ciel comprise (lot <see cref="PreviewBatch.IsSky"/> : l'application le dessine ou non). La lightmap est retrouvee par le nom du shader
     /// (<c>textures/kotor/&lt;tex&gt;__&lt;lm&gt;</c>). <paramref name="shaders"/> (facultatif) donne le melange et le double face.
     /// </summary>
     public static PreviewModel FromBsp(BspFile bsp, IReadOnlyDictionary<string, PreviewTexture> textures,
@@ -117,12 +117,12 @@ public static class PreviewBuilder
         ArgumentNullException.ThrowIfNull(textures);
         var tex = NewTextures();
         foreach (var (k, v) in textures) tex[k] = v;
-        var planned = (shaders ?? []).ToDictionary(s => s.Name, StringComparer.Ordinal);
+        var planned = IndexShaders(shaders ?? []);
 
         var batches = new List<PreviewBatch>();
         foreach (BspSurface s in bsp.Surfaces)
         {
-            if (s.Shader == JaDefaults.SkyShader) continue;
+            bool isSky = s.Shader == JaDefaults.SkyShader;
             string name = s.Shader.StartsWith(ShaderNames.Prefix, StringComparison.Ordinal) ? s.Shader[ShaderNames.Prefix.Length..] : s.Shader;
             string? lm = null;
             string diffuse = name;
@@ -136,13 +136,16 @@ public static class PreviewBuilder
                 for (int i = name.IndexOf("__", StringComparison.Ordinal); i > 0; i = name.IndexOf("__", i + 1, StringComparison.Ordinal))
                     if (tex.ContainsKey(name[..i]) && tex.ContainsKey(name[(i + 2)..])) { diffuse = name[..i]; lm = name[(i + 2)..]; break; }
             }
+            if (isSky) { diffuse = Key; lm = null; }
             if (!tex.ContainsKey(diffuse)) diffuse = Key;
             if (lm is not null && !tex.ContainsKey(lm)) lm = null;
 
             var verts = new PreviewVertex[s.Positions.Length];
-            for (int i = 0; i < verts.Length; i++) verts[i] = new PreviewVertex(s.Positions[i], s.Normals[i], s.Uv0[i], lm is null ? Vector2.Zero : s.Uv1[i]);
+            for (int i = 0; i < verts.Length; i++)
+                verts[i] = new PreviewVertex(s.Positions[i], i < s.Normals.Length ? s.Normals[i] : Vector3.UnitZ,
+                    i < s.Uv0.Length ? s.Uv0[i] : Vector2.Zero, lm is not null && i < s.Uv1.Length ? s.Uv1[i] : Vector2.Zero);
             batches.Add(new PreviewBatch(s.Shader, diffuse, lm, ps is null ? PreviewBlend.Opaque : BlendOf(ps.Kind),
-                ps?.DoubleSided ?? false, verts, s.Indices));
+                ps?.DoubleSided ?? false, verts, s.Indices, isSky));
         }
 
         (Vector3? spawn, float yaw) = SpawnOf(ParseEntities(bsp.Entities));
@@ -168,6 +171,14 @@ public static class PreviewBuilder
             foreach (PreviewVertex v in b.Vertices) { min = Vector3.Min(min, v.Position); max = Vector3.Max(max, v.Position); any = true; }
         if (!any) { min = max = Vector3.Zero; }
         return new PreviewModel(batches, textures, collision, markers, spawn, yaw, min, max);
+    }
+
+    /// <summary>Index des shaders par nom ; en cas de doublon, le premier est garde.</summary>
+    private static Dictionary<string, PlannedShader> IndexShaders(IEnumerable<PlannedShader> shaders)
+    {
+        var d = new Dictionary<string, PlannedShader>(StringComparer.Ordinal);
+        foreach (PlannedShader s in shaders) d.TryAdd(s.Name, s);
+        return d;
     }
 
     private static Dictionary<string, PreviewTexture> NewTextures() =>

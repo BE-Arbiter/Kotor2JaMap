@@ -112,6 +112,64 @@ public sealed class WorkflowControllerTests
     }
 
     [Fact]
+    public async Task Stale_pk3_result_does_not_log()
+    {
+        var gate = new TaskCompletionSource();
+        var started = new TaskCompletionSource();
+        var f = new FakeSteps { OnPack = () => { started.SetResult(); gate.Task.Wait(); return "stale.pk3"; } };
+        var c = await ToStage(f, 3);
+        c.DrainLog();
+        Task t = c.NextAsync();
+        await started.Task;
+        c.Reset();
+        gate.SetResult();
+        await t;
+        Assert.DoesNotContain(c.DrainLog(), l => l.Contains("stale.pk3"));
+        Assert.Equal(WorkflowStage.None, c.Stage);
+    }
+
+    [Fact]
+    public async Task Pk3_success_is_logged()
+    {
+        var c = await ToStage(new FakeSteps(), 3);
+        c.DrainLog();
+        await c.NextAsync();
+        Assert.Contains(c.DrainLog(), l => l.Contains("PK3 : x.pk3"));
+    }
+
+    [SkippableFact]
+    public async Task Failed_repreview_keeps_previous_state_usable()
+    {
+        Skip.If(TestEnv.KotorDir is null, "KOTOR introuvable");
+        string root = Path.Combine(Path.GetTempPath(), "k2j_wf2_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var opt = new ExportOptions(TestEnv.KotorDir!, Path.Combine(root, "base"), Path.Combine(root, "work"));
+            var c = new WorkflowController(new KotorWorkflowSteps(opt));
+            Skip.If(!c.Modules().Any(m => m.Module == "tar_m02aa"), "tar_m02aa absent");
+            c.SelectModule("tar_m02aa");
+            await c.PreviewAsync();
+            await c.NextAsync();
+            Assert.Equal(WorkflowStage.Imported, c.Stage);
+
+            // Re-previsualisation en echec (module inexistant) : Stage et etat interne restent coherents.
+            c.SelectModule("zzz_inexistant");
+            Assert.Equal(WorkflowStage.None, c.Stage); // SelectModule remet a zero le controleur
+            var steps = new KotorWorkflowSteps(opt);
+            var progress = new Progress<string>();
+            steps.Preview("tar_m02aa", progress);
+            steps.Import(progress);
+            Assert.ThrowsAny<Exception>(() => steps.Preview("zzz_inexistant", progress));
+            PreviewModel exported = steps.Export(progress); // l'etat Imported a survecu a l'echec
+            Assert.NotEmpty(exported.Batches);
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public async Task Select_resets()
     {
         var c = await ToStage(new FakeSteps(), 2);
@@ -146,7 +204,10 @@ public sealed class WorkflowControllerTests
             await c.NextAsync();
             Assert.Null(c.LastError);
             Assert.Equal(WorkflowStage.Packed, c.Stage);
-            Assert.Equal(imported.TriangleCount, exported.TriangleCount);
+            long skyTris = exported.Batches.Where(b => b.IsSky).Sum(b => (long)b.Indices.Length / 3);
+            Assert.True(skyTris > 0);
+            Assert.Equal(imported.TriangleCount, exported.Batches.Where(b => !b.IsSky).Sum(b => (long)b.Indices.Length / 3));
+            Assert.Equal(imported.TriangleCount + skyTris, exported.TriangleCount);
             Assert.True(File.Exists(Path.Combine(opt.JaBaseDir, "kotor_tar_m02aa.pk3")));
             Assert.NotEmpty(imported.Markers);
         }
