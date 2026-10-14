@@ -78,7 +78,14 @@ public static class ModuleSceneBuilder
             return;
         }
 
-        int notRendered = 0, lights = 0, emitters = 0, refs = 0, cams = 0;
+        AddModel(res, room, model, textures, meshes, log);
+    }
+
+    /// <summary>Assemble les maillages d'un modele deja lu (separe de la lecture pour etre testable sans MDL binaire).</summary>
+    internal static void AddModel(ResourceResolver res, LayoutRoom room, KotorModel model,
+        Dictionary<string, KotorTexture?> textures, List<SceneMesh> meshes, ImportLog log)
+    {
+        int notRendered = 0, lights = 0, emitters = 0, refs = 0, cams = 0, animated = 0, empty = 0;
         var offset = Matrix4x4.CreateTranslation(room.Position);
         foreach (var (node, modelTransform) in model.Walk())
         {
@@ -89,11 +96,16 @@ public static class ModuleSceneBuilder
             var m = node.Mesh;
             if (m is null) continue;
             if (!m.Render || node.Kind.HasFlag(NodeKind.Aabb)) { notRendered++; continue; }
+            if (m.Triangles.Length == 0 || m.Positions.Length == 0) { empty++; continue; }
+            if ((node.Kind & (NodeKind.Skin | NodeKind.Dangly | NodeKind.Anim | NodeKind.Saber)) != 0) animated++;
             var mesh = BuildMesh(res, room, node, m, modelTransform, offset, textures, log);
             if (mesh is not null) meshes.Add(mesh);
         }
         string r = room.Model;
         if (notRendered > 0) log.Warn("MESH_NOT_RENDERED", $"{r} : {notRendered} maillage(s) non rendu(s) ignore(s).");
+        if (empty > 0) log.Warn("MESH_EMPTY", $"{r} : {empty} maillage(s) vide(s) (0 triangle ou 0 sommet) ignore(s).");
+        if (animated > 0)
+            log.Warn("MESH_STATIC_FROM_ANIMATED", $"{r} : {animated} maillage(s) skin/dangly/anim/saber exporte(s) en statique (deformation et animation perdues).");
         if (lights > 0) log.Warn("NODE_LIGHT", $"{r} : {lights} noeud(s) lumiere non converti(s).");
         if (emitters > 0) log.Warn("NODE_EMITTER", $"{r} : {emitters} emetteur(s) non converti(s).");
         if (refs > 0) log.Warn("NODE_REFERENCE", $"{r} : {refs} noeud(s) reference non converti(s).");
@@ -104,7 +116,6 @@ public static class ModuleSceneBuilder
         Matrix4x4 modelTransform, Matrix4x4 offset, Dictionary<string, KotorTexture?> textures, ImportLog log)
     {
         string where = $"{room.Model}/{node.Name}";
-        if (m.Triangles.Length == 0 || m.Positions.Length == 0) return null;
         if (m.Triangles.Any(i => i < 0 || i >= m.Positions.Length))
         {
             log.Warn("MESH_BAD_INDEX", $"{where} : indice de triangle hors limites, maillage ignore.");
@@ -126,7 +137,7 @@ public static class ModuleSceneBuilder
         }
         Vector2[]? uv1 = m.Uv1 is { } u1 && u1.Length == pos.Length ? u1 : null;
 
-        string tex = m.Texture0 ?? NoTextureKey;
+        string tex = m.Texture0?.ToLowerInvariant() ?? NoTextureKey;
         if (m.Texture0 is null)
         {
             textures.TryAdd(NoTextureKey, null);
@@ -134,7 +145,12 @@ public static class ModuleSceneBuilder
         }
         else Resolve(res, tex, TextureKind.Diffuse, textures, log);
 
-        string? lm = m.Texture1;
+        string? lm = m.Texture1?.ToLowerInvariant();
+        if (lm is not null && uv1 is null)
+        {
+            log.Warn("MDL_NO_UV1", $"{where} : lightmap '{lm}' presente mais UV1 absent ou incoherent, lightmap ignoree.");
+            lm = null;
+        }
         if (lm is not null) Resolve(res, lm, TextureKind.Lightmap, textures, log);
 
         var txi = textures.TryGetValue(tex, out var t) && t is not null ? t.Txi : TxiInfo.Empty;
@@ -144,6 +160,7 @@ public static class ModuleSceneBuilder
     private static void Resolve(ResourceResolver res, string name, TextureKind kind,
         Dictionary<string, KotorTexture?> textures, ImportLog log)
     {
+        name = name.ToLowerInvariant();
         if (textures.ContainsKey(name)) return;
         KotorTexture? tex;
         try { tex = TextureLookup.Find(res, name, kind); }
@@ -175,8 +192,15 @@ public static class ModuleSceneBuilder
         var add = WokVerticesAreModuleSpace ? Vector3.Zero : room.Position;
         var pos = wm.Vertices.Select(v => v + add).ToArray();
         var walkable = new bool[wm.Materials.Length];
+        int unknown = 0;
         for (int i = 0; i < walkable.Length; i++)
-            walkable[i] = surfaceMat?.Get(wm.Materials[i], "Walk") == "1";
+        {
+            string? w = surfaceMat?.Get(wm.Materials[i], "Walk");
+            if (surfaceMat is not null && w is null) unknown++;
+            walkable[i] = w == "1";
+        }
+        if (unknown > 0)
+            log.Warn("SURFACEMAT_UNKNOWN", $"{room.Model} : {unknown} triangle(s) de walkmesh avec materiau absent de surfacemat.2da, traites comme non praticables.");
         walks.Add(new SceneWalkmesh(room.Model, pos, wm.Triangles, walkable));
     }
 

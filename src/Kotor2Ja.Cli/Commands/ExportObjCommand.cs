@@ -38,8 +38,16 @@ public static class ExportObjCommand
             return 2;
         }
         string tlkPath = Path.Combine(kotorDir, "dialog.tlk");
-        TlkFile? tlk = File.Exists(tlkPath) ? TlkFile.Open(tlkPath) : null;
         var log = new ImportLog();
+        TlkFile? tlk = null;
+        if (File.Exists(tlkPath))
+        {
+            try { tlk = TlkFile.Open(tlkPath); }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                log.Warn("TLK_UNREADABLE", $"dialog.tlk illisible ({ex.Message}), noms de module non traduits.");
+            }
+        }
         ModuleScene scene;
         try
         {
