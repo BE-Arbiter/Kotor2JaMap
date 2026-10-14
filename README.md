@@ -21,3 +21,11 @@ dotnet test Kotor2Ja.sln
 ```
 
 Les tests d'intégration sur le jeu installé sont ignorés si KOTOR est absent.
+
+## Application de bureau
+
+```
+dotnet run -c Release --project src/Kotor2Ja.App
+```
+
+Choisir un module dans l'arbre « KOTOR », cliquer « Prévisualiser », puis le bouton en bas à droite (Importer, Exporter, Créer PK3). Caméra : clic droit maintenu pour regarder, ZQSD/WASD pour se déplacer, Espace/E et Ctrl/C pour monter/descendre, Maj pour accélérer, molette pour la vitesse. Seule l'étape « Créer PK3 » écrit dans le dossier du jeu. La configuration est `kotor2ja.config.json`, à côté de l'exécutable (le même que la CLI).

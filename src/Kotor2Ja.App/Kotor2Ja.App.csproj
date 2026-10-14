@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Kotor2Ja.App</RootNamespace>
+    <AssemblyName>Kotor2Ja.App</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Backend Vulkan : framework "Native" + runtime natif Vulkan (versions identiques, repris du projet TFU). -->
+    <PackageReference Include="MonoGame.Framework.Native" Version="3.8.5.1" />
+    <PackageReference Include="MonoGame.Runtime.Windows.Vulkan" Version="3.8.5.1" />
+    <PackageReference Include="ImGui.NET" Version="1.91.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Kotor.Core\Kotor.Core.csproj" />
+    <ProjectReference Include="..\Kotor.Pipeline\Kotor.Pipeline.csproj" />
+    <None Include="..\Kotor2Ja.Cli\kotor2ja.config.json" Link="kotor2ja.config.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
