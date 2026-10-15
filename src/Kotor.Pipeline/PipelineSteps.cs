@@ -59,38 +59,40 @@ public static class PipelineSteps
         string name = MapNames.Normalize(mapName ?? scene.Info.Module);
         if (MapNames.Validate(name) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
         ExportPlan plan = ModuleExporter.BuildPlan(scene, mapName, opt, log);
-        ConvertedEntities converted = ConvertObjects(scene, opt, log);
-        return new ImportStepResult(scene, ApplyObjects(plan, converted, opt.Game), name, converted);
+        (ConvertedEntities converted, IReadOnlyList<SubModelInput> subModels) = ConvertObjects(scene, opt, log);
+        return new ImportStepResult(scene, ApplyObjects(plan, converted, subModels, opt.Game), name, converted);
     }
 
     /// <summary>
     /// Convertit les objets places du GIT (MD3 + entites + collision PWK). Sans dossier de jeu lisible (scene synthetique),
     /// il n'y a rien a lire : resultat vide. Une erreur de lecture du GIT est deja journalisee par le lecteur.
     /// </summary>
-    private static ConvertedEntities ConvertObjects(ModuleScene scene, ExportOptions opt, ImportLog log)
+    private static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) ConvertObjects(ModuleScene scene, ExportOptions opt, ImportLog log)
     {
         if (string.IsNullOrWhiteSpace(opt.KotorDir) || !Directory.Exists(opt.KotorDir))
         {
             log.Warn("PLACEABLES_NO_GAME_DIR", "No game folder available: placeable conversion skipped, the map has no placed objects.");
-            return ConvertedEntities.Empty;
+            return (ConvertedEntities.Empty, []);
         }
         try
         {
             using var res = ResourceResolver.ForModule(opt.KotorDir, scene.Info.Module.ToLowerInvariant(), opt.Game);
             IReadOnlyList<ModuleEntity> objects = ModuleEntitiesReader.ReadObjects(res, scene.Info, log);
-            return PlaceableConverter.Convert(res, opt.Game, objects, opt.Scale, log);
+            ConvertedEntities placeables = PlaceableConverter.Convert(res, opt.Game, objects, opt.Scale, log);
+            var (doors, subModels) = DoorConverter.Convert(res, opt.Game, objects, opt.Scale, 1, log);
+            return (placeables.Merge(doors), subModels);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             log.Warn("PLACEABLES_UNREADABLE", $"Placeables could not be read ({ex.Message}); none converted.");
-            return ConvertedEntities.Empty;
+            return (ConvertedEntities.Empty, []);
         }
     }
 
     /// <summary>Ajoute au plan les entites, la collision solide, et les textures des objets (les shaders MD3 sont ecrits par l'etape Exporter).</summary>
-    private static ExportPlan ApplyObjects(ExportPlan plan, ConvertedEntities converted, KotorGame game)
+    private static ExportPlan ApplyObjects(ExportPlan plan, ConvertedEntities converted, IReadOnlyList<SubModelInput> subModels, KotorGame game)
     {
-        if (converted.Entities.Count == 0 && converted.ExtraSolid.Count == 0 && converted.TextureData.Count == 0) return plan;
+        if (converted.Entities.Count == 0 && converted.ExtraSolid.Count == 0 && converted.TextureData.Count == 0 && subModels.Count == 0) return plan;
         CompileInput input = plan.Input;
         var entities = new List<IReadOnlyDictionary<string, string>>(input.Entities);
         entities.AddRange(converted.Entities);
@@ -117,7 +119,7 @@ public static class PipelineSteps
             string rel = ShaderNames.PrefixFor(game) + (tex is null ? ShaderNames.MissingTexture : name) + ".tga";
             if (known.Add(rel)) textures.Add(new ExportTexture(rel, tex, false));
         }
-        return plan with { Input = input with { Entities = entities, Solid = solid }, Textures = textures };
+        return plan with { Input = input with { Entities = entities, Solid = solid, SubModels = subModels }, Textures = textures };
     }
 
     /// <summary>Ecrit shader et textures dans le staging, compile le .bsp puis le relit.</summary>

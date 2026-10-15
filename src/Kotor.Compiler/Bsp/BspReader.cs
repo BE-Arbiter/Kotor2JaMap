@@ -10,12 +10,23 @@ public sealed record BspSurface(string Shader, int SurfaceType, Vector3[] Positi
 
 public sealed record BspBrushInfo(int BrushCount, int BrushSideCount, int PlaneCount);
 
-public sealed record BspFile(IReadOnlyList<string> Shaders, IReadOnlyList<BspSurface> Surfaces, string Entities, BspBrushInfo Collision);
+/// <summary>Modele du lump des modeles (0 = monde, 1.. = sous-modeles <c>*N</c>).</summary>
+public sealed record BspModelInfo(Vector3 Mins, Vector3 Maxs, int FirstSurface, int SurfaceCount, int FirstBrush, int BrushCount);
+
+public sealed record BspFile(IReadOnlyList<string> Shaders, IReadOnlyList<BspSurface> Surfaces, string Entities, BspBrushInfo Collision)
+{
+    /// <summary>Lump des modeles : le monde, puis les sous-modeles (portes).</summary>
+    public IReadOnlyList<BspModelInfo> Models { get; init; } = [];
+    /// <summary>Nombre de cotes de chaque brush du lump des brushes.</summary>
+    public IReadOnlyList<int> BrushSideCounts { get; init; } = [];
+    /// <summary>Contenu du lump des leaf brushes : indices de brushes references par les feuilles de l arbre.</summary>
+    public IReadOnlyList<int> LeafBrushes { get; init; } = [];
+}
 
 /// <summary>Relit un .bsp ecrit par <see cref="BspWriter"/> (entites, shaders, surfaces de rendu, comptes de collision).</summary>
 public static class BspReader
 {
-    private const int ShaderSize = 72, DrawVertSize = 80, SurfaceSize = 148, PlaneSize = 16, BrushSize = 12, BrushSideSize = 12;
+    private const int ShaderSize = 72, DrawVertSize = 80, SurfaceSize = 148, PlaneSize = 16, BrushSize = 12, BrushSideSize = 12, ModelSize = 40;
 
     public static BspFile Read(byte[] data)
     {
@@ -105,8 +116,23 @@ public static class BspReader
             surfaces.Add(new BspSurface(shaders[shaderNum], type, pos, nor, uv0, uv1, col, idx));
         }
 
+        var models = new List<BspModelInfo>();
+        int modelCount = Count(BspWriter.LumpModels, ModelSize), mo = lumps[BspWriter.LumpModels].Ofs;
+        for (int m = 0; m < modelCount; m++)
+        {
+            int o = mo + m * ModelSize;
+            models.Add(new BspModelInfo(new Vector3(F(o), F(o + 4), F(o + 8)), new Vector3(F(o + 12), F(o + 16), F(o + 20)),
+                I(o + 24), I(o + 28), I(o + 32), I(o + 36)));
+        }
+        int brushCount = Count(BspWriter.LumpBrushes, BrushSize), bo = lumps[BspWriter.LumpBrushes].Ofs;
+        var sideCounts = new int[brushCount];
+        for (int b = 0; b < brushCount; b++) sideCounts[b] = I(bo + b * BrushSize + 4);
+        int leafBrushCount = Count(BspWriter.LumpLeafBrushes, 4), lbo = lumps[BspWriter.LumpLeafBrushes].Ofs;
+        var leafBrushes = new int[leafBrushCount];
+        for (int i = 0; i < leafBrushCount; i++) leafBrushes[i] = I(lbo + i * 4);
+
         var collision = new BspBrushInfo(Count(BspWriter.LumpBrushes, BrushSize), Count(BspWriter.LumpBrushSides, BrushSideSize),
             Count(BspWriter.LumpPlanes, PlaneSize));
-        return new BspFile(shaders, surfaces, entities, collision);
+        return new BspFile(shaders, surfaces, entities, collision) { Models = models, BrushSideCounts = sideCounts, LeafBrushes = leafBrushes };
     }
 }

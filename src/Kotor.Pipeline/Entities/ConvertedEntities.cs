@@ -18,4 +18,23 @@ public sealed record ConvertedEntities(IReadOnlyList<IReadOnlyDictionary<string,
     public IReadOnlyList<string> ModelShaders { get; init; } = [];
 
     public static ConvertedEntities Empty { get; } = new([], [], []);
+
+    /// <summary>
+    /// Reunit deux resultats (objets puis portes). Un MD3, une texture ou un bloc shader present des deux cotes n'est garde qu'une fois.
+    /// Si <paramref name="other"/> est vide, renvoie <c>this</c> (le resultat reste identique a celui d'avant les portes).
+    /// </summary>
+    public ConvertedEntities Merge(ConvertedEntities other)
+    {
+        if (other.Entities.Count == 0 && other.Models.Count == 0 && other.ExtraSolid.Count == 0 && other.TextureData.Count == 0) return this;
+        var models = Models.Concat(other.Models).GroupBy(m => m.Path, StringComparer.Ordinal).Select(g => g.First())
+            .OrderBy(m => m.Path, StringComparer.Ordinal).ToList();
+        var textures = new SortedDictionary<string, KotorTexture?>(StringComparer.Ordinal);
+        foreach (var kv in TextureData.Concat(other.TextureData)) textures.TryAdd(kv.Key, kv.Value);
+        var shaders = ModelShaders.Concat(other.ModelShaders).Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList();
+        return new ConvertedEntities([.. Entities, .. other.Entities], models, [.. ExtraSolid, .. other.ExtraSolid])
+        {
+            TextureData = textures,
+            ModelShaders = shaders,
+        };
+    }
 }

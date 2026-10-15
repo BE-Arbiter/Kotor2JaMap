@@ -119,15 +119,19 @@ public static class PlaceableConverter
         return null;
     }
 
-    private sealed record ModelInfo(IReadOnlyList<Md3Asset> Assets, int DivideBy, Walkmesh? Pwk, string? Failure);
+    /// <summary>Resultat de la conversion d'un modele. <c>Min</c>/<c>Max</c> : boite englobante des maillages rendus, en metres KOTOR (repere du modele).</summary>
+    internal sealed record ModelInfo(IReadOnlyList<Md3Asset> Assets, int DivideBy, Walkmesh? Pwk, string? Failure, Vector3 Min = default, Vector3 Max = default);
 
-    private static ModelInfo BuildModel(IObjectAssets assets, string model, KotorGame game, float scale, string prefix, ImportLog log)
+    internal static ModelInfo BuildModel(IObjectAssets assets, string model, KotorGame game, float scale, string prefix, ImportLog log, bool loadPwk = true)
     {
         KotorModel? mdl = assets.LoadModel(model, out string? reason);
         if (mdl is null) return Fail(reason ?? $"model '{model}' not found");
         IReadOnlyList<ModelPart> parts = ModelMeshBuilder.Build(mdl, log, model);
         if (parts.Count == 0) return Fail($"model '{model}' has no rendered mesh (invisible blocker, collision not added)");
 
+        Vector3 bmin = new(float.MaxValue), bmax = new(float.MinValue);
+        foreach (ModelPart p in parts)
+            foreach (Vector3 v in p.Positions) { bmin = Vector3.Min(bmin, v); bmax = Vector3.Max(bmax, v); }
         float max = 0;
         foreach (ModelPart p in parts)
             foreach (Vector3 v in p.Positions)
@@ -141,11 +145,12 @@ public static class PlaceableConverter
         try { files = Md3Writer.WriteSplit(model, ja, prefix); }
         catch (ArgumentException ex) { return Fail($"MD3 not written ({ex.Message})"); }
 
-        Walkmesh? pwk = assets.LoadPwk(model, out string? pwkReason);
-        if (pwk is null) log.Warn("PLACEABLE_NO_PWK", $"Model '{model}': {pwkReason ?? "no PWK"}; the placeable has no collision.");
+        string? pwkReason = null;
+        Walkmesh? pwk = loadPwk ? assets.LoadPwk(model, out pwkReason) : null;
+        if (loadPwk && pwk is null) log.Warn("PLACEABLE_NO_PWK", $"Model '{model}': {pwkReason ?? "no PWK"}; the placeable has no collision.");
         // Un fichier : models/<dossier>/<modele>.md3 ; plusieurs : <modele>_p0.md3, <modele>_p1.md3...
         var list = files.Select((f, i) => new Md3Asset(files.Count == 1 ? $"{prefix}{model}.md3" : $"{prefix}{model}_p{i}.md3", f.Data, f.Textures)).ToList();
-        return new ModelInfo(list, k, pwk, null);
+        return new ModelInfo(list, k, pwk, null, bmin, bmax);
 
         ModelInfo Fail(string why) => new([], 1, null, why);
     }
@@ -160,11 +165,12 @@ public static class PlaceableConverter
     internal static string Num(float v) => (MathF.Abs(v) < 0.0005f ? 0f : v).ToString("0.###", CultureInfo.InvariantCulture); // evite "-0"
 
     /// <summary>Acces reel : archives du jeu.</summary>
-    private sealed class ResolverAssets(ResourceResolver res) : IObjectAssets
+    internal sealed class ResolverAssets(ResourceResolver res) : IObjectAssets
     {
         private readonly ObjectModelResolver _models = new(res);
 
-        public string? ModelOf(ModuleEntity e, out string? reason) => _models.ResolvePlaceable(e.Template, out reason);
+        public string? ModelOf(ModuleEntity e, out string? reason) =>
+            e.Kind == EntityKind.Door ? _models.ResolveDoor(e.Template, out reason) : _models.ResolvePlaceable(e.Template, out reason);
 
         public KotorModel? LoadModel(string model, out string? reason)
         {

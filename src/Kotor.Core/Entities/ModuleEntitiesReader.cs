@@ -94,6 +94,8 @@ public static class ModuleEntitiesReader
                     // Resolution silencieuse : l'etape Importer journalise la raison (PLACEABLE_SKIPPED) si le modele manque.
                     string? model = spec.Kind == EntityKind.Door ? models.ResolveDoor(e.Template, out _) : models.ResolvePlaceable(e.Template, out _);
                     if (model is not null) e = e with { Model = model };
+                    if (spec.Kind == EntityKind.Door)
+                        e = e with { Locked = models.IsDoorLocked(e.Template), LinkedToModule = (list[i].Get<string>("LinkedToModule") ?? "").Trim() };
                 }
                 if (e is null) log.Warn("GIT_ENTRY_INVALID", $"{spec.List}[{i}] : {error}, entree sautee.");
                 else { result.Add(e); if (orientMissing) noOrientation++; }

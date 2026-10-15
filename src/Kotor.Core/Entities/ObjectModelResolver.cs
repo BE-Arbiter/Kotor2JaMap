@@ -22,6 +22,18 @@ public sealed class ObjectModelResolver(ResourceResolver res)
     public string? ResolveDoor(string template, out string? reason) =>
         Resolve(template, ResourceType.Utd, "UTD", [("GenericType", "genericdoors", "modelname"), ("Appearance", "doortypes", "model")], out reason);
 
+    /// <summary>Vrai si l'UTD de la porte a <c>Locked</c> = 1 (faux si l'UTD manque ou est illisible).</summary>
+    public bool IsDoorLocked(string template)
+    {
+        if (string.IsNullOrWhiteSpace(template)) return false;
+        byte[]? data = res.Find(template, ResourceType.Utd);
+        if (data is null) return false;
+        try { return Integer(GffReader.Read(data, out _), "Locked") is { } v && v != 0; }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException
+            or EndOfStreamException or IndexOutOfRangeException)
+        { return false; }
+    }
+
     private string? Resolve(string template, ResourceType type, string kind, (string Field, string Table, string Column)[] steps, out string? reason)
     {
         reason = null;

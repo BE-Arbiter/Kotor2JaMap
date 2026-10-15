@@ -329,7 +329,8 @@ public sealed class PlaceableConverterTests : IDisposable
 
         BspFile bsp = BspReader.Read(ReadAll(z.GetEntry("maps/tar_m02aa.bsp")!));
         Assert.Contains("misc_model_static", bsp.Entities);
-        foreach (string m in md3) Assert.Contains($"\"model\" \"{m}\"", bsp.Entities);
+        // Les MD3 des objets sont des "model" (misc_model_static), ceux des portes des "model2" (func_door).
+        foreach (string m in md3) Assert.True(bsp.Entities.Contains($"\"model\" \"{m}\"") || bsp.Entities.Contains($"\"model2\" \"{m}\""), m);
         Assert.Contains(log.Warnings, w => w.Code == "PLACEABLES");
     }
 

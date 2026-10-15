@@ -5,7 +5,7 @@ namespace Kotor.Core.Layout;
 
 /// <summary>
 /// Fichier LYT (texte). Les pieces et les doorhooks sont lus ; les sections track et obstacle sont ignorees.
-/// Ligne de doorhook : <c>room name 0 x y z qx qy qz qw</c> (ordre confirme par PyKotor io_lyt.py).
+/// Ligne de doorhook : <c>room name 0 x y z qw qx qy qz</c> : w en PREMIER, constate sur le vrai m02aa.lyt (identite = "1 0 0 0", porte a 45 degres = "0.9239 0 0 0.3827" et Bearing GIT 0.785).
 /// </summary>
 public sealed class LayoutFile
 {
@@ -50,7 +50,7 @@ public sealed class LayoutFile
                 hooks.Add(new LayoutDoorHook(
                     t[1].ToLowerInvariant(), head,
                     new Vector3(F(t[3]), F(t[4]), F(t[5])),
-                    new Quaternion(F(t[6]), F(t[7]), F(t[8]), F(t[9]))));
+                    new Quaternion(F(t[7]), F(t[8]), F(t[9]), F(t[6]))));  // fichier : w x y z
             }
         }
         return new LayoutFile(rooms, hooks);

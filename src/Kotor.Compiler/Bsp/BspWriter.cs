@@ -9,6 +9,9 @@ namespace Kotor.Compiler.Bsp;
 /// Écrit un <see cref="BspTree"/> en BSP RBSP v1 (brushes de collision, surfaces triangle soup optionnelles, vis à un seul cluster, pas de lumière).
 /// Tout est construit en mémoire avant écriture : en cas de dépassement de limite, rien n'est écrit.
 /// </summary>
+/// <summary>Sous-modele a ecrire : brushes (bornes comprises) et shader de collision.</summary>
+public sealed record BspSubModel(IReadOnlyList<Brush> Brushes, string Shader);
+
 public static class BspWriter
 {
     public const int LumpCount = 18; // HEADER_LUMPS d'OpenJK (le plan en annonçait 17)
@@ -28,13 +31,14 @@ public static class BspWriter
     private const string DefaultEntities = "{\n\"classname\" \"worldspawn\"\n}\n";
 
     public static void Write(BspTree tree, Stream output, string? entities = null, Limits? limits = null,
-        IReadOnlyList<RenderSurface>? surfaces = null, VertexLighting? lighting = null, GlobalFog? fog = null)
+        IReadOnlyList<RenderSurface>? surfaces = null, VertexLighting? lighting = null, GlobalFog? fog = null,
+        IReadOnlyList<BspSubModel>? subModels = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(output);
         limits ??= Limits.Vanilla;
 
-        var lumps = Build(tree, entities ?? DefaultEntities, limits, surfaces ?? [], lighting ?? VertexLighting.Default, fog);
+        var lumps = Build(tree, entities ?? DefaultEntities, limits, surfaces ?? [], lighting ?? VertexLighting.Default, fog, subModels ?? []);
 
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
@@ -58,7 +62,8 @@ public static class BspWriter
         ms.CopyTo(output);
     }
 
-    private static byte[][] Build(BspTree tree, string entities, Limits limits, IReadOnlyList<RenderSurface> surfaces, VertexLighting lighting, GlobalFog? fog)
+    private static byte[][] Build(BspTree tree, string entities, Limits limits, IReadOnlyList<RenderSurface> surfaces, VertexLighting lighting, GlobalFog? fog,
+        IReadOnlyList<BspSubModel> subModels)
     {
         var lumps = new byte[LumpCount][];
         for (int i = 0; i < LumpCount; i++) lumps[i] = [];
@@ -77,7 +82,7 @@ public static class BspWriter
 
         // Côtés de brush.
         var sides = new List<(int Plane, int Shader, int DrawSurf)>();
-        var brushes = new List<(int First, int Count)>();
+        var brushes = new List<(int First, int Count, int Shader)>();
         foreach (Brush b in tree.Brushes)
         {
             int first = sides.Count;
@@ -88,7 +93,7 @@ public static class BspWriter
             sides.Add((Plane(new BspPlane(-Vector3.UnitZ, -b.Min.Z)), 0, -1));
             sides.Add((Plane(new BspPlane(Vector3.UnitZ, b.Max.Z)), 0, -1));
             foreach (BspPlane p in b.Planes) sides.Add((Plane(p), 0, -1));
-            brushes.Add((first, sides.Count - first));
+            brushes.Add((first, sides.Count - first, 0));
         }
 
         // Nœuds : arbre vide ou réduit à une feuille -> un nœud synthétique (le moteur exige un nœud racine).
@@ -137,6 +142,40 @@ public static class BspWriter
                 Max = replace ? leafHi[i] : Vector3.Max(leaves[i].Max, leafHi[i]),
             };
         }
+        // Sous-modeles (portes) : leurs brushes suivent ceux du monde et ne sont references par aucune feuille de l'arbre ;
+        // le moteur les atteint par le lump des modeles (CMod_LoadSubmodels, cm_load.cpp:127-184 : "leaf" propre fabrique
+        // avec firstBrush..firstBrush+numBrushes). Les 6 premiers cotes d'un brush sont ses bornes axiales (CM_BoundBrush, cm_load.cpp:229-238) ;
+        // les plans du brush qui coincident avec un de ces six ne sont pas repetes.
+        var solidShaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { CollisionShader };
+        var models = new List<(Vector3 Min, Vector3 Max, int FirstBrush, int BrushCount)>();
+        foreach (BspSubModel sm in subModels)
+        {
+            if (!shaderIndex.ContainsKey(sm.Shader)) { shaderIndex[sm.Shader] = shaderNames.Count; shaderNames.Add(sm.Shader); }
+            solidShaders.Add(sm.Shader);
+            int shader = shaderIndex[sm.Shader];
+            int firstBrush = brushes.Count;
+            Vector3 mlo = new(float.MaxValue), mhi = new(float.MinValue);
+            foreach (Brush b in sm.Brushes)
+            {
+                int first = sides.Count;
+                BspPlane[] axial =
+                [
+                    new(-Vector3.UnitX, -b.Min.X), new(Vector3.UnitX, b.Max.X), new(-Vector3.UnitY, -b.Min.Y),
+                    new(Vector3.UnitY, b.Max.Y), new(-Vector3.UnitZ, -b.Min.Z), new(Vector3.UnitZ, b.Max.Z),
+                ];
+                foreach (BspPlane a in axial) sides.Add((Plane(a), shader, -1));
+                var axialKeys = new HashSet<(float, float, float, float)>(axial.Select(Key));
+                foreach (BspPlane p in b.Planes)
+                    if (!axialKeys.Contains(Key(p))) sides.Add((Plane(p), shader, -1));
+                brushes.Add((first, sides.Count - first, shader));
+                mlo = Vector3.Min(mlo, b.Min); mhi = Vector3.Max(mhi, b.Max);
+            }
+            if (sm.Brushes.Count == 0) { mlo = Vector3.Zero; mhi = Vector3.Zero; }
+            models.Add((mlo, mhi, firstBrush, sm.Brushes.Count));
+        }
+        // MAX_SUBMODELS = 512 (q_shared.h:656) ; le dernier numero est BOX_MODEL_HANDLE (cm_local.h:31).
+        CheckMax("MAX_SUBMODELS", models.Count + 1, 511);
+
         int totalVerts = surfaces.Sum(s => s.Positions.Length);
         int totalIndexes = surfaces.Sum(s => s.Indices.Length);
         int leafSurfaceCount = leafSurfaces.Sum(l => l?.Count ?? 0);
@@ -180,7 +219,7 @@ public static class BspWriter
             {
                 byte[] name = new byte[64];
                 Encoding.ASCII.GetBytes(shaderNames[i]).Take(63).ToArray().CopyTo(name, 0);
-                w.Write(name); w.Write(skyShaders.Contains(shaderNames[i]) ? SurfaceSky : 0); w.Write(i == 0 ? ContentsSolid : 0);
+                w.Write(name); w.Write(skyShaders.Contains(shaderNames[i]) ? SurfaceSky : 0); w.Write(i == 0 || solidShaders.Contains(shaderNames[i]) ? ContentsSolid : 0);
             }
         });
         lumps[LumpPlanes] = Make(w =>
@@ -231,11 +270,17 @@ public static class BspWriter
         {
             Vec(w, worldMin); Vec(w, worldMax);
             w.Write(0); w.Write(surfaces.Count); // surfaces
-            w.Write(0); w.Write(brushes.Count);  // brushes
+            w.Write(0); w.Write(tree.Brushes.Count); // brushes du monde (les sous-modeles ont les leurs)
+            foreach (var (mn, mx, fb, nb) in models)
+            {
+                Vec(w, mn); Vec(w, mx);
+                w.Write(0); w.Write(0);   // 0 surface
+                w.Write(fb); w.Write(nb); // brushes
+            }
         });
         lumps[LumpBrushes] = Make(w =>
         {
-            foreach (var (first, count) in brushes) { w.Write(first); w.Write(count); w.Write(0); }
+            foreach (var (first, count, shader) in brushes) { w.Write(first); w.Write(count); w.Write(shader); }
         });
         lumps[LumpBrushSides] = Make(w =>
         {

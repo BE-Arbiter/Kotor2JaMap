@@ -70,6 +70,18 @@ public static class Compiler
             int solidKeep = polygons.Count, walkKeep = walkBrushes.Count;
             int solidInitial = solidKeep, walkInitial = walkKeep;
             string entityLump = BuildEntityLump(input.Entities);
+            // Sous-modeles (portes) : bornes calculees depuis les plans ; un brush degenere est ignore avec un avertissement.
+            var subModels = new List<BspSubModel>();
+            for (int sm = 0; sm < input.SubModels.Count; sm++)
+            {
+                var brushesOfModel = new List<Brush>();
+                foreach (var planes in input.SubModels[sm].Brushes)
+                {
+                    if (BrushBounds.FromPlanes(planes) is { } bb) brushesOfModel.Add(new Brush([.. planes], bb.Min, bb.Max));
+                    else Warn($"Sous-modele *{sm + 1} : brush degenere ou non borne ignore.");
+                }
+                subModels.Add(new BspSubModel(brushesOfModel, input.SubModels[sm].Shader));
+            }
             using var ms = new MemoryStream();
             ImportLog iterLog;
             List<string> iterWarnings;
@@ -100,7 +112,7 @@ public static class Compiler
 
                     // Tout est construit en memoire : en cas de depassement, aucun fichier n'est ecrit.
                     ms.SetLength(0);
-                    BspWriter.Write(tree, ms, entityLump, limits, surfaces, EffectiveLighting(input), GlobalFog.FromWorldspawn(world, input.MapName));
+                    BspWriter.Write(tree, ms, entityLump, limits, surfaces, EffectiveLighting(input), GlobalFog.FromWorldspawn(world, input.MapName), subModels);
                     break;
                 }
                 catch (BspLimitException bx) when (bx.CollisionRelated && attempt < MaxShrinkAttempts && (solidKeep > 0 || walkKeep > 0))
