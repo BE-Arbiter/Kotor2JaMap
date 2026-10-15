@@ -56,6 +56,22 @@ public sealed class WorkflowController
     /// <summary>Modules selectionnes (un seul hors assemblage) ; le premier est aussi <see cref="SelectedModule"/>.</summary>
     public IReadOnlyList<string> SelectedModules { get { lock (_gate) return _modules; } }
 
+    /// <summary>
+    /// Session d'edition de l'assemblage de la selection courante (null hors assemblage ou avant l'apercu). A ne modifier que
+    /// lorsque <see cref="IsBusy"/> est faux ; <see cref="ApplyAssemblyAsync"/> reconstruit ensuite l'apercu.
+    /// </summary>
+    public Assembly.AssemblySession? Assembly
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_modules.Count < 2 || _stage == WorkflowStage.None || _steps.Assembly is not { } a) return null;
+                return a.Modules.SequenceEqual(_modules, StringComparer.OrdinalIgnoreCase) ? a : null;
+            }
+        }
+    }
+
     /// <summary>Vrai tant que l'assemblage a des groupes de modules non relies : <see cref="CanNext"/> reste faux.</summary>
     public bool NeedsLinking { get { lock (_gate) return NeedsLinkingLocked(); } }
 

@@ -20,6 +20,8 @@ public sealed class AppGame : Game
     private MainScreen _screen = null!;
     private PreviewRenderer _renderer = null!;
     private readonly FreeCamera _camera = new();
+    private PlacementRenderer _placement = null!;
+    private readonly FreeCamera _editorCamera = new();   // vue libre de l'editeur de placement
     private readonly ViewOptions _options = new();
     private int _lastWheel;
     private bool _looking;
@@ -76,6 +78,7 @@ public sealed class AppGame : Game
         _imgui = new ImGuiRenderer(this);
         _imgui.RebuildFontAtlas();
         _renderer = new PreviewRenderer(GraphicsDevice);
+        _placement = new PlacementRenderer(GraphicsDevice);
 
         // Same configuration file as the CLI, next to the executable. Without it: folders detected through Steam.
         string configPath = ConfigLoader.FindConfig(AppContext.BaseDirectory) ?? Path.Combine(AppContext.BaseDirectory, ConfigLoader.ConfigFileName);
@@ -177,10 +180,40 @@ public sealed class AppGame : Game
 
         if (_auto is not null) StepAutomation();
 
+        // Editeur de placement : envoi GPU des modules a l'ouverture, cadrage de sa camera.
+        PlacementEditor editor = _screen.Editor;
+        if (!ReferenceEquals(editor.Model, _placement.Model))
+        {
+            try
+            {
+                _placement.Upload(editor.Model);
+                if (editor.Model is not null)
+                {
+                    var (min, max) = editor.WorldBounds();
+                    _editorCamera.Frame(new Vector3(min.X, min.Y, min.Z) * PlacementRenderer.Scale, new Vector3(max.X, max.Y, max.Z) * PlacementRenderer.Scale);
+                }
+            }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                _placement.Upload(null);
+                _screen.AddLog("ERROR: cannot display the modules in 3D: " + e.Message);
+            }
+        }
+
         int left = (int)MainScreen.LeftWidth;
         var center = new Point(left + (Window.ClientBounds.Width - left) / 2, Window.ClientBounds.Height / 2);
-        _camera.Update((float)gameTime.ElapsedGameTime.TotalSeconds, kb, mouse, _lastWheel,
-            io.WantCaptureMouse && !_looking, io.WantTextInput, IsActive, center, out _looking);
+        if (editor.IsOpen)
+        {
+            // Vue de dessus : la souris appartient a ImGui ; vue libre : camera de l'editeur.
+            bool captured = !editor.Shows3D || (io.WantCaptureMouse && !_looking);
+            var r = editor.ViewRect;
+            var c3 = new Point(r.X + r.Width / 2, r.Y + r.Height / 2);
+            _editorCamera.Update((float)gameTime.ElapsedGameTime.TotalSeconds, kb, mouse, _lastWheel,
+                captured, io.WantTextInput || !editor.Shows3D, IsActive, c3, out _looking);
+        }
+        else
+            _camera.Update((float)gameTime.ElapsedGameTime.TotalSeconds, kb, mouse, _lastWheel,
+                io.WantCaptureMouse && !_looking, io.WantTextInput, IsActive, center, out _looking);
         _lastWheel = mouse.ScrollWheelValue;
         IsMouseVisible = !_looking;
         base.Update(gameTime);
@@ -284,6 +317,7 @@ public sealed class AppGame : Game
     protected override void UnloadContent()
     {
         _renderer.Dispose();
+        _placement.Dispose();
         base.UnloadContent();
     }
 
@@ -292,11 +326,24 @@ public sealed class AppGame : Game
         GraphicsDevice.Clear(new Color(30, 40, 60));
         PresentationParameters pp = GraphicsDevice.PresentationParameters;
         int left = (int)MainScreen.LeftWidth;
-        var viewport = new Viewport(left, 0, Math.Max(1, pp.BackBufferWidth - left), Math.Max(1, pp.BackBufferHeight)) { MinDepth = 0f, MaxDepth = 1f };
-        _renderer.Draw(_camera, _options, viewport);
+        PlacementEditor editor = _screen.Editor;
+        if (editor.IsOpen)
+        {
+            if (editor.Shows3D)
+            {
+                var r = editor.ViewRect;
+                var v3 = new Viewport(r.X, r.Y, Math.Max(1, r.Width), Math.Max(1, r.Height)) { MinDepth = 0f, MaxDepth = 1f };
+                _placement.Draw(_editorCamera, v3, editor.Selected, editor.ChosenDoors);
+            }
+        }
+        else
+        {
+            var viewport = new Viewport(left, 0, Math.Max(1, pp.BackBufferWidth - left), Math.Max(1, pp.BackBufferHeight)) { MinDepth = 0f, MaxDepth = 1f };
+            _renderer.Draw(_camera, _options, viewport);
+        }
 
         _imgui.BeforeLayout(gameTime);
-        _renderer.DrawLabels(_options);
+        if (!editor.IsOpen) _renderer.DrawLabels(_options);
         _screen.Draw(ImGui.GetIO().DisplaySize, _renderer);
         _imgui.AfterLayout();
         if (_autoPhase == 3 && ++_autoFrames >= 3) FinishAutomation();

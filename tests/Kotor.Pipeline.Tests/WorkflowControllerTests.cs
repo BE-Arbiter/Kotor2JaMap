@@ -134,6 +134,22 @@ public sealed class WorkflowControllerTests
     }
 
     [Fact]
+    public async Task Assembly_is_exposed_only_for_the_previewed_selection()
+    {
+        var f = new FakeSteps { Session = TwoUnlinkedParts(out _, out _) };
+        var c = new WorkflowController(f);
+        c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]);
+        Assert.Null(c.Assembly);                       // pas encore d'apercu
+        await c.PreviewAsync();
+        Assert.Same(f.Session, c.Assembly);
+        c.SelectModules(KotorGame.Kotor1, ["m2", "m1"]);
+        Assert.Null(c.Assembly);                       // autre selection : la session gardee n'est plus la sienne
+        c.SelectModule(KotorGame.Kotor1, "m1");
+        await c.PreviewAsync();
+        Assert.Null(c.Assembly);                       // un seul module
+    }
+
+    [Fact]
     public async Task Junction_set_outside_Apply_keeps_NeedsLinking_and_blocks_Next()
     {
         var f = new FakeSteps { Session = TwoUnlinkedParts(out var d1, out var d2) };

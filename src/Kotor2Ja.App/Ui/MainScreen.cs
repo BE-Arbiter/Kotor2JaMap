@@ -3,6 +3,7 @@ using ImGuiNET;
 using Kotor.Core;
 using Kotor.Core.Entities;
 using Kotor.Core.Export;
+using Kotor.Pipeline.Assembly;
 using Kotor.Pipeline.Workflow;
 using Kotor2Ja.App.Rendering;
 
@@ -39,12 +40,16 @@ public sealed class MainScreen
     private volatile ModuleListItem[]? _modules;
     private volatile string[] _labels = [];
     private bool _scrollLog;
+    private readonly PlacementEditor _editor = new();
 
     public MainScreen(WorkflowController workflow, ViewOptions view)
     {
         _workflow = workflow;
         _view = view;
     }
+
+    /// <summary>Editeur de placement (ouvert par « Link modules » / « Edit placement »).</summary>
+    public PlacementEditor Editor => _editor;
 
     /// <summary>Liste des modules (appelable depuis un autre fil).</summary>
     public void SetModules(IReadOnlyList<ModuleListItem> modules)
@@ -68,6 +73,12 @@ public sealed class MainScreen
         foreach (string line in _workflow.DrainLog()) AddLog(line);
         lock (_log) if (_log.Count > MaxLogLines) _log.RemoveRange(0, _log.Count - MaxLogLines);
 
+        if (_editor.IsOpen)
+        {
+            _editor.Draw(displaySize, _workflow);
+            return;
+        }
+
         const ImGuiWindowFlags panel = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse
             | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoBringToFrontOnFocus;
 
@@ -87,10 +98,13 @@ public sealed class MainScreen
 
         foreach (KotorGame game in new[] { KotorGame.Kotor1, KotorGame.Kotor2 })
             DrawGameNode(game, height * 0.25f, busy);
+        ImGui.TextDisabled("Ctrl+click: select several modules of one game.");
+        DrawAssemblySelection(busy);
 
         ImGui.BeginDisabled(!_workflow.CanPreview);
         if (ImGui.Button("Preview", new Vector2(-1, 0))) _ = _workflow.PreviewAsync();
         ImGui.EndDisabled();
+        DrawLinkButton(busy);
 
         DrawSettings();
         ImGui.Separator();
@@ -234,13 +248,24 @@ public sealed class MainScreen
                 if (modules is null) ImGui.TextDisabled("Loading modules...");
                 else
                 {
-                    string? selected = _workflow.SelectedModule;
-                    bool selectedGame = _workflow.SelectedGame == game;
+                    IReadOnlyList<string> selection = _workflow.SelectedGame == game ? _workflow.SelectedModules : [];
                     for (int i = 0; i < modules.Length; i++)
                     {
                         if (modules[i].Game != game) continue;
-                        if (ImGui.Selectable(labels[i] + "###" + game + modules[i].Module, selectedGame && modules[i].Module == selected) && !busy)
-                            _workflow.SelectModule(game, modules[i].Module);
+                        string module = modules[i].Module;
+                        bool isSelected = selection.Contains(module, StringComparer.OrdinalIgnoreCase);
+                        if (ImGui.Selectable(labels[i] + "###" + game + module, isSelected) && !busy)
+                        {
+                            // Ctrl+clic : ajoute ou retire le module de la selection du meme jeu ; sinon (ou dans l'autre jeu) : selection simple.
+                            if (ImGui.GetIO().KeyCtrl && selection.Count > 0)
+                            {
+                                List<string> next = isSelected
+                                    ? selection.Where(m => !string.Equals(m, module, StringComparison.OrdinalIgnoreCase)).ToList()
+                                    : [.. selection, module];
+                                if (next.Count > 0) _workflow.SelectModules(game, next);
+                            }
+                            else _workflow.SelectModule(game, module);
+                        }
                     }
                 }
             }
@@ -250,6 +275,55 @@ public sealed class MainScreen
         ImGui.EndDisabled();
     }
 
+
+    /// <summary>Plusieurs modules selectionnes : liste et choix du module de reference.</summary>
+    private void DrawAssemblySelection(bool busy)
+    {
+        IReadOnlyList<string> selection = _workflow.SelectedModules;
+        if (selection.Count < 2) return;
+        AssemblySession? session = _workflow.Assembly;
+        int reference = session?.ReferenceIndex ?? 0;
+        ImGui.TextUnformatted($"{selection.Count} modules selected (one map)");
+        ImGui.TextUnformatted("Reference module");
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(-1);
+        ImGui.BeginDisabled(busy);
+        if (ImGui.BeginCombo("##assemblyref", selection[Math.Clamp(reference, 0, selection.Count - 1)]))
+        {
+            for (int i = 0; i < selection.Count; i++)
+            {
+                if (!ImGui.Selectable(selection[i] + "###aref" + i, i == reference) || i == reference) continue;
+                if (session is not null) session.ReferenceIndex = i;   // apres l'apercu : refait le placement, a appliquer
+                else _workflow.SelectModules(_workflow.SelectedGame, [selection[i], .. selection.Where((_, k) => k != i)]);
+            }
+            ImGui.EndCombo();
+        }
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip("Sky, ambient light and spawn point come from the reference module.");
+    }
+
+    /// <summary>Assemblage previsualise : « Link modules » quand il faut lier ou appliquer, « Edit placement » sinon.</summary>
+    private void DrawLinkButton(bool busy)
+    {
+        if (_workflow.Assembly is null) return;
+        bool needs = _workflow.NeedsLinking;
+        if (needs)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, Orange);
+            ImGui.TextWrapped("The modules are not all linked, or the placement was changed: link them and click Apply.");
+            ImGui.PopStyleColor();
+        }
+        ImGui.BeginDisabled(busy);
+        if (ImGui.Button((needs ? "Link modules" : "Edit placement") + "###link", new Vector2(-1, 0))) OpenEditor();
+        ImGui.EndDisabled();
+    }
+
+    private void OpenEditor()
+    {
+        if (_workflow.IsBusy || _workflow.Assembly is not { } session) return;
+        _editor.Open(new PlacementEditorModel(session));
+    }
 
     private void DrawViewOptions(Vector2 displaySize, PreviewRenderer renderer)
     {
@@ -291,6 +365,13 @@ public sealed class MainScreen
         if (ImGui.Begin("##next", flags))
         {
             bool busy = _workflow.IsBusy;
+            if (_workflow.NeedsLinking)
+            {
+                ImGui.BeginDisabled(busy);
+                if (ImGui.Button("Link modules###nextlink", new Vector2(180, 40) * UiScale)) OpenEditor();
+                ImGui.EndDisabled();
+                ImGui.SameLine();
+            }
             ImGui.BeginDisabled(!_workflow.CanNext);
             if (ImGui.Button((busy ? "..." : label) + "###next", new Vector2(180, 40) * UiScale)) _ = _workflow.NextAsync();
             ImGui.EndDisabled();
