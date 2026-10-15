@@ -115,6 +115,57 @@ public class AssemblySessionTests
     }
 
     [Fact]
+    public void ManualJunction_ChosenTwiceForTheSamePair_KeepsTheLastOne()
+    {
+        var d1 = Door("d1", new(10, 0, 0));
+        var d1b = Door("d1b", new(-10, 0, 0), 180f);
+        var d2 = Door("d2", new(0, 5, 0));
+        var s = Session([Part("m_a", d1, d1b), Part("m_b", d2)]);
+        s.SetManualJunction(0, d1, 1, d2);
+        s.SetManualJunction(1, d2, 0, d1b);
+        var link = Assert.Single(s.ManualLinks);
+        Assert.Same(d1b, link.ToTarget);
+        Assert.True(s.IsLinked(0));
+        Assert.True(s.IsLinked(1));
+    }
+
+    [Fact]
+    public void ManualJunction_BetweenAutoLinkedParts_ReplacesTheAutomaticLink()
+    {
+        var d1 = Door("d1", new(10, 0, 0), 0, "m_b", "d2");
+        var d1b = Door("d1b", new(-10, 0, 0), 180f);
+        var d2 = Door("d2", new(0, 5, 0));
+        var s = Session([Part("m_a", d1, d1b), Part("m_b", d2)]);
+        Assert.Single(s.AutoLinks);
+        s.SetManualJunction(0, d1b, 1, d2);
+        Assert.Empty(s.AutoLinks);
+        Assert.Single(s.ManualLinks);
+    }
+
+    [Fact]
+    public void RestoreState_GoesBackToTheCapturedState()
+    {
+        var d1 = Door("d1", new(10, 0, 0));
+        var d2 = Door("d2", new(0, 5, 0));
+        var s = Session([Part("m_a", d1), Part("m_b", d2)]);
+        AssemblySessionState state = s.CaptureState();
+        RigidTransform[] before = [.. s.Transforms];
+        int revision = s.Revision;
+
+        s.SetManualJunction(0, d1, 1, d2);
+        s.SetTransform(0, new RigidTransform(10f, Vector3.One));
+        s.ReferenceIndex = 1;
+        s.RestoreState(state);
+
+        Assert.Equal(before, s.Transforms);
+        Assert.Equal(0, s.ReferenceIndex);
+        Assert.False(s.IsComplete);
+        Assert.False(s.IsLinked(1));
+        Assert.Empty(s.ManualLinks);
+        Assert.Equal(revision, s.Revision);
+    }
+
+    [Fact]
     public void Build_CallsTheAssembler()
     {
         var d1 = Door("d1", new(10, 0, 0), 0, "m_b", "d2");

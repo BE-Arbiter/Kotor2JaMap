@@ -71,6 +71,16 @@ public sealed class AssemblySession
 
     public bool IsComplete => UnlinkedGroups.Count == 0;
 
+    /// <summary>Vrai si la partie est reliee a la reference (placement automatique ou jonction manuelle).</summary>
+    public bool IsLinked(int part)
+    {
+        if (part < 0 || part >= _parts.Count) throw new ArgumentOutOfRangeException(nameof(part));
+        return _connected[part];
+    }
+
+    /// <summary>Jonctions choisies a la main (une au plus par paire de parties).</summary>
+    public IReadOnlyList<DoorLink> ManualLinks => _manual;
+
     /// <summary>Placement manuel d'une partie (la connectivite n'est pas modifiee).</summary>
     public void SetTransform(int part, RigidTransform t)
     {
@@ -101,8 +111,34 @@ public sealed class AssemblySession
             RigidTransform tb = RigidTransform.AligningDoors(ta.Apply(doorA.Position), ta.ApplyYaw(doorA.Yaw), doorB.Position, doorB.Yaw);
             PlaceGroup(partB, tb);
         }
+        // Une seule jonction par paire : la nouvelle remplace la jonction manuelle ou automatique precedente.
+        int pa = partA, pb = partB;
+        bool SamePair(DoorLink l) => (l.FromPart == pa && l.ToPart == pb) || (l.FromPart == pb && l.ToPart == pa);
+        _manual.RemoveAll(SamePair);
+        _groupAuto.RemoveAll(SamePair);
+        if (_auto.Any(SamePair)) _auto = _auto.Where(l => !SamePair(l)).ToList();
         _manual.Add(new DoorLink(partA, doorA, partB, doorB));
         Revision++;
+    }
+
+    /// <summary>Instantane de l'etat d'edition (transformations, liaisons, reference, revision), pour annuler une edition.</summary>
+    public AssemblySessionState CaptureState() => new(_reference, Revision, [.. _transforms], _auto, _groups, [.. _connected],
+        [.. _manual], [.. _groupAuto], _placementLog);
+
+    /// <summary>Revient a un instantane de <see cref="CaptureState"/> (revision comprise : l'etat est exactement celui de cette revision).</summary>
+    public void RestoreState(AssemblySessionState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.Transforms.Length != _parts.Count) throw new ArgumentException("The state comes from another session.", nameof(state));
+        _reference = state.Reference;
+        Revision = state.Revision;
+        _transforms = [.. state.Transforms];
+        _auto = state.Auto;
+        _groups = state.Groups;
+        _connected = [.. state.Connected];
+        _manual.Clear(); _manual.AddRange(state.Manual);
+        _groupAuto.Clear(); _groupAuto.AddRange(state.GroupAuto);
+        _placementLog = state.PlacementLog;
     }
 
     /// <summary>Assemble les parties avec les transformations et les jonctions courantes.</summary>
@@ -142,4 +178,25 @@ public sealed class AssemblySession
         }
         foreach (DoorLink l in sub.Used) _groupAuto.Add(l with { FromPart = members[l.FromPart], ToPart = members[l.ToPart] });
     }
+}
+
+/// <summary>Instantane opaque d'une <see cref="AssemblySession"/> (voir <see cref="AssemblySession.CaptureState"/>).</summary>
+public sealed class AssemblySessionState
+{
+    internal AssemblySessionState(int reference, int revision, RigidTransform[] transforms, IReadOnlyList<DoorLink> auto,
+        IReadOnlyList<IReadOnlyList<int>> groups, bool[] connected, DoorLink[] manual, DoorLink[] groupAuto, ImportLog placementLog)
+    {
+        Reference = reference; Revision = revision; Transforms = transforms; Auto = auto; Groups = groups;
+        Connected = connected; Manual = manual; GroupAuto = groupAuto; PlacementLog = placementLog;
+    }
+
+    internal int Reference { get; }
+    internal int Revision { get; }
+    internal RigidTransform[] Transforms { get; }
+    internal IReadOnlyList<DoorLink> Auto { get; }
+    internal IReadOnlyList<IReadOnlyList<int>> Groups { get; }
+    internal bool[] Connected { get; }
+    internal DoorLink[] Manual { get; }
+    internal DoorLink[] GroupAuto { get; }
+    internal ImportLog PlacementLog { get; }
 }
