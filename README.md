@@ -131,7 +131,9 @@ dotnet run --project src/Kotor2Ja.Cli -- export-ja end_m01aa,end_m01ab --referen
 
 The scripted runs of the application accept the same list: `--module end_m01aa,end_m01ab` behaves like the multiple selection, and `--run-to import|export|pk3` fails with the same message when a module is not linked.
 
-Limits: transitions made by triggers (not doors) are not used to place modules. The assembled map must still fit the BSP limits; large assemblies can exceed them (the export then fails with a `BSP limit exceeded` message and writes nothing).
+The first example, `end_m01aa,end_m01ab`, gives the map `end_m01aa_2` (about 1.24 million leaf surfaces, loaded by the SWGL engine). The junction door opens, but a static, locked door of `end_m01aa` stands just behind it, so the second module cannot be reached on foot yet.
+
+Limits: transitions made by triggers (not doors) are not used to place modules. Some modules contain their own copy of the rooms around the transition door (an airlock, a decorative locked door); these copies are kept and can overlap the other module or block the way. The assembled map must still fit the BSP limits: the `swgl` profile allows 2,097,152 leaf surfaces (the engine allocates them from the file), `vanilla` keeps 131,072. Larger assemblies fail with a `BSP limit exceeded` message and nothing is written.
 
 ## Configuration
 

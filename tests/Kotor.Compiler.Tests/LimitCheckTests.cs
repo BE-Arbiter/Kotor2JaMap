@@ -27,4 +27,16 @@ public class LimitCheckTests
             LimitCheck.CheckRenderLimits(1, 1, 10, Limits.MaxDrawIndexes + 1, 1));
         Assert.Contains("MAX_MAP_DRAW_INDEXES", ex.Message);
     }
+
+    [Fact]
+    public void Swgl_leaf_surfaces_cover_the_endar_spire_assembly_and_name_the_lump_beyond()
+    {
+        // end_m01aa + end_m01ab : 1 242 104 leaf faces (au-dela de 0x100000).
+        LimitCheck.CheckRenderLimits(1, 1, 10, 30, 1_242_104, Limits.Swgl.MaxLeafSurfaces);
+        var ex = Assert.Throws<BspLimitException>(() =>
+            LimitCheck.CheckRenderLimits(1, 1, 10, 30, Limits.Swgl.MaxLeafSurfaces + 1, Limits.Swgl.MaxLeafSurfaces));
+        Assert.Contains("MAX_MAP_LEAFFACES", ex.Message);
+        Assert.Throws<BspLimitException>(() =>
+            LimitCheck.CheckRenderLimits(1, 1, 10, 30, 1_242_104, Limits.Vanilla.MaxLeafSurfaces));
+    }
 }

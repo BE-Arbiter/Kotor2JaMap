@@ -22,7 +22,8 @@ public class LimitsProfileTests : IDisposable
         Assert.Equal(0x100000, Limits.Swgl.MaxLeaves);
         Assert.Equal(0x100000, Limits.Swgl.MaxBrushSides);
         Assert.Equal(0x100000, Limits.Swgl.MaxLeafBrushes);
-        Assert.Equal(0x100000, Limits.Swgl.MaxLeafSurfaces);
+        // Relevee pour l assemblage end_m01aa + end_m01ab (1 242 104 leaf faces) : les chargeurs SWGL allouent d apres le lump.
+        Assert.Equal(0x200000, Limits.Swgl.MaxLeafSurfaces);
         Assert.Equal(0x20000, Limits.Vanilla.MaxLeafSurfaces);
         Assert.Same(Limits.Swgl, Limits.FromName(null));
         Assert.Same(Limits.Swgl, Limits.FromName("SWGL"));
