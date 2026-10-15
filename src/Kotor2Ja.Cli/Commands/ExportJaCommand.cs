@@ -13,13 +13,13 @@ public static class ExportJaCommand
     public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
         gameOption ??= GameOption.Create();
-        var cmd = new Command("export-ja", "Exporte un module KOTOR en pk3 pour Jedi Academy (BSP, shaders, textures).");
-        var module = new Argument<string>("module") { Description = "Nom du module (ex. tar_m02aa)." };
-        var nameOpt = new Option<string?>("--name") { Description = "Nom de la carte (defaut : le module)." };
-        var scaleOpt = new Option<float?>("--scale") { Description = "Echelle metres KOTOR vers unites JA (defaut : config, 40)." };
-        var lmOpt = new Option<float?>("--lightmap-brightness") { Description = "Multiplicateur de luminosite des lightmaps." };
-        var limOpt = new Option<string?>("--bsp-limits") { Description = "Profil de limites BSP : swgl (defaut) ou vanilla." };
-        var cfgOpt = new Option<string?>("--config") { Description = "Fichier de configuration JSON (defaut : kotor2ja.config.json a cote de l'exe)." };
+        var cmd = new Command("export-ja", "Exports a KOTOR module as a pk3 for Jedi Academy (BSP, shaders, textures).");
+        var module = new Argument<string>("module") { Description = "Module name (e.g. tar_m02aa)." };
+        var nameOpt = new Option<string?>("--name") { Description = "Map name (default: the module name)." };
+        var scaleOpt = new Option<float?>("--scale") { Description = "Scale from KOTOR metres to JA units (default: config, 40)." };
+        var lmOpt = new Option<float?>("--lightmap-brightness") { Description = "Lightmap brightness multiplier." };
+        var limOpt = new Option<string?>("--bsp-limits") { Description = "BSP limits profile: swgl (default) or vanilla." };
+        var cfgOpt = new Option<string?>("--config") { Description = "JSON configuration file (default: kotor2ja.config.json next to the executable)." };
         cmd.Arguments.Add(module);
         foreach (Option o in new Option[] { nameOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption, gameOption }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
@@ -47,7 +47,7 @@ public static class ExportJaCommand
     {
         if (opt.Validate() is { } invalid)
         {
-            error.WriteLine($"Options invalides : {invalid}");
+            error.WriteLine($"Invalid options: {invalid}");
             return 1;
         }
         if (mapName is not null && MapNames.Validate(MapNames.Normalize(mapName)) is { } badName)
@@ -63,25 +63,25 @@ public static class ExportJaCommand
         module = module.ToLowerInvariant();
         if (!ModuleCatalog.ListModuleNames(opt.KotorDir).Contains(module))
         {
-            error.WriteLine($"Module inconnu : {module}");
+            error.WriteLine($"Unknown module: {module}");
             return 2;
         }
         var log = new ImportLog();
         ExportResult r = ModuleExporter.Export(module, mapName, opt, log);
-        output.WriteLine($"Module {module} -> carte {MapNames.Normalize(mapName ?? module)}");
-        output.WriteLine($"Maillages : {r.Meshes}");
-        output.WriteLine($"Triangles : {r.Triangles}");
-        output.WriteLine($"Textures manquantes : {r.MissingTextures}");
-        output.WriteLine("Journal par code :");
+        output.WriteLine($"Module {module} -> map {MapNames.Normalize(mapName ?? module)}");
+        output.WriteLine($"Meshes: {r.Meshes}");
+        output.WriteLine($"Triangles: {r.Triangles}");
+        output.WriteLine($"Missing textures: {r.MissingTextures}");
+        output.WriteLine("Log by code:");
         foreach (var g in log.Warnings.GroupBy(w => w.Code).OrderBy(g => g.Key, StringComparer.Ordinal))
-            output.WriteLine($"  {g.Key} : {g.Count()}");
-        if (r.JournalError is not null) error.WriteLine($"Avertissement : {r.JournalError}");
+            output.WriteLine($"  {g.Key}: {g.Count()}");
+        if (r.JournalError is not null) error.WriteLine($"Warning: {r.JournalError}");
         if (!r.Ok)
         {
-            error.WriteLine($"Echec : {r.Error}");
+            error.WriteLine($"Failed: {r.Error}");
             return 1;
         }
-        output.WriteLine($"pk3 : {r.Pk3Path}");
+        output.WriteLine($"pk3: {r.Pk3Path}");
         return 0;
     }
 }

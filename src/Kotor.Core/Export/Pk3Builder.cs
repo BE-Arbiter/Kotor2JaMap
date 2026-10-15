@@ -13,7 +13,7 @@ public static class Pk3Builder
     {
         string mapsDir = Path.Combine(stagingDir, "maps");
         if (!Directory.Exists(mapsDir) || Directory.GetFiles(mapsDir, "*.bsp").Length == 0)
-            throw new FileNotFoundException($"Fichier attendu introuvable : {Path.Combine(mapsDir, "*.bsp")}", mapsDir);
+            throw new FileNotFoundException($"Expected file not found: {Path.Combine(mapsDir, "*.bsp")}", mapsDir);
 
         string[] files = Directory.GetFiles(stagingDir, "*", SearchOption.AllDirectories);
         string tmp = pk3Path + ".tmp";

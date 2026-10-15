@@ -44,9 +44,9 @@ public sealed class WorkflowController
             lock (_gate)
                 return _stage switch
                 {
-                    WorkflowStage.Previewed => "Importer",
-                    WorkflowStage.Imported => "Exporter",
-                    WorkflowStage.Exported => "Créer PK3",
+                    WorkflowStage.Previewed => "Import",
+                    WorkflowStage.Imported => "Export",
+                    WorkflowStage.Exported => "Create PK3",
                     _ => null,
                 };
         }
@@ -107,7 +107,7 @@ public sealed class WorkflowController
             WorkflowStage.Exported => Run(() => _stage == WorkflowStage.Exported, (_, _, p) =>
             {
                 string pk3 = _steps.CreatePk3(p);
-                p.Report("PK3 : " + pk3);
+                p.Report("PK3: " + pk3);
                 return (WorkflowStage.Packed, null); // la vue ne change pas
             }),
             _ => Task.CompletedTask,
@@ -139,11 +139,11 @@ public sealed class WorkflowController
             }
             catch (PipelineStepException e)
             {
-                error = $"{e.Code} : {e.Message}";
+                error = $"{e.Code}: {e.Message}";
             }
             catch (Exception e) when (e is not OutOfMemoryException)
             {
-                error = $"Exception inattendue : {e.Message}";
+                error = $"Unexpected exception: {e.Message}";
             }
 
             lock (_gate)
@@ -159,7 +159,7 @@ public sealed class WorkflowController
                     }
                     else
                     {
-                        _log.Enqueue("ERREUR : " + error);
+                        _log.Enqueue("ERROR: " + error);
                         _lastError = error;
                     }
                 }

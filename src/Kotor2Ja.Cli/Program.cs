@@ -23,7 +23,7 @@ public static class Program
             Description = "Game to read: kotor (default) or kotor2.",
             DefaultValueFactory = _ => "kotor",
         };
-        var root = new RootCommand("Convertit des modules KOTOR vers Jedi Academy.");
+        var root = new RootCommand("Converts KOTOR modules to Jedi Academy.");
         root.Subcommands.Add(ListModulesCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportObjCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportJaCommand.Create(kotorOption, gameOption));

@@ -117,10 +117,10 @@ public static class BspWriter
         for (int si = 0; si < surfaces.Count; si++)
         {
             RenderSurface sf = surfaces[si];
-            if (sf.Leaves.Count == 0) throw new ArgumentException($"Surface {si} sans feuille.");
+            if (sf.Leaves.Count == 0) throw new ArgumentException($"Surface {si} has no leaf.");
             foreach (int leaf in sf.Leaves)
                 if (leaf < 0 || leaf >= leaves.Count)
-                    throw new ArgumentException($"Surface {si} rattachee a une feuille inexistante ({leaf}).");
+                    throw new ArgumentException($"Surface {si} is attached to a nonexistent leaf ({leaf}).");
             if (!shaderIndex.ContainsKey(sf.Shader)) { shaderIndex[sf.Shader] = shaderNames.Count; shaderNames.Add(sf.Shader); }
             if (sf.Sky) skyShaders.Add(sf.Shader);
             Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);

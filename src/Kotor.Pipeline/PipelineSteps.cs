@@ -33,7 +33,7 @@ public static class PipelineSteps
                 try { tlk = TlkFile.Open(tlkPath); }
                 catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
                 {
-                    log.Warn("TLK_UNREADABLE", $"dialog.tlk illisible ({ex.Message}), noms de module non traduits.");
+                    log.Warn("TLK_UNREADABLE", $"dialog.tlk unreadable ({ex.Message}), module names not translated.");
                 }
             }
             using var res = ResourceResolver.ForModule(opt.KotorDir, module, opt.Game);
@@ -42,7 +42,7 @@ public static class PipelineSteps
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
             log.Warn("MODULE_UNREADABLE", ex.Message);
-            throw new PipelineStepException("MODULE_UNREADABLE", $"Module illisible : {ex.Message}");
+            throw new PipelineStepException("MODULE_UNREADABLE", $"Module unreadable: {ex.Message}");
         }
     }
 
@@ -132,7 +132,7 @@ public static class PipelineSteps
         if (MapNames.Validate(name) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
 
         if (plan.Shaders.Count > ModuleExporter.MaxShaders)
-            throw Fail(log, "SHADER_LIMIT", $"{plan.Shaders.Count} shaders distincts : depasse MAX_MAP_SHADERS ({ModuleExporter.MaxShaders}).");
+            throw Fail(log, "SHADER_LIMIT", $"{plan.Shaders.Count} distinct shaders: exceeds MAX_MAP_SHADERS ({ModuleExporter.MaxShaders}).");
         RequireJaBaseDir(opt, log);
 
         try
@@ -143,7 +143,7 @@ public static class PipelineSteps
 
             string bsp = Path.Combine(stage, "maps", name + ".bsp");
             var cr = global::Kotor.Compiler.Compiler.Compile(plan.Input, bsp, Limits.FromName(opt.BspLimits), log);
-            if (!cr.Ok) throw new PipelineStepException("BSP_ERROR", cr.Error ?? "Echec de compilation."); // deja journalise par le compilateur
+            if (!cr.Ok) throw new PipelineStepException("BSP_ERROR", cr.Error ?? "Compilation failed."); // deja journalise par le compilateur
 
             Directory.CreateDirectory(Path.Combine(stage, "shaders")); // le moteur SWGL ne liste que shaders/*.shader (tr_shader.cpp)
             // Shaders du BSP, puis ceux des modeles MD3 (models/<dossier>/<texture>) dans le meme fichier.
@@ -181,14 +181,14 @@ public static class PipelineSteps
     {
         BspFile parsed;
         try { parsed = BspReader.Read(bspBytes); }
-        catch (InvalidDataException ex) { throw Fail(log, "BSP_READBACK_FAILED", $"Relecture du .bsp impossible : {ex.Message}"); }
+        catch (InvalidDataException ex) { throw Fail(log, "BSP_READBACK_FAILED", $"Cannot read the .bsp back: {ex.Message}"); }
 
         long planned = plan.Input.Surfaces.Sum(s => (long)s.Indices.Length);
         long read = parsed.Surfaces.Sum(s => (long)s.Indices.Length);
         // Le compilateur ajoute la boite de ciel (SkyBox.IndexCount index) a la geometrie du plan, sans rien retirer.
         if (parsed.Surfaces.Count == 0 || (read != planned && read != planned + SkyBox.IndexCount))
             throw Fail(log, "BSP_READBACK_FAILED",
-                $"Le .bsp relu ne correspond pas au plan : {parsed.Surfaces.Count} surface(s), {read} index relus pour {planned} prevus (+{SkyBox.IndexCount} de ciel).");
+                $"The .bsp read back does not match the plan: {parsed.Surfaces.Count} surface(s), {read} indexes read for {planned} planned (+{SkyBox.IndexCount} for the sky).");
         return parsed;
     }
 
@@ -216,7 +216,7 @@ public static class PipelineSteps
     private static void RequireJaBaseDir(ExportOptions opt, ImportLog log)
     {
         if (!Directory.Exists(opt.JaBaseDir))
-            throw Fail(log, "JA_BASE_MISSING", $"Dossier base de Jedi Academy introuvable : {opt.JaBaseDir}");
+            throw Fail(log, "JA_BASE_MISSING", $"Jedi Academy base folder not found: {opt.JaBaseDir}");
     }
 
     private static PipelineStepException Fail(ImportLog log, string code, string message)

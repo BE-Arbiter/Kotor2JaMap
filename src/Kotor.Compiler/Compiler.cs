@@ -49,7 +49,7 @@ public static class Compiler
             var wr = WalkableCollision.Build(input.Walkable, walkCap, log: Warn);
             if (wr.LimitReached)
             {
-                string wmsg = $"Collision du terrain plafonnee : brushes marchables tronques a {walkCap} (limites brushes/plans/cotes).";
+                string wmsg = $"Terrain collision capped: walkable brushes truncated to {walkCap} (brush/plane/side limits).";
                 warnings.Add(wmsg);
                 log.Warn("WALKABLE_CAPPED", wmsg);
             }
@@ -59,7 +59,7 @@ public static class Compiler
 
             // Collision solide : triangles fusionnes en polygones convexes -> brushes, avec ce qui reste du budget.
             var polygons = CollisionMerger.MergeCoplanar(input.Solid, log: log);
-            if (polygons.Count == 0) Warn("Avertissement : pas de maillage de collision, aucun brush genere.");
+            if (polygons.Count == 0) Warn("Warning: no collision mesh, no brush generated.");
             polygons = CapPolygons(polygons, Math.Max(0, budgetBrushes - usedBrushes), Math.Max(0, budgetSides - usedSides),
                 Math.Max(0, budgetPlanes - usedPlanes), log, warnings);
             // Les plans de separation de l'arbre (un par noeud interne), les noeuds et les feuilles ne sont connus qu'apres
@@ -108,7 +108,7 @@ public static class Compiler
                     if (SkyBox.TryComputeBounds(tree, surfaces, out Vector3 skyMin, out Vector3 skyMax))
                         surfaces.AddRange(SkyBox.Build(tree, sky.Trim(), skyMin, skyMax));
                     else
-                        IterWarn("Avertissement : aucune geometrie, pas de boite de ciel.");
+                        IterWarn("Warning: no geometry, no sky box.");
 
                     // Tout est construit en memoire : en cas de depassement, aucun fichier n'est ecrit.
                     ms.SetLength(0);
@@ -126,13 +126,13 @@ public static class Compiler
 
             if (solidKeep < solidInitial)
             {
-                string msg = $"Collision plafonnee : {solidInitial - solidKeep} polygone(s) de plus petite aire retire(s) pour tenir dans les limites BSP ({solidKeep} conserve(s) sur {solidInitial}).";
+                string msg = $"Collision capped: {solidInitial - solidKeep} smallest-area polygon(s) removed to fit the BSP limits ({solidKeep} kept out of {solidInitial}).";
                 warnings.Add(msg);
                 log.Warn("COLLISION_CAPPED", msg);
             }
             if (walkKeep < walkInitial)
             {
-                string msg = $"Collision du terrain plafonnee : {walkKeep} brush(es) marchable(s) conserve(s) sur {walkInitial} (limites BSP).";
+                string msg = $"Terrain collision capped: {walkKeep} walkable brush(es) kept out of {walkInitial} (BSP limits).";
                 warnings.Add(msg);
                 log.Warn("WALKABLE_CAPPED", msg);
             }
@@ -142,7 +142,7 @@ public static class Compiler
         catch (BspLimitException ex) { error = ex.Message; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException)
         {
-            error = $"Echec de compilation de {input.MapName} : {ex.Message}";
+            error = $"Compilation of {input.MapName} failed: {ex.Message}";
         }
 
         if (error is not null) log.Warn("BSP_ERROR", error);
@@ -176,7 +176,7 @@ public static class Compiler
         int removed = polygons.Count - keep.Count;
         if (removed == 0) return polygons;
 
-        string msg = $"Collision plafonnee : {removed} polygone(s) de plus petite aire retire(s) sur {polygons.Count} (budget restant : {maxCount} brushes, {maxSides} cotes, {maxPlanes} plans).";
+        string msg = $"Collision capped: {removed} smallest-area polygon(s) removed out of {polygons.Count} (remaining budget: {maxCount} brushes, {maxSides} sides, {maxPlanes} planes).";
         warnings.Add(msg);
         log.Warn("COLLISION_CAPPED", msg);
         return polygons.Where((_, i) => keep.Contains(i)).ToList();

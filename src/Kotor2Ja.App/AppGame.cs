@@ -63,20 +63,20 @@ public sealed class AppGame : Game
         try
         {
             options = ConfigLoader.Load(configPath);
-            if (!File.Exists(configPath)) configWarning = $"AVERTISSEMENT : {configPath} absent, valeurs par défaut utilisées.";
-            else if (options.Validate() is { } bad) { configWarning = $"ERREUR : configuration invalide ({configPath}) : {bad}"; options = ConfigLoader.Defaults(); }
+            if (!File.Exists(configPath)) configWarning = $"WARNING: {configPath} not found, default values used.";
+            else if (options.Validate() is { } bad) { configWarning = $"ERROR: invalid configuration ({configPath}): {bad}"; options = ConfigLoader.Defaults(); }
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException)
         {
-            configWarning = $"ERREUR : configuration illisible ({configPath}) : {e.Message} Valeurs par défaut utilisées.";
+            configWarning = $"ERROR: unreadable configuration ({configPath}): {e.Message} Default values used.";
             options = ConfigLoader.Defaults();
         }
         _workflow = new WorkflowController(new KotorWorkflowSteps(options));
         _screen = new MainScreen(_workflow, _options);
         if (_auto is not null) _screen.LogSink = Console.WriteLine;
         if (configWarning is not null) _screen.AddLog(configWarning);
-        _screen.AddLog($"KOTOR : {options.KotorDir} (échelle {options.Scale:0.##})");
-        _screen.AddLog($"KOTOR 2 : {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
+        _screen.AddLog($"KOTOR: {options.KotorDir} (scale {options.Scale:0.##})");
+        _screen.AddLog($"KOTOR 2: {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
 
         // La liste des modules lit les noms de zone un par un : hors du fil d interface. Le mode automatise l attend avant la capture.
         _modulesTask = Task.Run(() =>
@@ -85,12 +85,12 @@ public sealed class AppGame : Game
             {
                 IReadOnlyList<ModuleListItem> modules = _workflow.Modules();
                 _screen.SetModules(modules);
-                _screen.AddLog($"{modules.Count} module(s) trouvé(s).");
+                _screen.AddLog($"{modules.Count} module(s) found.");
             }
             catch (Exception e) when (e is not OutOfMemoryException)
             {
                 _screen.SetModules([]);
-                _screen.AddLog("ERREUR : impossible de lister les modules : " + e.Message);
+                _screen.AddLog("ERROR: cannot list the modules: " + e.Message);
             }
         });
 
@@ -116,7 +116,7 @@ public sealed class AppGame : Game
             {
                 _renderer.Upload(null);
                 _failedPreview = preview;  // ne plus reessayer (ni journaliser) tant que la vue ne change pas
-                _screen.AddLog("ERREUR : affichage de la vue : " + e.Message);
+                _screen.AddLog("ERROR: cannot display the view: " + e.Message);
             }
         }
 

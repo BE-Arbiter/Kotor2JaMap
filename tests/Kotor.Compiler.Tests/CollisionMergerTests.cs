@@ -70,6 +70,6 @@ public class CollisionMergerTests
 
         Assert.Single(polys);
         var w = Assert.Single(log.Warnings, x => x.Code == "COLLISION_DEGENERATE");
-        Assert.Contains("2 triangle", w.Message);
+        Assert.Contains("2 degenerate", w.Message);
     }
 }

@@ -66,7 +66,7 @@ public static class CollisionMerger
             }
 
         if (degenerate > 0)
-            log?.Warn("COLLISION_DEGENERATE", $"Collision : {degenerate} triangle(s) degenere(s) ou a sommets soudes ignore(s) (aire < {DegenerateArea}).");
+            log?.Warn("COLLISION_DEGENERATE", $"Collision: {degenerate} degenerate or vertex-welded triangle(s) skipped (area < {DegenerateArea}).");
 
         // Fusion gloutonne jusqu'à stabilité.
         bool changed = true;

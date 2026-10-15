@@ -26,7 +26,7 @@ public sealed record Limits(int MaxBrushes, int MaxPlanes, int MaxNodes, int Max
     {
         "swgl" => Swgl,
         "vanilla" => Vanilla,
-        _ => throw new ArgumentException($"Profil de limites BSP inconnu : {name} (attendu : swgl ou vanilla).", nameof(name)),
+        _ => throw new ArgumentException($"Unknown BSP limits profile: {name} (expected: swgl or vanilla).", nameof(name)),
     };
 
     public void CheckBrushes(int count) => Check("MAX_MAP_BRUSHES", count, MaxBrushes);
@@ -37,6 +37,6 @@ public sealed record Limits(int MaxBrushes, int MaxPlanes, int MaxNodes, int Max
     private static void Check(string name, int count, int max)
     {
         if (count > max)
-            throw new BspLimitException($"Limite BSP depassee : {name} = {max}, {count} requis. Reduire la geometrie de collision ; aucun BSP partiel n'est ecrit.", collisionRelated: true);
+            throw new BspLimitException($"BSP limit exceeded: {name} = {max}, {count} required. Reduce the collision geometry; no partial BSP is written.", collisionRelated: true);
     }
 }

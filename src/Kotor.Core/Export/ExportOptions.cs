@@ -24,12 +24,12 @@ public sealed record ExportOptions(string KotorDir, string JaBaseDir, string Wor
     public string? Validate()
     {
         if (!float.IsFinite(Scale) || Scale <= 0f)
-            return $"Echelle invalide : {Scale} (doit etre un nombre fini > 0).";
+            return $"Invalid scale: {Scale} (must be a finite number > 0).";
         if (!float.IsFinite(LightmapBrightness) || LightmapBrightness <= 0f)
-            return $"Luminosite des lightmaps invalide : {LightmapBrightness} (doit etre un nombre fini > 0).";
+            return $"Invalid lightmap brightness: {LightmapBrightness} (must be a finite number > 0).";
         string p = (BspLimits ?? "").Trim().ToLowerInvariant();
         if (p is not ("swgl" or "vanilla"))
-            return $"Profil de limites BSP inconnu : {BspLimits} (attendu : swgl ou vanilla).";
+            return $"Unknown BSP limits profile: {BspLimits} (expected: swgl or vanilla).";
         return null;
     }
 }

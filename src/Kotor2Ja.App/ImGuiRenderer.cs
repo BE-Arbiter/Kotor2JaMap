@@ -212,7 +212,7 @@ public sealed class ImGuiRenderer
                 var cmd = cmdList.CmdBuffer[cmdi];
                 if (cmd.ElemCount == 0) continue;
                 if (!_loadedTextures.TryGetValue((IntPtr)cmd.TextureId, out var tex))
-                    throw new InvalidOperationException($"Texture ImGui inconnue : {cmd.TextureId}");
+                    throw new InvalidOperationException($"Unknown ImGui texture: {cmd.TextureId}");
 
                 _gd.ScissorRectangle = new Rectangle(
                     (int)cmd.ClipRect.X, (int)cmd.ClipRect.Y,

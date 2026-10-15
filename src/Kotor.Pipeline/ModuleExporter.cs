@@ -114,8 +114,8 @@ public static class ModuleExporter
                 if (!found || mesh.Uv1 is null)
                 {
                     log.Warn("LIGHTMAP_MISSING", found
-                        ? $"Maillage {mesh.Room}/{mesh.Node} : lightmap {mesh.Lightmap} sans UV de lightmap, shader sans lightmap."
-                        : $"Maillage {mesh.Room}/{mesh.Node} : lightmap {mesh.Lightmap} introuvable, shader sans lightmap.");
+                        ? $"Mesh {mesh.Room}/{mesh.Node}: lightmap {mesh.Lightmap} has no lightmap UV, shader without lightmap."
+                        : $"Mesh {mesh.Room}/{mesh.Node}: lightmap {mesh.Lightmap} not found, shader without lightmap.");
                     mesh = mesh with { Lightmap = null };
                 }
             }
@@ -124,7 +124,7 @@ public static class ModuleExporter
             if (shaders.TryGetValue(planned.Name, out PlannedShader? existing) && existing != planned)
             {
                 string renamed = planned.Name + "_" + planned.Kind.ToString().ToLowerInvariant();
-                log.Warn("SHADER_NAME_CONFLICT", $"{planned.Name} demande par {existing.Kind} et {planned.Kind} : le second devient {renamed}.");
+                log.Warn("SHADER_NAME_CONFLICT", $"{planned.Name} requested by {existing.Kind} and {planned.Kind}: the second becomes {renamed}.");
                 planned = planned with { Name = renamed };
             }
             shaders.TryAdd(planned.Name, planned);
@@ -216,10 +216,10 @@ public static class ModuleExporter
         }
         if (best is null)
         {
-            log.Warn("SPAWN_FALLBACK", "Aucun walkmesh : point d'apparition place a l'entree du module.");
+            log.Warn("SPAWN_FALLBACK", "No walkmesh: spawn point placed at the module entry.");
             return entry * scale + up;
         }
-        log.Warn("SPAWN_FALLBACK", $"Entree ({entry.X:0.##}, {entry.Y:0.##}, {entry.Z:0.##}) hors walkmesh : point d'apparition au-dessus du centre du walkmesh de la piece {best.Room}.");
+        log.Warn("SPAWN_FALLBACK", $"Entry ({entry.X:0.##}, {entry.Y:0.##}, {entry.Z:0.##}) is outside the walkmesh: spawn point placed above the walkmesh centre of room {best.Room}.");
         return bestCenter * scale + up;
     }
 
@@ -281,7 +281,7 @@ public static class ModuleExporter
             Directory.CreateDirectory(dir);
             var sb = new StringBuilder();
             foreach (var (code, message) in log.Warnings) sb.Append(code).Append('\t').Append(message).Append('\n');
-            sb.Append("\nResume par code :\n");
+            sb.Append("\nSummary by code:\n");
             foreach (var g in log.Warnings.GroupBy(w => w.Code).OrderBy(g => g.Key, StringComparer.Ordinal))
                 sb.Append("  ").Append(g.Key).Append(" : ").Append(g.Count()).Append('\n');
             File.WriteAllText(Path.Combine(dir, name + ".journal.txt"), sb.ToString());
@@ -289,7 +289,7 @@ public static class ModuleExporter
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            string msg = $"Journal non ecrit ({ex.Message}).";
+            string msg = $"Journal not written ({ex.Message}).";
             log.Warn("JOURNAL_WRITE_FAILED", msg);
             return msg;
         }

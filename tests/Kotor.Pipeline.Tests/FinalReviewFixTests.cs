@@ -76,7 +76,7 @@ public sealed class FinalReviewFixTests : IDisposable
     {
         var r = ModuleExporter.Export(Scene(), @"..\..\evil", Opt(), new ImportLog());
         Assert.False(r.Ok);
-        Assert.Contains("Nom de carte invalide", r.Error);
+        Assert.Contains("Invalid map name", r.Error);
         Assert.False(Directory.Exists(Path.Combine(_root, "work")));
     }
 
@@ -113,7 +113,7 @@ public sealed class FinalReviewFixTests : IDisposable
 
         KotorWorkflowSteps.WarnIfCollisionReduced(log);
 
-        Assert.Contains(log.Warnings, w => w.Code == "EXPORT_VIEW_COLLISION_STALE" && w.Message.Contains("collisions reduites"));
+        Assert.Contains(log.Warnings, w => w.Code == "EXPORT_VIEW_COLLISION_STALE" && w.Message.Contains("collisions were reduced"));
     }
 
     [Fact]

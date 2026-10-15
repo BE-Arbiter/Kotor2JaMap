@@ -44,11 +44,11 @@ public sealed class WorkflowControllerTests
         Assert.Null(c.NextLabel);
         Assert.True(c.CanPreview);
         await c.PreviewAsync();
-        Assert.Equal("Importer", c.NextLabel);
+        Assert.Equal("Import", c.NextLabel);
         await c.NextAsync();
-        Assert.Equal("Exporter", c.NextLabel);
+        Assert.Equal("Export", c.NextLabel);
         await c.NextAsync();
-        Assert.Equal("Créer PK3", c.NextLabel);
+        Assert.Equal("Create PK3", c.NextLabel);
         PreviewModel? exported = c.Preview;
         await c.NextAsync();
         Assert.Null(c.NextLabel);
@@ -85,7 +85,7 @@ public sealed class WorkflowControllerTests
         var c = await ToStage(f, 2);
         await c.NextAsync();
         Assert.Equal(WorkflowStage.Imported, c.Stage);
-        Assert.Equal("Exporter", c.NextLabel);
+        Assert.Equal("Export", c.NextLabel);
         Assert.NotNull(c.LastError);
         Assert.Contains(c.DrainLog(), l => l.Contains("EXPORT_IO_ERROR"));
         Assert.False(c.IsBusy);
@@ -137,7 +137,7 @@ public sealed class WorkflowControllerTests
         var c = await ToStage(new FakeSteps(), 3);
         c.DrainLog();
         await c.NextAsync();
-        Assert.Contains(c.DrainLog(), l => l.Contains("PK3 : x.pk3"));
+        Assert.Contains(c.DrainLog(), l => l.Contains("PK3: x.pk3"));
     }
 
     [SkippableFact]

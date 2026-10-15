@@ -15,7 +15,7 @@ public static class TgaWriter
         if (width <= 0 || width > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(width));
         if (height <= 0 || height > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(height));
         if (rgba.Length != checked(width * height * 4))
-            throw new ArgumentException($"Taille RGBA incorrecte : {rgba.Length} octets pour {width}x{height}.", nameof(rgba));
+            throw new ArgumentException($"Wrong RGBA size: {rgba.Length} bytes for {width}x{height}.", nameof(rgba));
 
         var buffer = new byte[HeaderSize + rgba.Length];
 

@@ -63,9 +63,9 @@ public static class RenderSurfaces
             bool hasUv1 = s.Uv1 is not null && s.Uv1.Length == nv;
             if (log is not null)
             {
-                if (!hasN) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}' : {s.Normals.Length} normale(s) pour {nv} sommet(s), normales de face utilisees.");
-                if (!hasUv0) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}' : {s.Uv0.Length} UV0 pour {nv} sommet(s), UV a zero utilisees.");
-                if (s.Uv1 is not null && !hasUv1) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}' : {s.Uv1.Length} UV1 pour {nv} sommet(s), pas de lightmap (eclairage par sommet).");
+                if (!hasN) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}': {s.Normals.Length} normal(s) for {nv} vertex(es), face normals used.");
+                if (!hasUv0) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}': {s.Uv0.Length} UV0 for {nv} vertex(es), zero UVs used.");
+                if (s.Uv1 is not null && !hasUv1) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}': {s.Uv1.Length} UV1 for {nv} vertex(es), no lightmap (vertex lighting).");
             }
 
             var gk = (s.Shader, s.DoubleSided, hasUv1);

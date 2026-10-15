@@ -33,7 +33,7 @@ public static class ObjExporter
         File.WriteAllText(Path.Combine(outDir, name + ".mtl"), mtl.ToString());
 
         var obj = new StringBuilder();
-        obj.Append("# KOTOR ").Append(name).Append(" (metres, Z vers le haut)\nmtllib ").Append(name).Append(".mtl\n");
+        obj.Append("# KOTOR ").Append(name).Append(" (metres, Z up)\nmtllib ").Append(name).Append(".mtl\n");
         int baseIdx = 1;
         foreach (var m in scene.Meshes)
         {
@@ -52,7 +52,7 @@ public static class ObjExporter
         File.WriteAllText(Path.Combine(outDir, name + ".obj"), obj.ToString());
 
         if (scene.Walkmeshes.Count == 0) return;
-        var w = new StringBuilder("# Walkmesh (un groupe par piece ; usemtl walk = praticable, nowalk = non praticable)\n");
+        var w = new StringBuilder("# Walkmesh (one group per room; usemtl walk = walkable, nowalk = not walkable)\n");
         int wb = 1;
         foreach (var wm in scene.Walkmeshes)
         {

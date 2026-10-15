@@ -37,7 +37,7 @@ public sealed class WalkableCollisionTests
         Assert.True(r.Brushes.Count > 0);
         Assert.True(r.Reduced);
         Assert.Equal(tris, r.WalkableTriangles);
-        Assert.Contains(log, l => l.Contains("marchables") && l.Contains(r.Brushes.Count.ToString()));
+        Assert.Contains(log, l => l.Contains("walkable") && l.Contains(r.Brushes.Count.ToString()));
     }
 
     [Fact]
@@ -56,6 +56,6 @@ public sealed class WalkableCollisionTests
         var r = WalkableCollision.Build(new ModelMesh { Name = "e" }, 11_900, log: log.Add);
         Assert.Empty(r.Brushes);
         Assert.Equal(0, r.WalkableTriangles);
-        Assert.Contains(log, l => l.Contains("marchables"));
+        Assert.Contains(log, l => l.Contains("walkable"));
     }
 }

@@ -16,11 +16,11 @@ public static class WokReader
     {
         ArgumentNullException.ThrowIfNull(data);
         if (data.Length < HeaderSize || Encoding.ASCII.GetString(data, 0, 8) != "BWM V1.0")
-            throw new InvalidDataException("BWM V1.0 attendu.");
+            throw new InvalidDataException("BWM V1.0 expected.");
         long vCount = U32(data, 72), vOff = U32(data, 76), fCount = U32(data, 80), fOff = U32(data, 84), mOff = U32(data, 88);
-        Need(data, vOff, vCount * 12, "sommets");
+        Need(data, vOff, vCount * 12, "vertices");
         Need(data, fOff, fCount * 12, "faces");
-        Need(data, mOff, fCount * 4, "materiaux");
+        Need(data, mOff, fCount * 4, "materials");
         var verts = new Vector3[vCount];
         for (int i = 0; i < vCount; i++)
         {
@@ -32,7 +32,7 @@ public static class WokReader
         for (int i = 0; i < tris.Length; i++)
         {
             long v = U32(data, fOff + i * 4L);
-            if (v >= vCount) throw new InvalidDataException($"BWM : indice de sommet {v} hors limites ({vCount}).");
+            if (v >= vCount) throw new InvalidDataException($"BWM: vertex index {v} out of range ({vCount}).");
             tris[i] = (int)v;
         }
         var mats = new int[fCount];
@@ -44,6 +44,6 @@ public static class WokReader
 
     private static void Need(byte[] d, long off, long len, string what)
     {
-        if (off < 0 || len < 0 || off + len > d.Length) throw new InvalidDataException($"BWM tronque ({what}).");
+        if (off < 0 || len < 0 || off + len > d.Length) throw new InvalidDataException($"BWM truncated ({what}).");
     }
 }

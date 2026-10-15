@@ -26,7 +26,7 @@ public static class WalkableCollision
         int tris = walkable.SubMeshes.Sum(s => s.Triangles.Length / 3);
         if (tris == 0)
         {
-            log?.Invoke("Terrain : 0 triangles marchables, 0 brush de collision ajoute.");
+            log?.Invoke("Terrain: 0 walkable triangles, 0 collision brushes added.");
             return new WalkableCollisionResult([], 0, 0, false, false);
         }
 
@@ -47,9 +47,9 @@ public static class WalkableCollision
         bool limit = brushes.Count > maxBrushes;
         if (limit) brushes = brushes.Take(maxBrushes).ToList();
 
-        log?.Invoke($"Terrain : {tris} triangles marchables, {brushes.Count} brushes de collision ajoutes (epaisseur {thickness}, limite {maxBrushes})"
-            + (reduced ? $", terrain reduit de {tris} a {used} triangles pour passer sous la limite" : ", aucune reduction")
-            + (limit ? ", LIMITE ATTEINTE : brushes tronques." : "."));
+        log?.Invoke($"Terrain: {tris} walkable triangles, {brushes.Count} collision brushes added (thickness {thickness}, limit {maxBrushes})"
+            + (reduced ? $", terrain reduced from {tris} to {used} triangles to fit under the limit" : ", no reduction")
+            + (limit ? ", LIMIT REACHED: brushes truncated." : "."));
         return new WalkableCollisionResult(brushes, tris, used, reduced, limit);
     }
 

@@ -31,25 +31,25 @@ public static class BspReader
     public static BspFile Read(byte[] data)
     {
         ArgumentNullException.ThrowIfNull(data);
-        if (data.Length < BspWriter.HeaderSize) throw new InvalidDataException("Fichier BSP trop court pour contenir l'en-tete.");
+        if (data.Length < BspWriter.HeaderSize) throw new InvalidDataException("BSP file too short to hold the header.");
         if (Encoding.ASCII.GetString(data, 0, 4) != "RBSP")
-            throw new InvalidDataException("En-tete BSP inconnu : \"RBSP\" attendu.");
+            throw new InvalidDataException("Unknown BSP header: \"RBSP\" expected.");
         int version = BitConverter.ToInt32(data, 4);
-        if (version != 1) throw new InvalidDataException($"Version BSP {version} non prise en charge (RBSP version 1 attendue).");
+        if (version != 1) throw new InvalidDataException($"BSP version {version} is not supported (RBSP version 1 expected).");
 
         var lumps = new (int Ofs, int Len)[BspWriter.LumpCount];
         for (int i = 0; i < lumps.Length; i++)
         {
             int ofs = BitConverter.ToInt32(data, 8 + i * 8), len = BitConverter.ToInt32(data, 12 + i * 8);
             if (ofs < BspWriter.HeaderSize || len < 0 || (long)ofs + len > data.Length)
-                throw new InvalidDataException($"Lump {i} hors du fichier (offset {ofs}, longueur {len}, fichier {data.Length} octets).");
+                throw new InvalidDataException($"Lump {i} outside the file (offset {ofs}, length {len}, file {data.Length} bytes).");
             lumps[i] = (ofs, len);
         }
 
         int Count(int lump, int size)
         {
             if (lumps[lump].Len % size != 0)
-                throw new InvalidDataException($"Lump {lump} : longueur {lumps[lump].Len} non multiple de {size}.");
+                throw new InvalidDataException($"Lump {lump}: length {lumps[lump].Len} is not a multiple of {size}.");
             return lumps[lump].Len / size;
         }
 
@@ -81,15 +81,15 @@ public static class BspReader
         {
             int o = so + s * SurfaceSize;
             int shaderNum = I(o), type = I(o + 8), firstVert = I(o + 12), numVerts = I(o + 16), firstIndex = I(o + 20), numIndexes = I(o + 24);
-            if (shaderNum < 0 || shaderNum >= shaderCount) throw new InvalidDataException($"Surface {s} : shader {shaderNum} inexistant.");
+            if (shaderNum < 0 || shaderNum >= shaderCount) throw new InvalidDataException($"Surface {s}: shader {shaderNum} does not exist.");
             if (firstVert < 0 || numVerts < 0 || (long)firstVert + numVerts > vertCount)
-                throw new InvalidDataException($"Surface {s} : sommets {firstVert}+{numVerts} hors du lump ({vertCount}).");
+                throw new InvalidDataException($"Surface {s}: vertices {firstVert}+{numVerts} outside the lump ({vertCount}).");
             if (firstIndex < 0 || numIndexes < 0 || (long)firstIndex + numIndexes > indexCount)
-                throw new InvalidDataException($"Surface {s} : index {firstIndex}+{numIndexes} hors du lump ({indexCount}).");
+                throw new InvalidDataException($"Surface {s}: indexes {firstIndex}+{numIndexes} outside the lump ({indexCount}).");
 
-            if (numVerts == 0) throw new InvalidDataException($"Surface {s} : aucun sommet.");
-            if (numIndexes == 0) throw new InvalidDataException($"Surface {s} : aucun index.");
-            if (numIndexes % 3 != 0) throw new InvalidDataException($"Surface {s} : {numIndexes} index, non multiple de 3.");
+            if (numVerts == 0) throw new InvalidDataException($"Surface {s}: no vertex.");
+            if (numIndexes == 0) throw new InvalidDataException($"Surface {s}: no index.");
+            if (numIndexes % 3 != 0) throw new InvalidDataException($"Surface {s}: {numIndexes} indexes, not a multiple of 3.");
 
             var pos = new Vector3[numVerts];
             var nor = new Vector3[numVerts];
@@ -110,7 +110,7 @@ public static class BspReader
             {
                 int ix = I(io + (firstIndex + k) * 4);
                 if (ix < 0 || ix >= numVerts)
-                    throw new InvalidDataException($"Surface {s} : index {ix} hors de ses {numVerts} sommets.");
+                    throw new InvalidDataException($"Surface {s}: index {ix} outside its {numVerts} vertices.");
                 idx[k] = ix;
             }
             surfaces.Add(new BspSurface(shaders[shaderNum], type, pos, nor, uv0, uv1, col, idx));

@@ -41,12 +41,12 @@ public sealed class LayoutFile
             remaining--;
             if (section == "roomcount")
             {
-                if (t.Length < 4) throw new InvalidDataException($"Ligne de piece LYT invalide : '{raw.Trim()}'.");
+                if (t.Length < 4) throw new InvalidDataException($"Invalid LYT room line: '{raw.Trim()}'.");
                 rooms.Add(new LayoutRoom(head, new Vector3(F(t[1]), F(t[2]), F(t[3]))));
             }
             else if (section == "doorhookcount")
             {
-                if (t.Length < 10) throw new InvalidDataException($"Ligne de doorhook LYT invalide : '{raw.Trim()}'.");
+                if (t.Length < 10) throw new InvalidDataException($"Invalid LYT doorhook line: '{raw.Trim()}'.");
                 hooks.Add(new LayoutDoorHook(
                     t[1].ToLowerInvariant(), head,
                     new Vector3(F(t[3]), F(t[4]), F(t[5])),

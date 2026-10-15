@@ -14,10 +14,10 @@ public static class MapNames
     public static string? Validate(string normalizedName)
     {
         if (string.IsNullOrEmpty(normalizedName) || normalizedName.Length > MaxLength)
-            return $"Nom de carte invalide : \"{normalizedName}\" (1 a {MaxLength} caracteres attendus).";
+            return $"Invalid map name: \"{normalizedName}\" (1 to {MaxLength} characters expected).";
         foreach (char c in normalizedName)
             if (!(c is >= 'a' and <= 'z' || c is >= '0' and <= '9' || c == '_'))
-                return $"Nom de carte invalide : \"{normalizedName}\" (seuls a-z, 0-9 et _ sont autorises).";
+                return $"Invalid map name: \"{normalizedName}\" (only a-z, 0-9 and _ are allowed).";
         return null;
     }
 }

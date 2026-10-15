@@ -49,8 +49,8 @@ public static class MdlReader
         ArgumentNullException.ThrowIfNull(mdl);
         ArgumentNullException.ThrowIfNull(mdx);
         var ctx = new Ctx(mdl, mdx);
-        ctx.Need(0, FileHeader + ModelHeaderSize, "en-tete");
-        if (ctx.U32(0) != 0) throw ctx.Bad("MDL ASCII non supporte");
+        ctx.Need(0, FileHeader + ModelHeaderSize, "header");
+        if (ctx.U32(0) != 0) throw ctx.Bad("ASCII MDL is not supported");
 
         uint fn = ctx.U32(FileHeader + GeoFnPtr);
         if (fn != FnPtrK1Pc && fn != FnPtrK2Pc)
@@ -58,17 +58,17 @@ public static class MdlReader
         ctx.K2 = fn == FnPtrK2Pc;
 
         ctx.ModelName = ctx.FixedString(FileHeader + GeoName, 32);
-        int root = ctx.Off(FileHeader + GeoRootNode, "noeud racine");
+        int root = ctx.Off(FileHeader + GeoRootNode, "root node");
         var bmin = ctx.Vec3(FileHeader + ModelBBoxMin);
         var bmax = ctx.Vec3(FileHeader + ModelBBoxMin + 12);
         string super = ctx.FixedString(FileHeader + ModelSuperName, 32);
 
-        int nameOff = ctx.Off(FileHeader + ModelNameArray, "tableau des noms");
-        int nameCount = ctx.Count(FileHeader + ModelNameArray + 4, "nombre de noms");
-        ctx.Need(FileHeader + nameOff, nameCount * 4L, "tableau des noms");
+        int nameOff = ctx.Off(FileHeader + ModelNameArray, "name table");
+        int nameCount = ctx.Count(FileHeader + ModelNameArray + 4, "name count");
+        ctx.Need(FileHeader + nameOff, nameCount * 4L, "name table");
         ctx.Names = new string[nameCount];
         for (int i = 0; i < nameCount; i++)
-            ctx.Names[i] = ctx.CString(FileHeader + ctx.Off(FileHeader + nameOff + i * 4, "nom"));
+            ctx.Names[i] = ctx.CString(FileHeader + ctx.Off(FileHeader + nameOff + i * 4, "name"));
 
         var rootNode = ReadNode(ctx, root, 0);
         string? superName = string.IsNullOrEmpty(super) || super.Equals("null", StringComparison.OrdinalIgnoreCase)
@@ -78,12 +78,12 @@ public static class MdlReader
 
     private static KotorNode ReadNode(Ctx c, int nodeOff, int depth)
     {
-        if (depth > MaxDepth) throw c.Bad("hierarchie trop profonde");
+        if (depth > MaxDepth) throw c.Bad("hierarchy too deep");
         int b = FileHeader + nodeOff;
-        c.Need(b, NodeHeaderSize, "noeud @" + nodeOff);
+        c.Need(b, NodeHeaderSize, "node @" + nodeOff);
         ushort flags = c.U16(b + NodeFlags);
         int nameIdx = c.U16(b + NodeNameIndex);
-        if (nameIdx >= c.Names.Length) throw c.Bad($"noeud @{nodeOff} : index de nom {nameIdx} hors limites");
+        if (nameIdx >= c.Names.Length) throw c.Bad($"node @{nodeOff}: name index {nameIdx} out of range");
         string name = c.Names[nameIdx];
         c.NodeName = name;
         var kind = (NodeKind)flags;
@@ -93,12 +93,12 @@ public static class MdlReader
               qy = c.F32(b + NodeOrientation + 8), qz = c.F32(b + NodeOrientation + 12);
         var rot = new Quaternion(qx, qy, qz, qw);
 
-        int childOff = c.Off(b + NodeChildren, "enfants");
-        int childCount = c.Count(b + NodeChildren + 4, "nombre d'enfants");
-        int keyOff = c.Off(b + NodeCtrlKeys, "cles de controleurs");
-        int keyCount = c.Count(b + NodeCtrlKeys + 4, "nombre de controleurs");
-        int dataOff = c.Off(b + NodeCtrlData, "donnees de controleurs");
-        int dataCount = c.Count(b + NodeCtrlData + 4, "nombre de donnees de controleurs");
+        int childOff = c.Off(b + NodeChildren, "children");
+        int childCount = c.Count(b + NodeChildren + 4, "child count");
+        int keyOff = c.Off(b + NodeCtrlKeys, "controller keys");
+        int keyCount = c.Count(b + NodeCtrlKeys + 4, "controller count");
+        int dataOff = c.Off(b + NodeCtrlData, "controller data");
+        int dataCount = c.Count(b + NodeCtrlData + 4, "controller data count");
 
         var lv = (kind & NodeKind.Light) != 0 ? new LightValues() : null;
         ReadControllers(c, keyOff, keyCount, dataOff, dataCount, ref pos, ref rot, lv);
@@ -109,7 +109,7 @@ public static class MdlReader
             // Light/Emitter/Reference ne se combinent pas avec Mesh dans les fichiers du jeu : l'en-tete de maillage
             // suit alors directement l'en-tete de noeud. Une combinaison inconnue serait mal lue, donc refusee.
             if ((kind & (NodeKind.Light | NodeKind.Emitter | NodeKind.Reference)) != 0)
-                throw c.Bad($"combinaison de drapeaux non supportee ({flags:X4})");
+                throw c.Bad($"unsupported flag combination ({flags:X4})");
             mesh = ReadMesh(c, b + NodeHeaderSize);
         }
 
@@ -124,10 +124,10 @@ public static class MdlReader
                 lv.Color is null || lv.Radius is null || lv.Multiplier is null, ambientOnly, lv.Invalid);
         }
         var node = new KotorNode(name, kind, pos, rot, mesh, light);
-        c.Need(FileHeader + childOff, childCount * 4L, "enfants de " + name);
+        c.Need(FileHeader + childOff, childCount * 4L, "children of " + name);
         for (int i = 0; i < childCount; i++)
         {
-            int co = c.Off(FileHeader + childOff + i * 4, "enfant");
+            int co = c.Off(FileHeader + childOff + i * 4, "child");
             node.AddChild(ReadNode(c, co, depth + 1));
         }
         return node;
@@ -145,8 +145,8 @@ public static class MdlReader
         ref Vector3 pos, ref Quaternion rot, LightValues? light)
     {
         if (keyCount == 0) return;
-        c.Need(FileHeader + keyOff, keyCount * 16L, "controleurs");
-        c.Need(FileHeader + dataOff, dataCount * 4L, "donnees de controleurs");
+        c.Need(FileHeader + keyOff, keyCount * 16L, "controllers");
+        c.Need(FileHeader + dataOff, dataCount * 4L, "controller data");
         int d0 = FileHeader + dataOff;
         for (int i = 0; i < keyCount; i++)
         {
@@ -170,7 +170,7 @@ public static class MdlReader
             // Premiere image cle uniquement.
             int nVals = type == 20 && cols == 2 ? 1 : (cols & 0xF);
             if (valIdx + (long)nVals > dataCount || timeIdx + 1L > dataCount)
-                throw c.Bad($"controleur {type} hors limites");
+                throw c.Bad($"controller {type} out of range");
             if (type == 8)
             {
                 if ((cols & 0xF) != 3) continue;      // xoreos : colonnes 3 ou 19 (bezier)
@@ -211,16 +211,16 @@ public static class MdlReader
     private static KotorMesh ReadMesh(Ctx c, int m)
     {
         int k2 = c.K2 ? K2MeshExtra : 0;
-        c.Need(m, MeshHeaderSize + k2, "en-tete de maillage de " + c.NodeName);
+        c.Need(m, MeshHeaderSize + k2, "mesh header of " + c.NodeName);
         int faceOff = c.Off(m + MeshFaces, "faces");
-        int faceCount = c.Count(m + MeshFaces + 4, "nombre de faces");
+        int faceCount = c.Count(m + MeshFaces + 4, "face count");
         int transparency = (int)c.U32(m + MeshTransparency);
         string? tex0 = Tex(c.FixedString(m + MeshTexture0, 32));
         string? tex1 = Tex(c.FixedString(m + MeshTexture1, 32));
         // 0xFFFFFFFF = pas de donnees MDX pour ce maillage (observe sur 35 modeles de models.bif) : positions du MDL seules.
         uint mdxStrideRaw = c.U32(m + MeshMdxVertexSize);
         bool hasMdx = mdxStrideRaw != uint.MaxValue && mdxStrideRaw != 0;
-        if (hasMdx && mdxStrideRaw > 4096) throw c.Bad($"taille de sommet MDX invalide ({mdxStrideRaw})");
+        if (hasMdx && mdxStrideRaw > 4096) throw c.Bad($"invalid MDX vertex size ({mdxStrideRaw})");
         int mdxStride = hasMdx ? (int)mdxStrideRaw : 0;
         int offNormals = c.I32(m + MeshMdxOffNormals);
         int offUv0 = c.I32(m + MeshMdxOffUv0);
@@ -229,19 +229,19 @@ public static class MdlReader
         bool hasLightmap = c.Bytes[m + MeshHasLightmap] != 0;
         bool render = c.Bytes[m + MeshRender] != 0;
         long mdxOff = c.U32(m + MeshMdxDataOffset + k2);
-        int vertArr = c.Off(m + MeshVertexArrayOffset + k2, "sommets");
+        int vertArr = c.Off(m + MeshVertexArrayOffset + k2, "vertices");
 
         var tris = new int[faceCount * 3];
         if (faceCount > 0)
         {
-            c.Need(FileHeader + faceOff, faceCount * (long)FaceSize, "faces de " + c.NodeName);
+            c.Need(FileHeader + faceOff, faceCount * (long)FaceSize, "faces of " + c.NodeName);
             for (int i = 0; i < faceCount; i++)
             {
                 int f = FileHeader + faceOff + i * FaceSize + FaceIndices;
                 for (int j = 0; j < 3; j++)
                 {
                     int idx = c.U16(f + j * 2);
-                    if (idx >= vertCount) throw c.Bad($"indice de sommet {idx} >= {vertCount}");
+                    if (idx >= vertCount) throw c.Bad($"vertex index {idx} >= {vertCount}");
                     tris[i * 3 + j] = idx;
                 }
             }
@@ -253,13 +253,13 @@ public static class MdlReader
         if (hasMdx) { if (offNormals >= 0) normals = new Vector3[vertCount]; if (offUv0 >= 0) uv0 = new Vector2[vertCount]; if (offUv1 >= 0) uv1 = new Vector2[vertCount]; }
         if (vertCount > 0)
         {
-            c.Need(FileHeader + vertArr, vertCount * 12L, "positions de " + c.NodeName);
+            c.Need(FileHeader + vertArr, vertCount * 12L, "positions of " + c.NodeName);
             for (int i = 0; i < vertCount; i++) positions[i] = c.Vec3(FileHeader + vertArr + i * 12);
 
-            if (hasMdx) c.NeedMdx(mdxOff, (long)vertCount * mdxStride, "donnees MDX");
+            if (hasMdx) c.NeedMdx(mdxOff, (long)vertCount * mdxStride, "MDX data");
             if ((normals is not null && offNormals + 12 > mdxStride) || (uv0 is not null && offUv0 + 8 > mdxStride)
                 || (uv1 is not null && offUv1 + 8 > mdxStride))
-                throw c.Bad("offset MDX hors de la taille de sommet");
+                throw c.Bad("MDX offset outside the vertex size");
             for (int i = 0; i < vertCount; i++)
             {
                 long v = mdxOff + (long)i * mdxStride;
@@ -291,18 +291,18 @@ public static class MdlReader
         public Ctx(byte[] mdl, byte[] mdx) { Bytes = mdl; Mdx = mdx; }
 
         public InvalidDataException Bad(string msg) =>
-            new($"MDL '{ModelName}', noeud '{NodeName}' : {msg}");
+            new($"MDL '{ModelName}', node '{NodeName}': {msg}");
 
         public void Need(long offset, long length, string what)
         {
             if (offset < 0 || length < 0 || offset + length > Bytes.Length)
-                throw Bad($"{what} hors du fichier (offset {offset}, taille {length}, fichier {Bytes.Length})");
+                throw Bad($"{what} outside the file (offset {offset}, size {length}, file {Bytes.Length})");
         }
 
         public void NeedMdx(long offset, long length, string what)
         {
             if (offset < 0 || length < 0 || offset + length > Mdx.Length)
-                throw Bad($"{what} hors du MDX (offset {offset}, taille {length}, MDX {Mdx.Length})");
+                throw Bad($"{what} outside the MDX (offset {offset}, size {length}, MDX {Mdx.Length})");
         }
 
         public ushort U16(long o) { Need(o, 2, "u16"); return BinaryPrimitives.ReadUInt16LittleEndian(Bytes.AsSpan((int)o)); }
@@ -316,20 +316,20 @@ public static class MdlReader
         public int Off(long at, string what)
         {
             uint v = U32(at);
-            if (v > Bytes.Length) throw Bad($"{what} : offset {v} hors du fichier");
+            if (v > Bytes.Length) throw Bad($"{what}: offset {v} outside the file");
             return (int)v;
         }
 
         public int Count(long at, string what)
         {
             uint v = U32(at);
-            if (v > int.MaxValue / 64) throw Bad($"{what} : nombre {(int)v} invalide");
+            if (v > int.MaxValue / 64) throw Bad($"{what}: invalid count {(int)v}");
             return (int)v;
         }
 
         public string FixedString(long o, int len)
         {
-            Need(o, len, "chaine");
+            Need(o, len, "string");
             int n = Array.IndexOf(Bytes, (byte)0, (int)o, len);
             int end = n < 0 ? (int)o + len : n;
             return Encoding.ASCII.GetString(Bytes, (int)o, end - (int)o);
@@ -337,9 +337,9 @@ public static class MdlReader
 
         public string CString(long o)
         {
-            Need(o, 1, "chaine");
+            Need(o, 1, "string");
             int n = Array.IndexOf(Bytes, (byte)0, (int)o);
-            if (n < 0) throw Bad("chaine non terminee");
+            if (n < 0) throw Bad("unterminated string");
             return Encoding.ASCII.GetString(Bytes, (int)o, n - (int)o);
         }
     }

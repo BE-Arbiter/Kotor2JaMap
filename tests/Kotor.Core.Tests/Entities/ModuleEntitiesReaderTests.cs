@@ -155,7 +155,7 @@ public class ModuleEntitiesReaderTests
         using var k = new FakeKotor(g.Build("GIT "));
         var log = new ImportLog();
         ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
-        Assert.Contains(log.Warnings, w => w.Code == "GIT_LIST_MISSING" && w.Message.Contains("n'est pas une liste"));
+        Assert.Contains(log.Warnings, w => w.Code == "GIT_LIST_MISSING" && w.Message.Contains("is not a list"));
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public class ModuleEntitiesReaderTests
         var log = new ImportLog();
         var ents = ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
         Assert.Empty(ents);
-        Assert.Contains(log.Warnings, w => w.Code == "GIT_ENTRY_INVALID" && w.Message.Contains("type inattendu"));
+        Assert.Contains(log.Warnings, w => w.Code == "GIT_ENTRY_INVALID" && w.Message.Contains("unexpected type"));
     }
 
     [Fact]

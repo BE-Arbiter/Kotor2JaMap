@@ -36,7 +36,7 @@ public class ExportJaCommandTests
         var err = new StringWriter();
         int code = ExportJaCommand.Run(new ExportOptions("k", "b", "w", Scale: -2f), "x", null, new StringWriter(), err);
         Assert.Equal(1, code);
-        Assert.Contains("Echelle", err.ToString());
+        Assert.Contains("Invalid scale", err.ToString());
     }
 
     [Theory]
@@ -48,7 +48,7 @@ public class ExportJaCommandTests
         var err = new StringWriter();
         int code = ExportJaCommand.Run(new ExportOptions("k", "b", "w"), "x", name, new StringWriter(), err);
         Assert.Equal(1, code);
-        Assert.Contains("Nom de carte invalide", err.ToString());
+        Assert.Contains("Invalid map name", err.ToString());
     }
 
     [Fact]

@@ -25,10 +25,10 @@ public static class GffReader
 
     public static GffStruct Read(byte[] data, out string fileType)
     {
-        if (data.Length < 56) throw new InvalidDataException("GFF trop court.");
+        if (data.Length < 56) throw new InvalidDataException("GFF too short.");
         fileType = Encoding.ASCII.GetString(data, 0, 4);
         if (Encoding.ASCII.GetString(data, 4, 4) != "V3.2")
-            throw new InvalidDataException("Version GFF non prise en charge : " + Encoding.ASCII.GetString(data, 4, 4));
+            throw new InvalidDataException("Unsupported GFF version: " + Encoding.ASCII.GetString(data, 4, 4));
         int U(int o) => checked((int)BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(o)));
         var h = new Header(U(8), U(12), U(16), U(20), U(24), U(28), U(32), U(40), U(48));
         var cache = new Dictionary<int, GffStruct>();
@@ -37,8 +37,8 @@ public static class GffReader
 
     private static GffStruct ReadStruct(byte[] d, Header h, int idx, Dictionary<int, GffStruct> cache, int depth)
     {
-        if (depth > 64) throw new InvalidDataException("GFF : imbrication trop profonde.");
-        if (idx < 0 || idx >= h.StructCount) throw new InvalidDataException("GFF : index de struct invalide " + idx);
+        if (depth > 64) throw new InvalidDataException("GFF: nesting too deep.");
+        if (idx < 0 || idx >= h.StructCount) throw new InvalidDataException("GFF: invalid struct index " + idx);
         if (cache.TryGetValue(idx, out var c)) return c;
         int so = h.StructOff + idx * 12;
         uint type = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(so));
@@ -49,11 +49,11 @@ public static class GffReader
         {
             int fi = count == 1 ? checked((int)dataOrOff)
                 : checked((int)BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(h.FieldIdxOff + checked((int)dataOrOff) + i * 4)));
-            if (fi < 0 || fi >= h.FieldCount) throw new InvalidDataException("GFF : index de champ invalide.");
+            if (fi < 0 || fi >= h.FieldCount) throw new InvalidDataException("GFF: invalid field index.");
             int fo = h.FieldOff + fi * 12;
             uint ft = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(fo));
             int li = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(fo + 4)));
-            if (li < 0 || li >= h.LabelCount) throw new InvalidDataException("GFF : index de libelle invalide.");
+            if (li < 0 || li >= h.LabelCount) throw new InvalidDataException("GFF: invalid label index.");
             string label = ReadLabel(d, h.LabelOff + li * 16);
             fields[label] = ReadField(d, h, ft, fo + 8, cache, depth);
         }
@@ -114,7 +114,7 @@ public static class GffReader
                 return new Quaternion(x, y, z, w);
             }
             case 17: return new Vector3(F(d, fd), F(d, fd + 4), F(d, fd + 8));
-            default: throw new InvalidDataException("GFF : type de champ inconnu " + type);
+            default: throw new InvalidDataException("GFF: unknown field type " + type);
         }
     }
 

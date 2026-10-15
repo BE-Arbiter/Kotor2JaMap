@@ -19,13 +19,13 @@ public static class TpcDecoder
     public static KotorTexture Decode(byte[] tpc)
     {
         ArgumentNullException.ThrowIfNull(tpc);
-        if (tpc.Length < HeaderSize) throw new InvalidDataException("TPC tronque (en-tete).");
+        if (tpc.Length < HeaderSize) throw new InvalidDataException("TPC truncated (header).");
         uint dataSize = BitConverter.ToUInt32(tpc, 0);
         int w = BitConverter.ToUInt16(tpc, 8);
         int h = BitConverter.ToUInt16(tpc, 10);
         int enc = tpc[12];
         int mips = Math.Max(1, (int)tpc[13]);
-        if (w == 0 || h == 0) throw new InvalidDataException("TPC de dimensions nulles.");
+        if (w == 0 || h == 0) throw new InvalidDataException("TPC with zero dimensions.");
 
         bool compressed = dataSize > 0;
         bool cube = h == 6 * w;
@@ -37,10 +37,10 @@ public static class TpcDecoder
         int blockBytes = 0;
         switch (enc)
         {
-            case 1: bpp = 1; if (compressed) throw new InvalidDataException("TPC gris compresse non gere."); break;
+            case 1: bpp = 1; if (compressed) throw new InvalidDataException("Compressed grayscale TPC is not supported."); break;
             case 2: bpp = 3; blockBytes = compressed ? 8 : 0; break;
             case 4: bpp = 4; blockBytes = compressed ? 16 : 0; break;
-            default: throw new InvalidDataException($"Encodage TPC {enc} non gere (1, 2 ou 4 seulement).");
+            default: throw new InvalidDataException($"TPC encoding {enc} is not supported (only 1, 2 or 4).");
         }
 
         long LevelSize(int lw, int lh) => blockBytes > 0
@@ -58,7 +58,7 @@ public static class TpcDecoder
                 mw = Math.Max(1, mw / 2); mh = Math.Max(1, mh / 2);
             }
         }
-        if (HeaderSize + face0 > tpc.Length) throw new InvalidDataException("TPC tronque (pixels).");
+        if (HeaderSize + face0 > tpc.Length) throw new InvalidDataException("TPC truncated (pixels).");
 
         var data = new ReadOnlySpan<byte>(tpc, HeaderSize, (int)face0);
         byte[] rgba;

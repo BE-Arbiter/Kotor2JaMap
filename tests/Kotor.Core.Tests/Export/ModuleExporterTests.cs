@@ -235,7 +235,7 @@ public sealed class ModuleExporterTests : IDisposable
         var scene = Scene([Quad("t", "l")], ["t", "l"]);
         var r = ModuleExporter.Export(scene, "bad", Opt() with { Scale = 0f }, new ImportLog());
         Assert.False(r.Ok);
-        Assert.Contains("Echelle", r.Error);
+        Assert.Contains("Invalid scale", r.Error);
         Assert.Throws<ArgumentException>(() => ModuleExporter.BuildPlan(scene, null, Opt() with { Scale = float.NaN }, new ImportLog()));
     }
 

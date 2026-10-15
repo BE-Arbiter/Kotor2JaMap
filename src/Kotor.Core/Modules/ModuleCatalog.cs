@@ -26,10 +26,10 @@ public static class ModuleCatalog
     public static ModuleInfo Load(ResourceResolver res, string module, TlkFile? tlk)
     {
         byte[] ifoData = res.Find("module", ResourceType.Ifo)
-            ?? throw new InvalidDataException($"module.ifo introuvable pour {module}.");
+            ?? throw new InvalidDataException($"module.ifo not found for {module}.");
         var ifo = GffReader.Read(ifoData, out _);
         string area = (ifo.GetList("Mod_Area_list").FirstOrDefault()?.Get<string>("Area_Name") ?? "").ToLowerInvariant();
-        if (area.Length == 0) throw new InvalidDataException($"Mod_Area_list vide dans {module}.");
+        if (area.Length == 0) throw new InvalidDataException($"Mod_Area_list is empty in {module}.");
 
         var entry = new ModuleEntry(
             new Vector3(ifo.Get<float>("Mod_Entry_X"), ifo.Get<float>("Mod_Entry_Y"), ifo.Get<float>("Mod_Entry_Z")),

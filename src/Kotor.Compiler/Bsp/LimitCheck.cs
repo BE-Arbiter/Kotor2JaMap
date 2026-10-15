@@ -15,7 +15,7 @@ public static class LimitCheck
     public static void Check(string lumpName, int count, int max, bool collisionRelated = false)
     {
         if (count > max)
-            throw new BspLimitException($"Limite BSP depassee : {lumpName} = {max}, {count} requis. Reduire la geometrie ; aucun BSP partiel n'est ecrit.", collisionRelated);
+            throw new BspLimitException($"BSP limit exceeded: {lumpName} = {max}, {count} required. Reduce the geometry; no partial BSP is written.", collisionRelated);
     }
 
     /// <summary>Limites par surface de rendu (ParseTriSurf du moteur) : échec propre si le découpage a été contourné.</summary>

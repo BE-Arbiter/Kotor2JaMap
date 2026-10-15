@@ -42,7 +42,7 @@ public static class ModuleEntitiesReader
 
         // Les PNJ (creatures, rencontres) ne sont ni lus ni comptes : voir NPC_SKIPPED.
         var counts = Enum.GetValues<EntityKind>().Where(k => k is not (EntityKind.Creature or EntityKind.Encounter)).Select(k => $"{k}={result.Count(e => e.Kind == k)}");
-        log.Warn("ENTITIES", $"{info.AreaResRef} : {result.Count} entite(s) ({string.Join(", ", counts)}).");
+        log.Warn("ENTITIES", $"{info.AreaResRef}: {result.Count} entity(ies) ({string.Join(", ", counts)}).");
         return result;
     }
 
@@ -63,14 +63,14 @@ public static class ModuleEntitiesReader
     private static void ReadGit(ResourceResolver res, ModuleInfo info, List<ModuleEntity> result, ImportLog log, EntityKind[]? only)
     {
         byte[]? data = res.Find(info.AreaResRef, ResourceType.Git);
-        if (data is null) { log.Warn("GIT_MISSING", $"{info.AreaResRef}.git introuvable : aucune entite du GIT."); return; }
+        if (data is null) { log.Warn("GIT_MISSING", $"{info.AreaResRef}.git not found: no GIT entities."); return; }
         GffStruct git;
         try { git = GffReader.Read(data, out _); }
         catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException
             or EndOfStreamException or IndexOutOfRangeException)
         {
             // ArgumentOutOfRangeException est une ArgumentException.
-            log.Warn("GIT_UNREADABLE", $"{info.AreaResRef}.git illisible ({ex.Message}) : aucune entite du GIT.");
+            log.Warn("GIT_UNREADABLE", $"{info.AreaResRef}.git unreadable ({ex.Message}): no GIT entities.");
             return;
         }
         if (only is null) WarnNpcs(git, info, log);
@@ -81,8 +81,8 @@ public static class ModuleEntitiesReader
             if (!git.Fields.TryGetValue(spec.List, out var raw) || raw is not IReadOnlyList<GffStruct> list)
             {
                 log.Warn("GIT_LIST_MISSING", git.Fields.ContainsKey(spec.List)
-                    ? $"{spec.List} presente mais n'est pas une liste : aucune entite {spec.Kind}."
-                    : $"{spec.List} absente du GIT : aucune entite {spec.Kind}.");
+                    ? $"{spec.List} is present but is not a list: no {spec.Kind} entities."
+                    : $"{spec.List} is missing from the GIT: no {spec.Kind} entities.");
                 continue;
             }
             int noOrientation = 0;
@@ -97,11 +97,11 @@ public static class ModuleEntitiesReader
                     if (spec.Kind == EntityKind.Door)
                         e = e with { Locked = models.IsDoorLocked(e.Template), LinkedToModule = (list[i].Get<string>("LinkedToModule") ?? "").Trim() };
                 }
-                if (e is null) log.Warn("GIT_ENTRY_INVALID", $"{spec.List}[{i}] : {error}, entree sautee.");
+                if (e is null) log.Warn("GIT_ENTRY_INVALID", $"{spec.List}[{i}]: {error}, entry skipped.");
                 else { result.Add(e); if (orientMissing) noOrientation++; }
             }
             if (noOrientation > 0)
-                log.Warn("GIT_ORIENTATION_MISSING", $"{spec.List} : {noOrientation} entree(s) sans orientation exploitable, Yaw = 0.");
+                log.Warn("GIT_ORIENTATION_MISSING", $"{spec.List}: {noOrientation} entry(ies) without a usable orientation, Yaw = 0.");
         }
     }
 
@@ -123,7 +123,7 @@ public static class ModuleEntitiesReader
         if (spec.Kind == EntityKind.Camera)
         {
             if (s.Get<Vector3?>("Position") is not { } p || s.Get<Quaternion?>("Orientation") is not { } q)
-            { error = "Position ou Orientation absente"; return null; }
+            { error = "Position or Orientation missing"; return null; }
             pos = p;
             // Rotation autour de Z du quaternion (GFF : w,x,y,z ; w domine pour une petite rotation, constate sur m02aa).
             yaw = Normalize(MathF.Atan2(2 * (q.W * q.Z + q.X * q.Y), 1 - 2 * (q.Y * q.Y + q.Z * q.Z)) * 180f / MathF.PI);
@@ -132,9 +132,9 @@ public static class ModuleEntitiesReader
         {
             string x = spec.BearingStyle ? "X" : "XPosition", y = spec.BearingStyle ? "Y" : "YPosition", z = spec.BearingStyle ? "Z" : "ZPosition";
             if (!s.Fields.ContainsKey(x) || !s.Fields.ContainsKey(y) || !s.Fields.ContainsKey(z))
-            { error = $"champs {x}/{y}/{z} absents"; return null; }
+            { error = $"fields {x}/{y}/{z} missing"; return null; }
             if (s.Fields[x] is not float fx || s.Fields[y] is not float fy || s.Fields[z] is not float fz)
-            { error = $"champs {x}/{y}/{z} de type inattendu (float attendu)"; return null; }
+            { error = $"fields {x}/{y}/{z} have an unexpected type (float expected)"; return null; }
             pos = new Vector3(fx, fy, fz);
             if (spec.BearingStyle)
             {
@@ -151,7 +151,7 @@ public static class ModuleEntitiesReader
                 yaw = ox == 0 && oy == 0 ? 0 : Normalize(MathF.Atan2(-ox, oy) * 180f / MathF.PI);
             }
         }
-        if (!IsFinite(pos) || !float.IsFinite(yaw)) { error = "position non finie"; return null; }
+        if (!IsFinite(pos) || !float.IsFinite(yaw)) { error = "position is not finite"; return null; }
 
         Vector3[]? polygon = null;
         if (spec.HasGeometry && s.Fields.ContainsKey("Geometry"))
@@ -164,9 +164,9 @@ public static class ModuleEntitiesReader
                 bool pointStyle = g.Fields.ContainsKey("PointX");
                 string px = pointStyle ? "PointX" : "X", py = pointStyle ? "PointY" : "Y", pz = pointStyle ? "PointZ" : "Z";
                 if (!g.Fields.ContainsKey(px) || !g.Fields.ContainsKey(py) || !g.Fields.ContainsKey(pz))
-                { error = $"point de geometrie {i} incomplet"; return null; }
+                { error = $"geometry point {i} incomplete"; return null; }
                 var rel = new Vector3(g.Get<float>(px), g.Get<float>(py), g.Get<float>(pz));
-                if (!IsFinite(rel)) { error = $"point de geometrie {i} non fini"; return null; }
+                if (!IsFinite(rel)) { error = $"geometry point {i} is not finite"; return null; }
                 polygon[i] = pos + rel;
             }
         }
@@ -186,7 +186,7 @@ public static class ModuleEntitiesReader
             byte[]? mdx = res.Find(room.Model, ResourceType.Mdx);
             if (mdl is null || mdx is null)
             {
-                log.Warn("ROOM_MODEL_MISSING", $"{room.Model} : {(mdl is null ? "MDL" : "MDX")} introuvable, lumieres de la piece sautees.");
+                log.Warn("ROOM_MODEL_MISSING", $"{room.Model}: {(mdl is null ? "MDL" : "MDX")} not found, room lights skipped.");
                 continue;
             }
             KotorModel model;
@@ -194,7 +194,7 @@ public static class ModuleEntitiesReader
             catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or ArgumentException
                 or OverflowException or EndOfStreamException or IndexOutOfRangeException)
             {
-                log.Warn("ROOM_MODEL_UNREADABLE", $"{room.Model} : {ex.Message}");
+                log.Warn("ROOM_MODEL_UNREADABLE", $"{room.Model}: {ex.Message}");
                 continue;
             }
             foreach (var (node, transform) in model.Walk())

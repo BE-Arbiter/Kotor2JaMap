@@ -128,7 +128,7 @@ public sealed class BspReaderTests : IDisposable
     public void BspReader_rejects_index_count_not_multiple_of_three()
     {
         var ex = Assert.Throws<InvalidDataException>(() => BspReader.Read(WithSurface0Field(CompileBytes(TwoSurfaces()), 24, 4)));
-        Assert.Contains("multiple de 3", ex.Message);
+        Assert.Contains("not a multiple of 3", ex.Message);
     }
 
     [Fact]

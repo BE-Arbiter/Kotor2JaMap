@@ -12,7 +12,7 @@ public static class ListModulesCommand
     public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
         gameOption ??= GameOption.Create();
-        var cmd = new Command("list-modules", "Liste les modules KOTOR avec le nom de leur zone.");
+        var cmd = new Command("list-modules", "Lists the KOTOR modules with their area name.");
         cmd.Options.Add(kotorOption);
         cmd.Options.Add(gameOption);
         cmd.SetAction(pr =>
@@ -46,7 +46,7 @@ public static class ListModulesCommand
             }
             catch (Exception ex) when (ex is InvalidDataException or IOException)
             {
-                name = "(illisible : " + ex.Message + ")";
+                name = "(unreadable: " + ex.Message + ")";
             }
             output.WriteLine($"{module}\t{name}");
         }

@@ -49,7 +49,7 @@ public static class ShaderWriter
     public static string BuildFog(string level, System.Numerics.Vector3 color, double distance)
     {
         ArgumentException.ThrowIfNullOrEmpty(level);
-        if (distance <= 0) throw new ArgumentOutOfRangeException(nameof(distance), distance, "La distance doit etre strictement positive.");
+        if (distance <= 0) throw new ArgumentOutOfRangeException(nameof(distance), distance, "The distance must be strictly positive.");
         static string C(float f) => f.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
         return
             ShaderNames.FogName(level) + "\n" +

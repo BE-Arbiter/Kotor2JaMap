@@ -70,7 +70,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             _opt = opt;
             _scene = scene; _imported = null; _exported = null; _importModel = null;
             _entities = entities;
-            progress.Report($"Previsualiser : {scene.Meshes.Count} maillage(s), {model.TriangleCount} triangle(s), {entities.Count} entite(s).");
+            progress.Report($"Preview: {scene.Meshes.Count} mesh(es), {model.TriangleCount} triangle(s), {entities.Count} entity(ies).");
             return model;
         }
         finally { Flush(log, progress); }
@@ -78,7 +78,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
 
     public PreviewModel Import(IProgress<string> progress)
     {
-        ModuleScene scene = _scene ?? throw new InvalidOperationException("Previsualiser d'abord.");
+        ModuleScene scene = _scene ?? throw new InvalidOperationException("Preview first.");
         var log = new ImportLog();
         try
         {
@@ -86,7 +86,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             PreviewModel model = PreviewBuilder.FromImport(imported, _entities, _opt.Scale, _opt.LightmapBrightness, log);
             _imported = imported; _exported = null;
             _importModel = model;
-            progress.Report($"Importer : {model.TriangleCount} triangle(s), {model.Markers.Count} repere(s), {model.Instances.Count} placed model(s), {imported.Plan.Shaders.Count} shader(s).");
+            progress.Report($"Import: {model.TriangleCount} triangle(s), {model.Markers.Count} marker(s), {model.Instances.Count} placed model(s), {imported.Plan.Shaders.Count} shader(s).");
             return model;
         }
         finally { Flush(log, progress); }
@@ -94,7 +94,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
 
     public PreviewModel Export(IProgress<string> progress)
     {
-        ImportStepResult imported = _imported ?? throw new InvalidOperationException("Importer d'abord.");
+        ImportStepResult imported = _imported ?? throw new InvalidOperationException("Import first.");
         var log = new ImportLog();
         try
         {
@@ -123,7 +123,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             if (_importModel is not null) model = model with { Markers = _importModel.Markers, CollisionTriangles = _importModel.CollisionTriangles };
             _exported = exported;
             WarnIfCollisionReduced(log);
-            progress.Report($"Exporter : {model.TriangleCount} triangle(s) relus dans {Path.GetFileName(exported.BspPath)}, {model.Instances.Count} placed model(s).");
+            progress.Report($"Export: {model.TriangleCount} triangle(s) read back from {Path.GetFileName(exported.BspPath)}, {model.Instances.Count} placed model(s).");
             return model;
         }
         finally { Flush(log, progress); }
@@ -131,13 +131,13 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
 
     public string CreatePk3(IProgress<string> progress)
     {
-        ImportStepResult imported = _imported ?? throw new InvalidOperationException("Importer d'abord.");
-        ExportStepResult exported = _exported ?? throw new InvalidOperationException("Exporter d'abord.");
+        ImportStepResult imported = _imported ?? throw new InvalidOperationException("Import first.");
+        ExportStepResult exported = _exported ?? throw new InvalidOperationException("Export first.");
         var log = new ImportLog();
         try
         {
             string pk3 = PipelineSteps.CreatePk3(exported, imported, _opt, log).Pk3Path;
-            progress.Report("Creer PK3 : " + pk3);
+            progress.Report("Create PK3: " + pk3);
             return pk3;
         }
         finally { Flush(log, progress); }
@@ -149,13 +149,13 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         {
             using var res = ResourceResolver.ForModule(opt.KotorDir, module.ToLowerInvariant(), opt.Game);
             byte[] lyt = res.Find(scene.Info.AreaResRef, ResourceType.Lyt)
-                ?? throw new InvalidDataException($"{scene.Info.AreaResRef}.lyt introuvable.");
+                ?? throw new InvalidDataException($"{scene.Info.AreaResRef}.lyt not found.");
             LayoutFile layout = LayoutFile.Parse(Encoding.ASCII.GetString(lyt));
             return ModuleEntitiesReader.Read(res, scene.Info, layout, log);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
-            log.Warn("ENTITIES_UNREADABLE", $"Entites du module illisibles ({ex.Message}) : aucun repere.");
+            log.Warn("ENTITIES_UNREADABLE", $"Module entities unreadable ({ex.Message}): no markers.");
             return [];
         }
     }
@@ -165,11 +165,11 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
     {
         if (log.Warnings.Any(w => w.Code is "COLLISION_CAPPED" or "WALKABLE_CAPPED"))
             log.Warn("EXPORT_VIEW_COLLISION_STALE",
-                "Attention : collisions reduites par le compilateur, la vue Exporter montre les collisions d avant reduction.");
+                "Warning: collisions were reduced by the compiler; the Export view shows the collisions as they were before the reduction.");
     }
 
     private static void Flush(ImportLog log, IProgress<string> progress)
     {
-        foreach (var (code, message) in log.Warnings) progress.Report($"{code} : {message}");
+        foreach (var (code, message) in log.Warnings) progress.Report($"{code}: {message}");
     }
 }

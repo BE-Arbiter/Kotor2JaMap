@@ -22,7 +22,7 @@ public sealed class TlkFile
     {
         _data = data;
         if (data.Length < 20 || Encoding.ASCII.GetString(data, 0, 8) != "TLK V3.0")
-            throw new InvalidDataException("TLK V3.0 attendu.");
+            throw new InvalidDataException("TLK V3.0 expected.");
         _count = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(12));
         _entriesOff = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(16));
     }

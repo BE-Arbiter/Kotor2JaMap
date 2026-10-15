@@ -11,7 +11,7 @@ public static class DxtDecoder
     {
         int bw = (w + 3) / 4, bh = (h + 3) / 4, bs = dxt5 ? 16 : 8;
         if (d.Length < (long)bw * bh * bs)
-            throw new InvalidDataException($"Donnees DXT tronquees ({d.Length} octets, {(long)bw * bh * bs} attendus).");
+            throw new InvalidDataException($"DXT data truncated ({d.Length} bytes, {(long)bw * bh * bs} expected).");
         byte[] rgba = new byte[checked(w * h * 4)];
         Span<byte> alpha = stackalloc byte[16];
         Span<byte> pal = stackalloc byte[16];

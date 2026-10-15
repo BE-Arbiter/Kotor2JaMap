@@ -32,7 +32,7 @@ public static class ModuleSceneBuilder
         ArgumentNullException.ThrowIfNull(log);
         var info = ModuleCatalog.Load(res, module, tlk);
         byte[] lytData = res.Find(info.AreaResRef, ResourceType.Lyt)
-            ?? throw new InvalidDataException($"{info.AreaResRef}.lyt introuvable pour {module}.");
+            ?? throw new InvalidDataException($"{info.AreaResRef}.lyt not found for {module}.");
         var layout = LayoutFile.Parse(Encoding.ASCII.GetString(lytData));
 
         var textures = new Dictionary<string, KotorTexture?>();
@@ -101,11 +101,11 @@ public static class ModuleSceneBuilder
     private static TwoDaFile? LoadSurfaceMat(ResourceResolver res, ImportLog log)
     {
         byte[]? data = res.Find("surfacemat", ResourceType.TwoDa);
-        if (data is null) { log.Warn("SURFACEMAT_MISSING", "surfacemat.2da introuvable : aucun triangle de walkmesh marque praticable."); return null; }
+        if (data is null) { log.Warn("SURFACEMAT_MISSING", "surfacemat.2da not found: no walkmesh triangle is marked walkable."); return null; }
         try { return TwoDaFile.Read(data); }
         catch (InvalidDataException ex)
         {
-            log.Warn("SURFACEMAT_MISSING", "surfacemat.2da illisible : " + ex.Message);
+            log.Warn("SURFACEMAT_MISSING", "surfacemat.2da unreadable: " + ex.Message);
             return null;
         }
     }
@@ -117,14 +117,14 @@ public static class ModuleSceneBuilder
         byte[]? mdx = res.Find(room.Model, ResourceType.Mdx);
         if (mdl is null || mdx is null)
         {
-            log.Warn("ROOM_MODEL_MISSING", $"{room.Model} : {(mdl is null ? "MDL" : "MDX")} introuvable, piece sautee.");
+            log.Warn("ROOM_MODEL_MISSING", $"{room.Model}: {(mdl is null ? "MDL" : "MDX")} not found, room skipped.");
             return;
         }
         KotorModel model;
         try { model = MdlReader.Read(mdl, mdx); }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
-            log.Warn("ROOM_MODEL_UNREADABLE", $"{room.Model} : {ex.Message}");
+            log.Warn("ROOM_MODEL_UNREADABLE", $"{room.Model}: {ex.Message}");
             return;
         }
 
@@ -168,15 +168,15 @@ public static class ModuleSceneBuilder
             if (mesh is not null) meshes.Add(mesh);
         }
         string r = room.Model;
-        if (notRendered > 0) log.Warn("MESH_NOT_RENDERED", $"{r} : {notRendered} maillage(s) non rendu(s) ignore(s).");
-        if (empty > 0) log.Warn("MESH_EMPTY", $"{r} : {empty} maillage(s) vide(s) (0 triangle ou 0 sommet) ignore(s).");
+        if (notRendered > 0) log.Warn("MESH_NOT_RENDERED", $"{r}: {notRendered} non-rendered mesh(es) skipped.");
+        if (empty > 0) log.Warn("MESH_EMPTY", $"{r}: {empty} empty mesh(es) (0 triangles or 0 vertices) skipped.");
         if (animated > 0)
-            log.Warn("MESH_STATIC_FROM_ANIMATED", $"{r} : {animated} maillage(s) skin/dangly/anim/saber exporte(s) en statique (deformation et animation perdues).");
+            log.Warn("MESH_STATIC_FROM_ANIMATED", $"{r}: {animated} skin/dangly/anim/saber mesh(es) exported as static (deformation and animation lost).");
         if (lights > 0) log.Warn("NODE_LIGHT", $"{r}: {lights} light node(s) used for the vertex lighting.");
         if (defaulted > 0) log.Warn("LIGHT_DEFAULTS", $"{r}: {defaulted} light node(s) without colour, radius or multiplier controller: defaults used (white, {MdlReader.DefaultLightRadius:0} m, x1).");
-        if (emitters > 0) log.Warn("NODE_EMITTER", $"{r} : {emitters} emetteur(s) non converti(s).");
-        if (refs > 0) log.Warn("NODE_REFERENCE", $"{r} : {refs} noeud(s) reference non converti(s).");
-        if (cams > 0) log.Warn("NODE_CAMERA", $"{r} : {cams} camera(s) non convertie(s).");
+        if (emitters > 0) log.Warn("NODE_EMITTER", $"{r}: {emitters} emitter(s) not converted.");
+        if (refs > 0) log.Warn("NODE_REFERENCE", $"{r}: {refs} reference node(s) not converted.");
+        if (cams > 0) log.Warn("NODE_CAMERA", $"{r}: {cams} camera(s) not converted.");
     }
 
     private static SceneMesh? BuildMesh(ResourceResolver res, LayoutRoom room, KotorNode node, KotorMesh m,
@@ -186,7 +186,7 @@ public static class ModuleSceneBuilder
         string where = $"{room.Model}/{node.Name}";
         if (m.Triangles.Any(i => i < 0 || i >= m.Positions.Length))
         {
-            log.Warn("MESH_BAD_INDEX", $"{where} : indice de triangle hors limites, maillage ignore.");
+            log.Warn("MESH_BAD_INDEX", $"{where}: triangle index out of range, mesh skipped.");
             return null;
         }
 
@@ -201,7 +201,7 @@ public static class ModuleSceneBuilder
         else
         {
             uv0 = new Vector2[pos.Length];
-            log.Warn("MDL_NO_UV", $"{where} : pas d'UV de diffuse, UV a zero.");
+            log.Warn("MDL_NO_UV", $"{where}: no diffuse UV, UV set to zero.");
         }
         Vector2[]? uv1 = m.Uv1 is { } u1 && u1.Length == pos.Length ? u1 : null;
 
@@ -209,14 +209,14 @@ public static class ModuleSceneBuilder
         if (m.Texture0 is null)
         {
             textures.TryAdd(NoTextureKey, null);
-            log.Warn("MESH_NO_TEXTURE", $"{where} : maillage rendu sans texture.");
+            log.Warn("MESH_NO_TEXTURE", $"{where}: rendered mesh without texture.");
         }
         else Resolve(res, tex, TextureKind.Diffuse, textures, log, stats);
 
         string? lm = m.Texture1?.ToLowerInvariant();
         if (lm is not null && uv1 is null)
         {
-            log.Warn("MDL_NO_UV1", $"{where} : lightmap '{lm}' presente mais UV1 absent ou incoherent, lightmap ignoree.");
+            log.Warn("MDL_NO_UV1", $"{where}: lightmap '{lm}' present but UV1 missing or inconsistent, lightmap ignored.");
             lm = null;
         }
         if (lm is not null) Resolve(res, lm, TextureKind.Lightmap, textures, log, stats);
@@ -241,27 +241,27 @@ public static class ModuleSceneBuilder
         }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
-            log.Warn("TEXTURE_UNSUPPORTED", $"{name} : {ex.Message}");
+            log.Warn("TEXTURE_UNSUPPORTED", $"{name}: {ex.Message}");
             textures[name] = null;
             return;
         }
         textures[name] = tex;
-        if (tex is null) { log.Warn("TEXTURE_MISSING", $"{name} ({kind}) introuvable."); return; }
-        if (tex.Txi.IsAnimated) log.Warn("TEXTURE_ANIMATED", $"{name} : texture animee, exportee immobile.");
+        if (tex is null) { log.Warn("TEXTURE_MISSING", $"{name} ({kind}) not found."); return; }
+        if (tex.Txi.IsAnimated) log.Warn("TEXTURE_ANIMATED", $"{name}: animated texture, exported as a still image.");
         if (tex.Txi.EnvMapTexture is not null)
-            log.Warn("TEXTURE_ENVMAP", $"{name} : reflet '{tex.Txi.EnvMapTexture}' non converti.");
+            log.Warn("TEXTURE_ENVMAP", $"{name}: reflection '{tex.Txi.EnvMapTexture}' not converted.");
     }
 
     private static void AddRoomWalkmesh(ResourceResolver res, LayoutRoom room, TwoDaFile? surfaceMat,
         List<SceneWalkmesh> walks, ImportLog log)
     {
         byte[]? wok = res.Find(room.Model, ResourceType.Wok);
-        if (wok is null) { log.Warn("WALKMESH_MISSING", $"{room.Model} : WOK introuvable."); return; }
+        if (wok is null) { log.Warn("WALKMESH_MISSING", $"{room.Model}: WOK not found."); return; }
         Walkmesh.Walkmesh wm;
         try { wm = WokReader.Read(wok); }
         catch (InvalidDataException ex)
         {
-            log.Warn("WALKMESH_MISSING", $"{room.Model} : WOK illisible ({ex.Message}).");
+            log.Warn("WALKMESH_MISSING", $"{room.Model}: WOK unreadable ({ex.Message}).");
             return;
         }
         var add = WokVerticesAreModuleSpace ? Vector3.Zero : room.Position;
@@ -275,7 +275,7 @@ public static class ModuleSceneBuilder
             walkable[i] = w == "1";
         }
         if (unknown > 0)
-            log.Warn("SURFACEMAT_UNKNOWN", $"{room.Model} : {unknown} triangle(s) de walkmesh avec materiau absent de surfacemat.2da, traites comme non praticables.");
+            log.Warn("SURFACEMAT_UNKNOWN", $"{room.Model}: {unknown} walkmesh triangle(s) with a material missing from surfacemat.2da, treated as not walkable.");
         walks.Add(new SceneWalkmesh(room.Model, pos, wm.Triangles, walkable));
     }
 

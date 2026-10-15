@@ -75,20 +75,21 @@ public sealed class MainScreen
             DrawGameNode(game, height * 0.25f, busy);
 
         ImGui.BeginDisabled(!_workflow.CanPreview);
-        if (ImGui.Button("Prévisualiser", new Vector2(-1, 0))) _ = _workflow.PreviewAsync();
+        if (ImGui.Button("Preview", new Vector2(-1, 0))) _ = _workflow.PreviewAsync();
         ImGui.EndDisabled();
 
         ImGui.Separator();
         string? error = _workflow.LastError;
         float errorHeight = error is null ? 0f : ImGui.GetTextLineHeightWithSpacing() * 4f;
+        ImGui.TextUnformatted("Log");
         if (ImGui.BeginChild("##log", new Vector2(-1, -errorHeight), ImGuiChildFlags.Borders))
         {
             lock (_log)
             {
                 foreach (string line in _log)
                 {
-                    if (line.StartsWith("ERREUR", StringComparison.Ordinal)) ImGui.TextColored(Red, line);
-                    else if (line.StartsWith("Avertissement", StringComparison.Ordinal) || line.StartsWith("WARN", StringComparison.Ordinal))
+                    if (line.StartsWith("ERROR", StringComparison.Ordinal)) ImGui.TextColored(Red, line);
+                    else if (line.StartsWith("Warning", StringComparison.Ordinal) || line.StartsWith("WARN", StringComparison.Ordinal))
                         ImGui.TextColored(Orange, line);
                     else ImGui.TextUnformatted(line);
                 }
@@ -116,7 +117,7 @@ public sealed class MainScreen
             {
                 ModuleListItem[]? modules = _modules;
                 string[] labels = _labels;
-                if (modules is null) ImGui.TextDisabled("Chargement des modules...");
+                if (modules is null) ImGui.TextDisabled("Loading modules...");
                 else
                 {
                     string? selected = _workflow.SelectedModule;
@@ -146,8 +147,8 @@ public sealed class MainScreen
         if (ImGui.Begin("##viewopts", flags))
         {
             ImGui.Checkbox("Collisions", ref _view.Collisions);
-            if (renderer.HasSky) ImGui.Checkbox("Ciel", ref _view.Sky);
-            ImGui.Checkbox("Double face", ref _view.BothSides);
+            if (renderer.HasSky) ImGui.Checkbox("Sky", ref _view.Sky);
+            ImGui.Checkbox("Double-sided", ref _view.BothSides);
             if (renderer.KindsPresent.Count > 0)
             {
                 ImGui.Separator();

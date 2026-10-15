@@ -33,9 +33,9 @@ public static class BrushBuilder
             }
         }
         if (brushes.Count == 0)
-            log?.Invoke("Avertissement : maillage de collision vide, aucun brush genere.");
+            log?.Invoke("Warning: empty collision mesh, no brush generated.");
         else
-            log?.Invoke($"Collision : {brushes.Count} brushes prismatiques, epaisseur {thickness}, {skipped} triangle(s) degenere(s) ignore(s).");
+            log?.Invoke($"Collision: {brushes.Count} prismatic brushes, thickness {thickness}, {skipped} degenerate triangle(s) skipped.");
         return brushes;
     }
 
@@ -53,9 +53,9 @@ public static class BrushBuilder
             if (b is null) skipped++; else brushes.Add(b);
         }
         if (brushes.Count == 0)
-            log?.Invoke("Avertissement : maillage de collision vide, aucun brush genere.");
+            log?.Invoke("Warning: empty collision mesh, no brush generated.");
         else
-            log?.Invoke($"Collision : {brushes.Count} brushes prismatiques, epaisseur {thickness}, {skipped} polygone(s) degenere(s) ignore(s).");
+            log?.Invoke($"Collision: {brushes.Count} prismatic brushes, thickness {thickness}, {skipped} degenerate polygon(s) skipped.");
         return brushes;
     }
 

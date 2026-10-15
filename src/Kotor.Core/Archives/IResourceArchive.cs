@@ -30,6 +30,6 @@ internal static class ArchiveIo
     {
         string sig = System.Text.Encoding.ASCII.GetString(header[..8]);
         if (Array.IndexOf(accepted, sig) < 0)
-            throw new InvalidDataException($"Signature inattendue '{sig}' dans {path}");
+            throw new InvalidDataException($"Unexpected signature '{sig}' in {path}");
     }
 }

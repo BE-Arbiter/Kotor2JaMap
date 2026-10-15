@@ -11,7 +11,7 @@ public static class TgaReader
     {
         ArgumentNullException.ThrowIfNull(input);
         byte[] h = new byte[HeaderSize];
-        ReadExactly(input, h, "en-tete");
+        ReadExactly(input, h, "header");
 
         int idLength = h[0];
         int colorMapType = h[1];
@@ -24,12 +24,12 @@ public static class TgaReader
         bool topToBottom = (h[17] & 0x20) != 0;
         bool rightToLeft = (h[17] & 0x10) != 0;
 
-        if (imageType is not (2 or 10)) throw new InvalidDataException($"TGA de type {imageType} non gere (types 2 et 10 seulement).");
-        if (bits is not (24 or 32)) throw new InvalidDataException($"TGA {bits} bits non gere (24 ou 32).");
-        if (width <= 0 || height <= 0) throw new InvalidDataException("TGA de dimensions nulles.");
+        if (imageType is not (2 or 10)) throw new InvalidDataException($"TGA type {imageType} is not supported (only types 2 and 10).");
+        if (bits is not (24 or 32)) throw new InvalidDataException($"{bits}-bit TGA is not supported (24 or 32 only).");
+        if (width <= 0 || height <= 0) throw new InvalidDataException("TGA with zero dimensions.");
 
         long skip = idLength + (colorMapType != 0 ? (long)colorMapLength * ((colorMapEntryBits + 7) / 8) : 0);
-        if (skip > 0) ReadExactly(input, new byte[skip], "identifiant/palette");
+        if (skip > 0) ReadExactly(input, new byte[skip], "id/palette");
 
         int bpp = bits / 8;
         byte[] raw = new byte[checked(width * height * bpp)];
@@ -61,19 +61,19 @@ public static class TgaReader
         while (pos < raw.Length)
         {
             int head = input.ReadByte();
-            if (head < 0) throw new InvalidDataException("TGA tronque (pixels RLE).");
+            if (head < 0) throw new InvalidDataException("TGA truncated (RLE pixels).");
             int count = (head & 0x7F) + 1;
             int bytes = count * bpp;
-            if (pos + bytes > raw.Length) throw new InvalidDataException("TGA RLE depasse la taille de l'image.");
+            if (pos + bytes > raw.Length) throw new InvalidDataException("TGA RLE data exceeds the image size.");
             if ((head & 0x80) != 0)
             {
-                ReadExactly(input, px, "pixels RLE");
+                ReadExactly(input, px, "RLE pixels");
                 for (int i = 0; i < count; i++) px.CopyTo(raw, pos + i * bpp);
             }
             else
             {
                 byte[] chunk = new byte[bytes];
-                ReadExactly(input, chunk, "pixels RLE");
+                ReadExactly(input, chunk, "RLE pixels");
                 chunk.CopyTo(raw, pos);
             }
             pos += bytes;
@@ -83,6 +83,6 @@ public static class TgaReader
     private static void ReadExactly(Stream input, byte[] buffer, string what)
     {
         try { input.ReadExactly(buffer); }
-        catch (EndOfStreamException) { throw new InvalidDataException($"TGA tronque ({what})."); }
+        catch (EndOfStreamException) { throw new InvalidDataException($"TGA truncated ({what})."); }
     }
 }

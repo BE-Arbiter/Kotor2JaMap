@@ -156,7 +156,7 @@ public class ModuleSceneBuilderTests
             ("plain", NodeKind.Mesh, Mesh())), out var meshes, out _);
         Assert.Equal(3, meshes.Count);
         var w = Assert.Single(log.Warnings, w => w.Code == "MESH_STATIC_FROM_ANIMATED");
-        Assert.Contains("2 maillage", w.Message);
+        Assert.Contains("2 skin/dangly/anim/saber mesh", w.Message);
     }
 
     [Fact]
@@ -226,7 +226,7 @@ public class ModuleSceneBuilderTests
         var wm = Assert.Single(scene.Walkmeshes);
         Assert.Equal(new[] { true, false }, wm.Walkable);
         var w = Assert.Single(log.Warnings, w => w.Code == "SURFACEMAT_UNKNOWN");
-        Assert.Contains("1 triangle", w.Message);
+        Assert.Contains("1 walkmesh triangle", w.Message);
     }
 
     [Fact]

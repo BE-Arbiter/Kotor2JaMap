@@ -18,11 +18,11 @@ public static class PngWriter
     public static void WriteRgba(Stream output, int width, int height, ReadOnlySpan<byte> rgba)
     {
         ArgumentNullException.ThrowIfNull(output);
-        if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width), "La largeur doit etre > 0.");
-        if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height), "La hauteur doit etre > 0.");
+        if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width), "The width must be > 0.");
+        if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height), "The height must be > 0.");
         long expected = (long)width * height * 4;
         if (rgba.Length != expected)
-            throw new ArgumentException($"Taille RGBA incorrecte : {rgba.Length} octets, attendu {expected}.", nameof(rgba));
+            throw new ArgumentException($"Wrong RGBA size: {rgba.Length} bytes, expected {expected}.", nameof(rgba));
 
         output.Write(Signature);
 
