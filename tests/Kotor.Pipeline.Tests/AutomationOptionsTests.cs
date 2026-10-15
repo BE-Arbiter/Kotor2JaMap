@@ -64,11 +64,14 @@ public class AutomationOptionsTests
     }
 
     [Fact]
-    public void Automation_none_without_module()
+    public void Automation_none_without_module_and_error_for_options_alone()
     {
         Assert.Null(AutomationParser.Parse([], out string? error));
         Assert.Null(error);
-        Assert.Null(AutomationParser.Parse(["--exit"], out string? error2));
-        Assert.Null(error2);
+        foreach (string[] args in new[] { new[] { "--exit" }, ["--screenshot", "a.png"], ["--game", "kotor"] })
+        {
+            Assert.Null(AutomationParser.Parse(args, out string? e));
+            Assert.Contains("--module", e);
+        }
     }
 }

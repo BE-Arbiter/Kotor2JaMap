@@ -123,7 +123,8 @@ public static class Md3Writer
             w.Write(nV);
             w.Write(nT);
             w.Write(ofsTri); w.Write(ofsShader); w.Write(ofsSt); w.Write(ofsXyz); w.Write(end);
-            foreach (int i in s.Indices) w.Write(i);
+            // Enroulement JA, comme le BSP (RenderSurfaces) : (i0, i2, i1). Le moteur dessine en frontFace horaire sans toucher aux triangles MD3.
+            for (int t = 0; t + 2 < s.Indices.Length; t += 3) { w.Write(s.Indices[t]); w.Write(s.Indices[t + 2]); w.Write(s.Indices[t + 1]); }
             WriteName(w, s.Shader, 64);
             w.Write(0);               // shaderIndex
             foreach (Vector2 uv in s.Uv) { w.Write(uv.X); w.Write(1f - uv.Y); }

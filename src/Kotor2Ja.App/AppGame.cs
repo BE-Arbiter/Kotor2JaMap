@@ -28,6 +28,7 @@ public sealed class AppGame : Game
 
     private readonly AutomationOptions? _auto;
     private int _autoPhase;      // 0 demarrage, 1 etapes, 2 attente de la vue, 3 images avant capture, 4 termine
+    private Task? _modulesTask;   // liste des modules (le mode automatise l attend avant la capture)
     private int _autoFrames;
 
     /// <summary>Code de sortie du processus (1 : echec en mode automatise avec --exit).</summary>
@@ -77,8 +78,8 @@ public sealed class AppGame : Game
         _screen.AddLog($"KOTOR : {options.KotorDir} (échelle {options.Scale:0.##})");
         _screen.AddLog($"KOTOR 2 : {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
 
-        // La liste des modules lit les noms de zone un par un : hors du fil d interface. Inutile en mode automatise.
-        if (_auto is null) Task.Run(() =>
+        // La liste des modules lit les noms de zone un par un : hors du fil d interface. Le mode automatise l attend avant la capture.
+        _modulesTask = Task.Run(() =>
         {
             try
             {
@@ -150,6 +151,7 @@ public sealed class AppGame : Game
         switch (_autoPhase)
         {
             case 0:
+                if (_modulesTask is { IsCompleted: false }) return;   // la liste des modules doit etre chargee avant la selection
                 if (!_workflow.SelectModule(a.Game, a.Module)) { FailAutomation("Could not select the module."); return; }
                 _ = _workflow.PreviewAsync();
                 _autoPhase = 1;
@@ -173,6 +175,15 @@ public sealed class AppGame : Game
                     _camera.Position = new Vector3(p.X, p.Y, p.Z);
                     _camera.Yaw = a.CameraYaw;
                     _camera.Pitch = a.CameraPitch;
+                }
+                else if (_workflow.Preview?.Spawn is { } sp)
+                {
+                    // Hors du cube du point d apparition : 64 unites en arriere du regard, 48 plus haut, vers le point.
+                    float yaw = _workflow.Preview.SpawnYaw;
+                    _camera.Yaw = yaw;
+                    _camera.Pitch = -MathHelper.ToDegrees(MathF.Atan2(48f, 64f));
+                    float yr = MathHelper.ToRadians(yaw);
+                    _camera.Position = new Vector3(sp.X, sp.Y, sp.Z) - new Vector3(MathF.Cos(yr), MathF.Sin(yr), 0f) * 64f + new Vector3(0, 0, 48f);
                 }
                 _autoFrames = 0;
                 _autoPhase = 3;

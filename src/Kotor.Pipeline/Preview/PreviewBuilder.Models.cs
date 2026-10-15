@@ -44,7 +44,8 @@ public static partial class PreviewBuilder
     /// <c>modelAngles</c>), avec <c>origin</c> et <c>modelscale</c>. Une entite dont le modele n'est pas <paramref name="known"/> est ignoree.
     /// Les portes sont dessinees fermees, a leur origine.
     /// </summary>
-    private static List<PreviewModelInstance> InstancesOf(IEnumerable<IReadOnlyDictionary<string, string>> entities, Func<string, bool> known)
+    private static List<PreviewModelInstance> InstancesOf(IEnumerable<IReadOnlyDictionary<string, string>> entities, Func<string, bool> known,
+        ImportLog? log = null, bool logMissing = false)
     {
         var list = new List<PreviewModelInstance>();
         foreach (var e in entities)
@@ -56,11 +57,21 @@ public static partial class PreviewBuilder
             if (cls == "misc_model_static") { kind = EntityKind.Placeable; anglesKey = "angles"; e.TryGetValue("model", out model); }
             else if (cls == "func_door") { kind = EntityKind.Door; anglesKey = "modelAngles"; e.TryGetValue("model2", out model); }
             else continue;
-            if (model is null || !known(model)) continue;
+            if (model is null) continue;
+            if (!known(model))
+            {
+                if (logMissing) log?.Warn("PREVIEW_MODEL_MISSING", $"{model}: no mesh available for the view; the {cls} is not shown.");
+                continue;
+            }
             float[]? origin = Floats(e, "origin", 3);
-            if (origin is null) continue;
+            if (origin is null)
+            {
+                log?.Warn("PREVIEW_MODEL_BAD_ORIGIN", $"{model}: invalid or missing origin; the {cls} is not shown.");
+                continue;
+            }
             float yaw = Floats(e, anglesKey, 3) is { } a ? a[1] : 0f;
-            float scale = e.TryGetValue("modelscale", out string? ms) && float.TryParse(ms, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) && f > 0 ? f : 1f;
+            // Le moteur ignore modelscale pour func_door (seul misc_model_static l'applique).
+            float scale = kind == EntityKind.Placeable && e.TryGetValue("modelscale", out string? ms) && float.TryParse(ms, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) && f > 0 ? f : 1f;
             Matrix4x4 m = Matrix4x4.CreateScale(scale) * Matrix4x4.CreateRotationZ(yaw * MathF.PI / 180f)
                 * Matrix4x4.CreateTranslation(origin[0], origin[1], origin[2]);
             list.Add(new PreviewModelInstance(model, m, kind, Path.GetFileNameWithoutExtension(model)));
@@ -80,7 +91,7 @@ public static partial class PreviewBuilder
     }
 
     /// <summary>Vue Importer : MD3 des objets et des portes convertis, avec leurs textures (sans lightmap).</summary>
-    private static PreviewModel WithConvertedModels(PreviewModel model, Dictionary<string, PreviewTexture> textures, ConvertedEntities converted)
+    private static PreviewModel WithConvertedModels(PreviewModel model, Dictionary<string, PreviewTexture> textures, ConvertedEntities converted, ImportLog? log)
     {
         var cutout = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (name, tex) in converted.TextureData)
@@ -93,9 +104,9 @@ public static partial class PreviewBuilder
         foreach (Md3Asset asset in converted.Models)
         {
             try { models[asset.Path] = ModelBatches(Md3Reader.Read(asset.Data), textures, cutout.Contains); }
-            catch (InvalidDataException) { /* MD3 produit par nous : le modele est simplement absent de la vue */ }
+            catch (InvalidDataException ex) { log?.Warn("PREVIEW_MODEL_UNREADABLE", $"{asset.Path}: {ex.Message}"); }
         }
-        return model with { Models = models, Instances = InstancesOf(converted.Entities, models.ContainsKey) };
+        return model with { Models = models, Instances = InstancesOf(converted.Entities, models.ContainsKey, log, logMissing: true) };
     }
 
     /// <summary>Retire les reperes d'objets et de portes qui ont un modele dans la vue (meme type, meme position).</summary>
@@ -165,7 +176,7 @@ public static partial class PreviewBuilder
             }
             models[path] = ModelBatches(surfaces, textures, tex => IsCutoutShader(shaderText, Md3ShaderWriter.ModelPrefix(game) + tex));
         }
-        return model with { Textures = textures, Models = models, Instances = InstancesOf(ents, models.ContainsKey) };
+        return model with { Textures = textures, Models = models, Instances = InstancesOf(ents, models.ContainsKey, log) };
     }
 
     /// <summary>Le bloc du shader <paramref name="name"/> (ecrit par <see cref="Md3ShaderWriter"/>) demande-t-il un test alpha ?</summary>

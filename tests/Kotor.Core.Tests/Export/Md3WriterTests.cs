@@ -61,6 +61,15 @@ public class Md3WriterTests
     }
 
     [Fact]
+    public void Md3_triangles_are_written_in_JA_winding()
+    {
+        // KOTOR (0,1,2) (1,3,2) : le fichier porte (i0,i2,i1), comme le BSP du compilateur.
+        byte[] md3 = Md3Writer.Write("m", [Part("t")], "models/kotor/");
+        int s = I(md3, 100), tri = s + I(md3, s + 88);
+        Assert.Equal(new[] { 0, 2, 1, 1, 2, 3 }, Enumerable.Range(0, 6).Select(k => I(md3, tri + k * 4)).ToArray());
+    }
+
+    [Fact]
     public void Md3_rejects_out_of_range()
     {
         var part = Part("t") with { Positions = [new(600, 0, 0), new(0, 1, 0), new(0, 0, 1), new(1, 1, 1)] };

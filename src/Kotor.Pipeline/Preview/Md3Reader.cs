@@ -42,6 +42,8 @@ public static class Md3Reader
                 idx[i] = I32(data, pos + ofsTri + i * 4);
                 if (idx[i] < 0 || idx[i] >= numVerts) throw new InvalidDataException("MD3 triangle index out of range.");
             }
+            // Le fichier porte l'enroulement JA (i0, i2, i1) : on rétablit l'ordre KOTOR, comme PreviewBuilder.FromBsp.
+            for (int i = 0; i + 2 < idx.Length; i += 3) (idx[i + 1], idx[i + 2]) = (idx[i + 2], idx[i + 1]);
             var uv = new Vector2[numVerts];
             var p = new Vector3[numVerts];
             var n = new Vector3[numVerts];

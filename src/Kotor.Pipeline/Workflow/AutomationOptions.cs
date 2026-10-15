@@ -86,7 +86,11 @@ public static class AutomationParser
                     return null;
             }
         }
-        if (module is null) return null;
+        if (module is null)
+        {
+            if (args.Length > 0) error = "--module is required with --game, --run-to, --camera, --screenshot and --exit.";
+            return null;
+        }
         return new AutomationOptions(game, module, runTo, cameraPos, yaw, pitch, screenshot, exit);
     }
 

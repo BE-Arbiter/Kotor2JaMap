@@ -56,3 +56,29 @@ L'essai a écrit dans `C:\jka_maps\kotor_work` (WorkDir configuré), pas dans le
 - Les instances n'ont pas d'étiquette dessinée (trop nombreuses) ; seules les cases à cocher par type les masquent.
 - Les rotations des modèles n'utilisent que le lacet (`angles`/`modelAngles` ne contiennent que le lacet dans nos entités).
 - Le sens de rotation et la mise à l'échelle sont vérifiés par test unitaire ; l'orientation visuelle de chaque objet n'a pas été comparée une à une avec le jeu.
+
+## Correction 1
+
+Rien n'est commité, aucun sous-agent lancé, rien écrit dans le dossier Jedi Academy (essais en `--run-to export`).
+
+### C1 — enroulement MD3
+- `Md3Writer` écrit chaque triangle dans l'ordre (i0, i2, i1), comme `RenderSurfaces` pour le BSP. `Md3Reader` rétablit l'ordre KOTOR en échangeant les deux derniers indices, comme `FromBsp` : la vue Exporter montre à l'endroit ce que le moteur montrera à l'endroit, et la vue Importer (qui relit les octets de l'écrivain) aussi.
+- Surfaces Cutout (`cull none`) : non concernées, l'enroulement n'a pas d'effet sur elles (le shader désactive l'élimination) ; la vue les dessine en double face comme avant.
+- Empreinte figée du BSP sans sous-modèle (étape 04) : inchangée (le BSP n'est pas touché ; tests Compiler verts).
+- Tests : `Md3WriterTests.Md3_triangles_are_written_in_JA_winding` (ordre des indices dans le fichier : 0,2,1,1,2,3 pour 0,1,2,1,3,2) ; `PreviewBuilderTests.Md3Reader_restores_KOTOR_winding_after_write` (aller-retour qui retrouve l'ordre KOTOR) ; `Md3Reader_round_trips_writer_output` existant.
+- Essai réel : `--game kotor --module ebo_m41aa --run-to export --camera "1235 1330 100 90 0" --screenshot %TEMP%\ebo_crates.png --exit`, code de sortie 0, copié dans `reports/step-05-fix-shot.png` : les conteneurs sont pleins et texturés (plus creux). Vérifié dans la vue à l'oeil ; non revérifié en jeu (le jeu n'est pas lancé).
+
+### Texte français
+- `KotorWorkflowSteps.cs:89` et `:126` : « placed model(s) ». `Compiler.cs:81` : « Sub-model *N: degenerate or unbounded brush ignored. » (aucun test ne dépendait du texte).
+
+### Mode automatisé
+- `AppGame` : la liste des modules est toujours chargée (tâche hors fil d'interface) ; le mode automatisé l'attend avant de sélectionner le module, donc l'arbre montre le module surligné (visible dans les captures).
+- Sans `--camera` et avec un point d'apparition : caméra 64 unités en arrière du regard et 48 plus haut, inclinée vers le point (pitch -36,9°). Essai : `--game kotor --module tar_m02aa --run-to export --screenshot %TEMP%\tar_default.png --exit`, code 0, copié dans `reports/step-05-fix-default.png` : scène lisible, cube jaune à distance, plus d'aplat.
+
+### Minor
+- `modelscale` ignoré pour les portes (`InstancesOf`, seul `misc_model_static` l'applique).
+- Modèle sans maillage dans la vue Importer : `PREVIEW_MODEL_MISSING` ; MD3 illisible : `PREVIEW_MODEL_UNREADABLE` ; `origin` invalide : `PREVIEW_MODEL_BAD_ORIGIN` (anglais). Vue Exporter : `PREVIEW_MD3_MISSING` / `PREVIEW_MD3_UNREADABLE` existants (pas de doublon). `FromImport` reçoit un `ImportLog?` optionnel. Pas de test dédié aux nouveaux codes ni à `modelscale` des portes (réserve).
+- `--screenshot`, `--exit`, `--game`, etc. sans `--module` : message `--module is required ...` et code 2 (test `Automation_none_without_module_and_error_for_options_alone`).
+
+### Vérification
+- `dotnet build Kotor2Ja.sln` : 0 avertissement, 0 erreur. `dotnet test Kotor2Ja.sln` : vert (Cli 20, Compiler 80, Core 152, Pipeline 74, aucun ignoré).

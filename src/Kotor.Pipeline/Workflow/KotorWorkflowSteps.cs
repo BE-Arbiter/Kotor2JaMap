@@ -83,10 +83,10 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         try
         {
             ImportStepResult imported = PipelineSteps.Import(scene, null, _opt, log);
-            PreviewModel model = PreviewBuilder.FromImport(imported, _entities, _opt.Scale, _opt.LightmapBrightness);
+            PreviewModel model = PreviewBuilder.FromImport(imported, _entities, _opt.Scale, _opt.LightmapBrightness, log);
             _imported = imported; _exported = null;
             _importModel = model;
-            progress.Report($"Importer : {model.TriangleCount} triangle(s), {model.Markers.Count} repere(s), {model.Instances.Count} modele(s) pose(s), {imported.Plan.Shaders.Count} shader(s).");
+            progress.Report($"Importer : {model.TriangleCount} triangle(s), {model.Markers.Count} repere(s), {model.Instances.Count} placed model(s), {imported.Plan.Shaders.Count} shader(s).");
             return model;
         }
         finally { Flush(log, progress); }
@@ -123,7 +123,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             if (_importModel is not null) model = model with { Markers = _importModel.Markers, CollisionTriangles = _importModel.CollisionTriangles };
             _exported = exported;
             WarnIfCollisionReduced(log);
-            progress.Report($"Exporter : {model.TriangleCount} triangle(s) relus dans {Path.GetFileName(exported.BspPath)}, {model.Instances.Count} modele(s) pose(s).");
+            progress.Report($"Exporter : {model.TriangleCount} triangle(s) relus dans {Path.GetFileName(exported.BspPath)}, {model.Instances.Count} placed model(s).");
             return model;
         }
         finally { Flush(log, progress); }

@@ -2,6 +2,7 @@
 using System.Numerics;
 using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
+using Kotor.Core.Diagnostics;
 using Kotor.Core.Entities;
 using Kotor.Core;
 using Kotor.Core.Export;
@@ -65,7 +66,7 @@ public static partial class PreviewBuilder
 
     /// <summary>Etape Importer : le plan d'export (deja a l'echelle JA, UV Q3) plus les reperes d'entites (metres * <paramref name="scale"/>).</summary>
     public static PreviewModel FromImport(ImportStepResult imported, IReadOnlyList<ModuleEntity> entities, float scale,
-        float lightmapBrightness = 1f)
+        float lightmapBrightness = 1f, ImportLog? log = null)
     {
         ArgumentNullException.ThrowIfNull(imported);
         ArgumentNullException.ThrowIfNull(entities);
@@ -108,7 +109,7 @@ public static partial class PreviewBuilder
         if (imported.Converted is { Models.Count: > 0 } converted)
         {
             // Objets et portes : maillage a la place du cube.
-            view = WithConvertedModels(view, textures, converted);
+            view = WithConvertedModels(view, textures, converted, log);
             view = view with { Markers = WithoutModelledMarkers(markers, view.Instances) };
         }
         return view;

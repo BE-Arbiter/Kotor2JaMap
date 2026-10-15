@@ -245,6 +245,15 @@ public sealed class PreviewBuilderTests : IDisposable
         Assert.Throws<InvalidDataException>(() => Md3Reader.Read(new byte[200]));
     }
 
+    [Fact]
+    public void Md3Reader_restores_KOTOR_winding_after_write()
+    {
+        var part = new ModelPart("tex_a", [new(0, 0, 0), new(10, 0, 0), new(0, 10, 0), new(10, 10, 0)], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+            [new(0, 0), new(1, 0), new(0, 1), new(1, 1)], [0, 1, 2, 1, 3, 2]);
+        Md3Surface s = Assert.Single(Md3Reader.Read(Md3Writer.Write("q", [part], "models/kotor/")));
+        Assert.Equal(new[] { 0, 1, 2, 1, 3, 2 }, s.Indices);
+    }
+
     [SkippableFact]
     public void Real_tar_m02aa_export_view_has_md3()
     {

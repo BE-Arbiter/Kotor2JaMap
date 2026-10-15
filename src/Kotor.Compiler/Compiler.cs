@@ -78,7 +78,7 @@ public static class Compiler
                 foreach (var planes in input.SubModels[sm].Brushes)
                 {
                     if (BrushBounds.FromPlanes(planes) is { } bb) brushesOfModel.Add(new Brush([.. planes], bb.Min, bb.Max));
-                    else Warn($"Sous-modele *{sm + 1} : brush degenere ou non borne ignore.");
+                    else Warn($"Sub-model *{sm + 1}: degenerate or unbounded brush ignored.");
                 }
                 subModels.Add(new BspSubModel(brushesOfModel, input.SubModels[sm].Shader));
             }
