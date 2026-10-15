@@ -134,6 +134,23 @@ public sealed class WorkflowControllerTests
     }
 
     [Fact]
+    public async Task UnlinkedMessage_names_the_unlinked_modules_until_they_are_linked()
+    {
+        var f = new FakeSteps { Session = TwoUnlinkedParts(out var d1, out var d2) };
+        f.OnApply = () => { f.Session!.SetManualJunction(0, d1, 1, d2); return Model(); };
+        var c = new WorkflowController(f);
+        c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]);
+        Assert.Null(c.UnlinkedMessage);                // pas encore d'apercu
+        await c.PreviewAsync();
+        Assert.Equal("Modules not linked: m2. Use the application to place them manually.", c.UnlinkedMessage);
+        await c.ApplyAssemblyAsync();
+        Assert.Null(c.UnlinkedMessage);
+        c.SelectModule(KotorGame.Kotor1, "m1");
+        await c.PreviewAsync();
+        Assert.Null(c.UnlinkedMessage);
+    }
+
+    [Fact]
     public async Task Assembly_is_exposed_only_for_the_previewed_selection()
     {
         var f = new FakeSteps { Session = TwoUnlinkedParts(out _, out _) };

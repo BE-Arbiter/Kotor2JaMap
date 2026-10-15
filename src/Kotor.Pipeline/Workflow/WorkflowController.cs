@@ -75,6 +75,20 @@ public sealed class WorkflowController
     /// <summary>Vrai tant que l'assemblage a des groupes de modules non relies : <see cref="CanNext"/> reste faux.</summary>
     public bool NeedsLinking { get { lock (_gate) return NeedsLinkingLocked(); } }
 
+    /// <summary>
+    /// Message (anglais) nommant les modules restes non relies apres l'apercu de l'assemblage ; null si tout est relie ou hors
+    /// assemblage. Sert a l'automatisation (<c>--run-to</c>), qui n'a pas d'editeur.
+    /// </summary>
+    public string? UnlinkedMessage
+    {
+        get
+        {
+            Kotor.Pipeline.Assembly.AssemblySession? a = Assembly;
+            if (a is null || a.IsComplete) return null;
+            return Kotor.Pipeline.Assembly.ModuleSelection.NotLinkedMessage(Kotor.Pipeline.Assembly.ModuleSelection.UnlinkedModules(a));
+        }
+    }
+
     private bool NeedsLinkingLocked() =>
         _modules.Count > 1 && _stage != WorkflowStage.None && _steps.Assembly is { } a && !(a.IsComplete && _steps.AssemblyUpToDate);
 

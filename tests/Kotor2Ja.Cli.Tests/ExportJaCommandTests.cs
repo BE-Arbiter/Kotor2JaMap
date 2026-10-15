@@ -107,4 +107,81 @@ public class ExportJaCommandTests
         Assert.Empty(pr.Errors);
         Assert.Contains(cmd.Options, o => o.Name == "--bsp-limits");
     }
+
+    [Fact]
+    public void Several_modules_without_the_game_fail_cleanly()
+    {
+        string absent = Path.Combine(Path.GetTempPath(), "absent_" + Guid.NewGuid().ToString("N"));
+        var err = new StringWriter();
+        int code = ExportJaCommand.Run(new ExportOptions(absent, "b", "w"), "end_m01aa,end_m01ab", null, new StringWriter(), err);
+        Assert.Equal(2, code);
+        Assert.Contains("installation not found", err.ToString());
+        Assert.DoesNotContain("   at ", err.ToString());
+
+        // Par la vraie commande : meme code, aucune exception.
+        Assert.Equal(2, Program.BuildRoot().Parse(["export-ja", "end_m01aa,end_m01ab", "--kotor", absent]).Invoke());
+    }
+
+    [Theory]
+    [InlineData("a,,b")]
+    [InlineData("a,b,A")]
+    public void Invalid_module_list_returns_1(string modules)
+    {
+        var err = new StringWriter();
+        int code = ExportJaCommand.Run(new ExportOptions("k", "b", "w"), modules, null, new StringWriter(), err);
+        Assert.Equal(1, code);
+        Assert.Contains("module", err.ToString());
+    }
+
+    [Fact]
+    public void Reference_outside_the_list_returns_1()
+    {
+        var err = new StringWriter();
+        int code = ExportJaCommand.Run(new ExportOptions("k", "b", "w"), "a,b", null, new StringWriter(), err, reference: "c");
+        Assert.Equal(1, code);
+        Assert.Contains("Reference module 'c'", err.ToString());
+    }
+
+    [Fact]
+    public void Unknown_module_in_a_list_returns_2()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "k2j_cli_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "modules"));
+        try
+        {
+            var err = new StringWriter();
+            int code = ExportJaCommand.Run(new ExportOptions(dir, Path.Combine(dir, "b"), Path.Combine(dir, "w")),
+                "nope1,nope2", null, new StringWriter(), err);
+            Assert.Equal(2, code);
+            Assert.Contains("Unknown module: nope1", err.ToString());
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Reference_option_is_parsed()
+    {
+        var kotor = new System.CommandLine.Option<string?>("--kotor");
+        var cmd = ExportJaCommand.Create(kotor);
+        var pr = cmd.Parse(["--reference", "end_m01ab", "end_m01aa,end_m01ab"]);
+        Assert.Empty(pr.Errors);
+        Assert.Contains(cmd.Options, o => o.Name == "--reference");
+    }
+
+    [SkippableFact]
+    public void Unlinked_modules_return_1_with_the_module_names()
+    {
+        Skip.If(TestEnv.KotorDir is null, "KOTOR not installed");
+        string dir = Path.Combine(Path.GetTempPath(), "k2j_unl_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var err = new StringWriter();
+            var opt = new ExportOptions(TestEnv.KotorDir!, Path.Combine(dir, "base"), Path.Combine(dir, "w"));
+            int code = ExportJaCommand.Run(opt, "end_m01aa,tar_m02aa", null, new StringWriter(), err);
+            Assert.Equal(1, code);
+            Assert.Contains("Modules not linked: tar_m02aa. Use the application to place them manually.", err.ToString());
+            Assert.False(Directory.Exists(Path.Combine(dir, "base")));    // aucun pk3
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
 }

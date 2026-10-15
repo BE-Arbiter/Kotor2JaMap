@@ -240,7 +240,8 @@ public sealed class AppGame : Game
         {
             case 0:
                 if (_modulesTask is { IsCompleted: false }) return;   // la liste des modules doit etre chargee avant la selection
-                if (!_workflow.SelectModule(a.Game, a.Module)) { FailAutomation("Could not select the module."); return; }
+                // Plusieurs modules : comme la selection multiple (assemblage, liaison automatique a l'apercu).
+                if (!_workflow.SelectModules(a.Game, a.Modules)) { FailAutomation("Could not select the module."); return; }
                 _ = _workflow.PreviewAsync();
                 _autoPhase = 1;
                 break;
@@ -252,6 +253,8 @@ public sealed class AppGame : Game
                     WorkflowStage.Previewed => 0, WorkflowStage.Imported => 1, WorkflowStage.Exported => 2, WorkflowStage.Packed => 3, _ => -1,
                 };
                 if (reached < 0) { FailAutomation("The preview step did not complete."); return; }
+                // Sans editeur, un assemblage incomplet ne peut pas aller plus loin que l'apercu.
+                if (reached < a.StageIndex && _workflow.UnlinkedMessage is { } unlinked) { FailAutomation(unlinked); return; }
                 if (reached < a.StageIndex) { _ = _workflow.NextAsync(); return; }
                 _autoPhase = 2;
                 break;

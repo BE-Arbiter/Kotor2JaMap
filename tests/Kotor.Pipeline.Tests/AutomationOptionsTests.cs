@@ -74,4 +74,35 @@ public class AutomationOptionsTests
             Assert.Contains("--module", e);
         }
     }
+
+    [Fact]
+    public void Automation_single_module_is_a_one_item_list()
+    {
+        var o = AutomationParser.Parse(["--module", "tar_m02aa"], out string? error);
+        Assert.Null(error);
+        Assert.NotNull(o);
+        Assert.Equal(["tar_m02aa"], o.Modules);
+        Assert.Equal("tar_m02aa", o.Module);
+    }
+
+    [Fact]
+    public void Automation_module_list_is_split_on_commas()
+    {
+        var o = AutomationParser.Parse(["--module", "end_m01aa, end_m01ab", "--run-to", "pk3"], out string? error);
+        Assert.Null(error);
+        Assert.NotNull(o);
+        Assert.Equal(["end_m01aa", "end_m01ab"], o.Modules);
+        Assert.Equal("end_m01aa", o.Module);
+    }
+
+    [Theory]
+    [InlineData(",")]
+    [InlineData(" , ")]
+    [InlineData("a,,b")]
+    [InlineData("a,b,a")]
+    public void Automation_invalid_module_list(string value)
+    {
+        Assert.Null(AutomationParser.Parse(["--module", value], out string? error));
+        Assert.Contains("--module", error);
+    }
 }

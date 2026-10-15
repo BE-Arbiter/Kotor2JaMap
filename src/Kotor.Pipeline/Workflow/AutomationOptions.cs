@@ -1,17 +1,22 @@
 using System.Globalization;
 using System.Numerics;
 using Kotor.Core;
+using Kotor.Pipeline.Assembly;
 
 namespace Kotor.Pipeline.Workflow;
 
 /// <summary>
 /// Pilotage de l'application en ligne de commande (essais visuels sans clic). <c>RunTo</c> : <c>preview</c>, <c>import</c>, <c>export</c> ou <c>pk3</c>.
 /// <c>CameraPosition</c> null : camera par defaut. Position en unites JA, <c>CameraYaw</c> et <c>CameraPitch</c> en degres.
+/// <c>Module</c> : premier module (reference d'un assemblage) ; <see cref="Modules"/> : tous les modules de <c>--module a,b</c>.
 /// </summary>
 public sealed record AutomationOptions(KotorGame Game, string Module, string RunTo /* preview|import|export|pk3 */,
     Vector3? CameraPosition, float CameraYaw, float CameraPitch, string? ScreenshotPath, bool Exit)
 {
     public static readonly IReadOnlyList<string> Stages = ["preview", "import", "export", "pk3"];
+
+    /// <summary>Modules selectionnes (un seul hors assemblage, plusieurs : comme la selection multiple) ; le premier est <c>Module</c>.</summary>
+    public IReadOnlyList<string> Modules { get; init; } = [Module];
 
     /// <summary>Position de <see cref="RunTo"/> dans <see cref="Stages"/> (0 = preview ... 3 = pk3).</summary>
     public int StageIndex => Stages.ToList().IndexOf(RunTo);
@@ -20,7 +25,7 @@ public sealed record AutomationOptions(KotorGame Game, string Module, string Run
 public static class AutomationParser
 {
     public const string Usage =
-        "Usage: Kotor2Ja.App [--game kotor|kotor2] --module <module> [--run-to preview|import|export|pk3] "
+        "Usage: Kotor2Ja.App [--game kotor|kotor2] --module <module>[,<module>...] [--run-to preview|import|export|pk3] "
         + "[--camera \"x y z yaw pitch\"] [--screenshot <png>] [--exit]";
 
     /// <summary>
@@ -33,6 +38,7 @@ public static class AutomationParser
         error = null;
         var game = KotorGame.Kotor1;
         string? module = null, screenshot = null;
+        IReadOnlyList<string> modules = [];
         string runTo = "preview";
         Vector3? cameraPos = null;
         float yaw = 0, pitch = 0;
@@ -65,7 +71,8 @@ public static class AutomationParser
                             break;
                         case "--module":
                             if (string.IsNullOrWhiteSpace(v)) { error = "--module must not be empty."; return null; }
-                            module = v.Trim();
+                            if (!ModuleSelection.TryParse(v, out modules, out string? listError)) { error = $"Invalid --module '{v}': {listError}"; return null; }
+                            module = modules[0];
                             break;
                         case "--run-to":
                             runTo = v.ToLowerInvariant();
@@ -91,7 +98,7 @@ public static class AutomationParser
             if (args.Length > 0) error = "--module is required with --game, --run-to, --camera, --screenshot and --exit.";
             return null;
         }
-        return new AutomationOptions(game, module, runTo, cameraPos, yaw, pitch, screenshot, exit);
+        return new AutomationOptions(game, module, runTo, cameraPos, yaw, pitch, screenshot, exit) { Modules = modules };
     }
 
     private static bool TryCamera(string text, out Vector3 position, out float yaw, out float pitch)

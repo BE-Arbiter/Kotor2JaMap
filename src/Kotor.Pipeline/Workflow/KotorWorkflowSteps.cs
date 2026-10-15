@@ -96,21 +96,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             ExportOptions opt = _base.ForGame(game);
             if (!IsInstalled(game))
                 throw new PipelineStepException("GAME_NOT_FOUND", $"{KotorGames.DisplayName(game)} folder not found: {opt.KotorDir}");
-            var known = ModuleCatalog.ListModuleNames(opt.KotorDir).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (string m in modules)
-                if (!known.Contains(m))
-                    throw new PipelineStepException("ASSEMBLY_MIXED_GAMES",
-                        $"Module '{m}' does not belong to {KotorGames.DisplayName(game)}: modules of different games cannot be assembled.");
-            if (modules.Select(m => m.ToLowerInvariant()).Distinct().Count() != modules.Count)
-                throw new PipelineStepException("ASSEMBLY_DUPLICATE_MODULE", "The same module cannot be selected twice.");
-
-            var parts = new List<AssemblyPart>(modules.Count);
-            foreach (string m in modules)
-            {
-                ModuleScene scene = PipelineSteps.Preview(m, opt, log);
-                parts.Add(new AssemblyPart(scene, ReadEntities(opt, scene, m, log)));
-            }
-            IReadOnlyList<DoorLink> links = TransitionLinks.Find(parts, log);
+            var (parts, links) = AssemblyLoader.LoadParts(modules, opt, log);
             var session = new AssemblySession([.. modules], parts, links, (part, door) => FrameOf(opt, part, door));
             PreviewModel model = BuildAssembled(session, opt, log);
             _opt = opt;
@@ -159,16 +145,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         string module = part.Scene.Info.Module;
         var key = (module.ToLowerInvariant(), door.Name, door.Position);
         if (_frames.TryGetValue(key, out DoorFrame? cached)) return cached;
-        DoorFrame? frame = null;
-        try
-        {
-            using var res = ResourceResolver.ForModule(opt.KotorDir, module.ToLowerInvariant(), opt.Game);
-            frame = DoorFrames.Of(res, opt.Game, door, _frameLog);
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
-        {
-            _frameLog.Warn("LINK_DOOR_MODEL_MISSING", $"Door '{door.Name}': {ex.Message}; the default door size is used.");
-        }
+        DoorFrame? frame = AssemblyLoader.FrameOf(opt, part, door, _frameLog);
         _frames[key] = frame;
         return frame;
     }
@@ -242,22 +219,8 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         finally { Flush(log, progress); }
     }
 
-    private static IReadOnlyList<ModuleEntity> ReadEntities(ExportOptions opt, ModuleScene scene, string module, ImportLog log)
-    {
-        try
-        {
-            using var res = ResourceResolver.ForModule(opt.KotorDir, module.ToLowerInvariant(), opt.Game);
-            byte[] lyt = res.Find(scene.Info.AreaResRef, ResourceType.Lyt)
-                ?? throw new InvalidDataException($"{scene.Info.AreaResRef}.lyt not found.");
-            LayoutFile layout = LayoutFile.Parse(Encoding.ASCII.GetString(lyt));
-            return ModuleEntitiesReader.Read(res, scene.Info, layout, log);
-        }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
-        {
-            log.Warn("ENTITIES_UNREADABLE", $"Module entities unreadable ({ex.Message}): no markers.");
-            return [];
-        }
-    }
+    private static IReadOnlyList<ModuleEntity> ReadEntities(ExportOptions opt, ModuleScene scene, string module, ImportLog log) =>
+        AssemblyLoader.ReadEntities(opt, scene, module, log);
 
     /// <summary>La vue Exporter reprend la collision de l etape Importer : l avertir si le compilateur l a reduite.</summary>
     internal static void WarnIfCollisionReduced(ImportLog log)
