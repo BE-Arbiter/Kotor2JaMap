@@ -2,11 +2,15 @@ name: build-latest
 
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: build-latest
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -35,5 +39,5 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag
           if ($LASTEXITCODE -ne 0) { $global:LASTEXITCODE = 0 }
-          gh release create latest artifacts/Kotor2Ja-win-x64.zip --prerelease --title "Latest build" --notes "Automated build of ${{ github.sha }}"
+          gh release create latest artifacts/Kotor2Ja-win-x64.zip --prerelease --target ${{ github.sha }} --title "Latest build" --notes "Automated build of ${{ github.sha }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

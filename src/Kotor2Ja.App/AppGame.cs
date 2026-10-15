@@ -57,13 +57,13 @@ public sealed class AppGame : Game
         _renderer = new PreviewRenderer(GraphicsDevice);
 
         // Same configuration file as the CLI, next to the executable. Without it: folders detected through Steam.
-        string configPath = ConfigPath;
+        string configPath = ConfigLoader.FindConfig(AppContext.BaseDirectory) ?? Path.Combine(AppContext.BaseDirectory, ConfigLoader.ConfigFileName);
         ExportOptions options;
         string? configWarning = null;
         try
         {
             options = ConfigLoader.Load(configPath);
-            if (!File.Exists(configPath)) configWarning = "No configuration file next to the executable: game folders detected through Steam (see Settings).";
+            if (!File.Exists(configPath)) configWarning = "No configuration file (next to the executable or in %APPDATA%\\Kotor2Ja): game folders detected through Steam (see Settings).";
             else if (options.Validate() is { } bad) { configWarning = $"ERROR: invalid configuration ({configPath}): {bad}"; options = ConfigLoader.Defaults(); }
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException)
@@ -74,7 +74,7 @@ public sealed class AppGame : Game
         _workflow = new WorkflowController(new KotorWorkflowSteps(options));
         _screen = new MainScreen(_workflow, _options);
         _screen.SaveSettings = SaveSettings;
-        _screen.DetectSettings = () => ConfigLoader.Defaults(_ => null);
+        _screen.DetectSettings = () => GameLocator.Detect();
         if (_auto is not null) _screen.LogSink = Console.WriteLine;
         if (configWarning is not null) _screen.AddLog(configWarning);
         _screen.SetSettings(options);
@@ -84,23 +84,25 @@ public sealed class AppGame : Game
         base.Initialize();
     }
 
-    private static string ConfigPath => Path.Combine(AppContext.BaseDirectory, ConfigLoader.ConfigFileName);
-
     private void LogFolders(ExportOptions options)
     {
         _screen.AddLog($"KOTOR: {options.KotorDir} (scale {options.Scale:0.##})");
         _screen.AddLog($"KOTOR 2: {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
     }
 
-    // Settings "Save": writes the config file next to the executable, then reloads the module list with the new folders.
+    // Settings "Save": writes the config file next to the executable (else in %APPDATA%\Kotor2Ja), then reloads the module list with the new folders.
     private string? SaveSettings(ExportOptions options)
     {
         if (_workflow.IsBusy) return "Wait for the current step to finish.";
         if (options.Validate() is { } bad) return bad;
-        try { ConfigLoader.Save(ConfigPath, options); }
+        string written;
+        try { written = ConfigLoader.SaveWithFallback(AppContext.BaseDirectory, options); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        { return "Cannot write " + ConfigPath + ": " + e.Message; }
-        _screen.AddLog("Settings saved to " + ConfigPath);
+        { return "Cannot write the configuration file: " + e.Message; }
+        bool fallback = !string.Equals(Path.GetDirectoryName(written), AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+        string info = "Saved to " + written + (fallback ? " (the executable folder is not writable)." : ".");
+        _screen.SavedInfo = info;
+        _screen.AddLog("Settings " + char.ToLowerInvariant(info[0]) + info[1..]);
         _workflow = new WorkflowController(new KotorWorkflowSteps(options));
         _screen.SetWorkflow(_workflow);
         LogFolders(options);

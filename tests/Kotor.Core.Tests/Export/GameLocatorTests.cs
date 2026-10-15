@@ -60,4 +60,21 @@ public class GameLocatorTests
         }
         finally { if (Directory.Exists(steam)) Directory.Delete(steam, true); }
     }
+
+    [Fact]
+    public void Detect_skips_an_unusable_library_and_keeps_the_others()
+    {
+        string steam = Temp(), lib2 = Temp();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(steam, "steamapps"));
+            string c2 = Path.Combine(lib2, "steamapps", "common", "swkotor");
+            Directory.CreateDirectory(c2);
+            File.WriteAllText(Path.Combine(c2, "chitin.key"), "");
+            File.WriteAllText(Path.Combine(steam, "steamapps", "libraryfolders.vdf"),
+                "\"libraryfolders\"\n{\n \"0\" { \"path\" \"Z:\\no\\such|library\" }\n \"1\" { \"path\" \"" + lib2.Replace(@"\", @"\\") + "\" }\n}\n");
+            Assert.Equal(c2, GameLocator.Detect(() => steam).KotorDir);
+        }
+        finally { foreach (string d in new[] { steam, lib2 }) if (Directory.Exists(d)) Directory.Delete(d, true); }
+    }
 }

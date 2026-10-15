@@ -41,7 +41,7 @@ public static class GameOption
         return options.ForGame(game).KotorDir;
     }
 
-    public static string DefaultConfigPath => Path.Combine(AppContext.BaseDirectory, "kotor2ja.config.json");
+    public static string DefaultConfigPath => ConfigLoader.FindConfig(AppContext.BaseDirectory) ?? Path.Combine(AppContext.BaseDirectory, ConfigLoader.ConfigFileName);
 
     public static string NotFound(KotorGame game, string? dir) =>
         $"{KotorGames.DisplayName(game)} installation not found: {dir ?? "(no path)"}";

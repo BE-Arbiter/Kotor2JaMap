@@ -24,9 +24,43 @@ public static class ConfigLoader
             found.WorkDir, Kotor2Dir: EnvOr(getEnv, "KOTOR2_PATH", found.Kotor2Dir ?? DefaultKotor2Dir));
     }
 
-    /// <summary>The config file next to the executable if it exists, else the detected/default values.</summary>
-    public static ExportOptions LoadOrDetect(string exeDir, Func<string, string?>? getEnv = null, Func<GamePaths>? detect = null) =>
-        Load(Path.Combine(exeDir, ConfigFileName), getEnv, detect);
+    /// <summary>User-level config folder: %APPDATA%Kotor2Ja.</summary>
+    public static string DefaultAppDataDir()
+    {
+        string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (string.IsNullOrEmpty(roaming)) roaming = Path.GetTempPath();
+        return Path.Combine(roaming, "Kotor2Ja");
+    }
+
+    /// <summary>Reading order: the file next to the executable, then the one in %APPDATA%Kotor2Ja. Null when neither exists.</summary>
+    public static string? FindConfig(string exeDir, string? appDataDir = null)
+    {
+        string beside = Path.Combine(exeDir, ConfigFileName);
+        if (File.Exists(beside)) return beside;
+        string user = Path.Combine(appDataDir ?? DefaultAppDataDir(), ConfigFileName);
+        return File.Exists(user) ? user : null;
+    }
+
+    /// <summary>The config file (next to the executable, else in %APPDATA%) if it exists, else the detected/default values.</summary>
+    public static ExportOptions LoadOrDetect(string exeDir, Func<string, string?>? getEnv = null, Func<GamePaths>? detect = null,
+        string? appDataDir = null) =>
+        Load(FindConfig(exeDir, appDataDir), getEnv, detect);
+
+    /// <summary>
+    /// Saves next to the executable; if that folder is not writable, in %APPDATA%Kotor2Ja. Returns the file written.
+    /// An existing file in %APPDATA% only is updated there (the file next to the executable would otherwise take precedence anyway).
+    /// </summary>
+    public static string SaveWithFallback(string exeDir, ExportOptions o, string? appDataDir = null)
+    {
+        string beside = Path.Combine(exeDir, ConfigFileName);
+        try { Save(beside, o); return beside; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            string user = Path.Combine(appDataDir ?? DefaultAppDataDir(), ConfigFileName);
+            Save(user, o);
+            return user;
+        }
+    }
 
     /// <summary>Writes the options as JSON (same keys as the config file, including kotor2Dir).</summary>
     public static void Save(string path, ExportOptions o)

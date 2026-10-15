@@ -38,18 +38,27 @@ public static partial class GameLocator
 
             var libraries = new List<string> { root };
             string vdf = Path.Combine(root, "steamapps", "libraryfolders.vdf");
-            if (File.Exists(vdf))
-                foreach (string lib in ParseLibraryFolders(File.ReadAllText(vdf)))
-                    if (!libraries.Contains(lib, StringComparer.OrdinalIgnoreCase)) libraries.Add(lib);
+            try
+            {
+                if (File.Exists(vdf))
+                    foreach (string lib in ParseLibraryFolders(File.ReadAllText(vdf)))
+                        if (!libraries.Contains(lib, StringComparer.OrdinalIgnoreCase)) libraries.Add(lib);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { /* unreadable list: the Steam root alone */ }
 
             string? k1 = null, k2 = null, ja = null;
             foreach (string lib in libraries)
             {
-                string common = Path.Combine(lib, "steamapps", "common");
-                if (!Directory.Exists(common)) continue;
-                k1 ??= GameFolder(common, "swkotor");
-                k2 ??= GameFolder(common, "Knights of the Old Republic II");
-                ja ??= FindJaBase(common);
+                // A library that throws (disconnected drive, access denied) is skipped; the others are still searched.
+                try
+                {
+                    string common = Path.Combine(lib, "steamapps", "common");
+                    if (!Directory.Exists(common)) continue;
+                    k1 ??= GameFolder(common, "swkotor");
+                    k2 ??= GameFolder(common, "Knights of the Old Republic II");
+                    ja ??= FindJaBase(common);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { }
             }
             return new GamePaths(k1, k2, ja, work);
         }

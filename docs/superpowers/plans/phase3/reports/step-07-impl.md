@@ -36,3 +36,30 @@ Statut : FAIT_AVEC_RESERVES (voir les réserves en fin de rapport).
 - Le panneau `Settings` est placé sous le bouton `Preview` (au-dessus du journal), pas tout en bas.
 - Branche du workflow : `master` (spec), alors que la branche principale annoncée est `main` : dépôt local sans remote, à ajuster si besoin.
 - Le dossier `publish/` et `artifacts/` existent localement (ignorés par git). Rien n'a été commité ni poussé.
+
+## Correction 1
+
+Relecture : `reports/step-07-review.md`. Rien n'est commité ni poussé ; le dossier Jedi Academy n'est pas touché, le jeu n'est pas lancé.
+
+### I1 — Release `latest` et commit du zip
+- `build-latest.yml` : `gh release create ... --target ${{ github.sha }}` ; bloc `concurrency: { group: build-latest, cancel-in-progress: false }` (pas de croisement de deux pushes) ; déclencheur `push` sur `[master, main]`.
+- Test : aucun (workflow non exécutable en local, pas de remote). Relecture manuelle de l'indentation et des clés (pas d'analyseur YAML disponible).
+
+### I2 — Plus d'E/S dans le fil de rendu pour le panneau Settings
+- Nouvelle classe testable `Kotor.Core.Export.SettingsProbe` : `Check` (contrôle d'existence des quatre chemins, `PathStatus`), `ApplyDetected` (règle de fusion de `Detect`), et `BackgroundJob<T>` (une seule tâche à la fois ; `TryStart` ne relance pas si elle tourne ; le résultat est repris par `TryTake` à une image ultérieure).
+- `MainScreen.DrawSettings` : ne fait plus que lire des champs. Les contrôles sont lancés en tâche de fond quand le texte a changé depuis plus de 300 ms et qu'aucun contrôle ne tourne ; le résultat est appliqué à l'image suivante. `Detect` (registre + disque) tourne aussi en tâche de fond, le bouton est désactivé pendant ce temps, le résultat est appliqué à l'image suivante. `Save` reste synchrone (écriture courte et protégée, action explicite).
+- Tests : `SettingsProbeTests.Check_reports_each_path`, `BackgroundJob_does_not_restart_while_running_and_delivers_result`, `BackgroundJob_survives_an_exception`.
+
+### Minors
+- **M1 (Save sans repli)** : `ConfigLoader.SaveWithFallback(exeDir, options)` écrit à côté de l'exécutable, sinon dans `%APPDATA%\Kotor2Ja\kotor2ja.config.json` ; `FindConfig` / `LoadOrDetect` lisent l'exécutable d'abord, puis `%APPDATA%`. L'application (au démarrage) et la CLI (`GameOption.DefaultConfigPath`) utilisent cet ordre. Le panneau et le journal indiquent, en anglais, où le fichier a été écrit (« Saved to <path> (the executable folder is not writable). »). README mis à jour. Tests : `Save_falls_back_to_appdata_when_exe_folder_is_not_writable_and_load_reads_it`, `Config_next_to_exe_wins_over_appdata`.
+- **M6 (Detect écrase)** : `Detect` appelle `GameLocator.Detect()` et `SettingsProbe.ApplyDetected` : un champ déjà valide est gardé, un champ non trouvé n'est pas remplacé (plus de chemin codé en dur injecté). Tests : `ApplyDetected_keeps_valid_fields_and_unfound_games`, `ApplyDetected_fills_empty_fields`.
+- **M3 (exception sur une bibliothèque)** : dans `GameLocator.Detect`, chaque bibliothèque a son `try/catch` (E/S, accès, argument) : elle est sautée seule ; la lecture du VDF a le sien (racine Steam seule en cas d'échec). Test : `Detect_skips_an_unusable_library_and_keeps_the_others` (bibliothèque au chemin inutilisable avant une valide ; on ne sait pas provoquer une vraie exception d'E/S en test, la voie `catch` n'est donc pas exercée directement).
+- **M11 (publish.ps1)** : vérification de la présence de `Kotor2Ja.App.exe` et `Kotor2Ja.Cli.exe` avant `Compress-Archive` (échec avec `throw`). Pas de test automatisé ; le cas nominal est exercé par l'exécution du script. Une première version avait une erreur de syntaxe PowerShell (`$staging:` lu comme un lecteur), corrigée avec `${}`.
+- Non traités (hors périmètre demandé) : M2, M4, M5, M7, M8, M9, M10 (partiellement couvert par `concurrency`), M12.
+
+### Commandes et résultats
+- `dotnet build Kotor2Ja.sln` : 0 avertissement, 0 erreur.
+- `dotnet test Kotor2Ja.sln` : Compiler 80, Cli 20, Core 164, Pipeline 74, tous verts (Core +8 tests).
+- `powershell -File scripts/publish.ps1` : OK (relancé après la correction du script et après la mise à jour du README) ; `Kotor2Ja.App.exe` 75,5 Mo, `Kotor2Ja.Cli.exe` 70,9 Mo, zip 63,4 Mo.
+- Essai portable : zip extrait dans `%TEMP%\k2j_portable` sans config ; `Kotor2Ja.App.exe --game kotor --module tar_m02aa --run-to preview --screenshot ...\portable.png --exit` : code 0, message « No configuration file (next to the executable or in %APPDATA%\Kotor2Ja) ... », KOTOR détecté, 199 modules, aperçu 574 meshes / 41216 triangles / 166 entités, capture 1600x900 de 1,07 Mo (même taille qu'avant la correction). `Kotor2Ja.Cli.exe list-modules` : 117 lignes.
+- Réserve : le panneau Settings (Detect, champs rouges, Save avec repli) n'a pas été essayé à la souris.

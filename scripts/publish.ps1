@@ -36,6 +36,10 @@ Remove-Item (Join-Path $staging '*.pdb') -ErrorAction SilentlyContinue
 Copy-Item 'src/Kotor2Ja.Cli/kotor2ja.config.example.json' $staging -Force
 Copy-Item 'README.md', 'THIRD-PARTY-NOTICES.md' $staging -Force
 
+foreach ($exe in @('Kotor2Ja.App.exe', 'Kotor2Ja.Cli.exe')) {
+    if (-not (Test-Path (Join-Path $staging $exe))) { throw "Missing ${exe} in ${staging} - the package would be incomplete." }
+}
+
 $zip = Join-Path $artifacts 'Kotor2Ja-win-x64.zip'
 Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -Force
 Get-ChildItem $staging | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} | Format-Table -AutoSize

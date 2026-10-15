@@ -113,14 +113,22 @@ public sealed class MainScreen
     private string _kotorText = "", _kotor2Text = "", _jaText = "", _workText = "";
     private string? _settingsMessage;
     private bool _settingsMessageIsError;
-    private long _checkedAt;
-    private bool _kotorOk = true, _kotor2Ok = true, _jaOk = true, _workOk = true;
+    // Disk and registry access (path checks, Detect) runs on background tasks; the render thread only reads their results.
+    private PathStatus _status = PathStatus.Unknown;
+    private (string, string, string, string)? _checkedFor;       // texts the current _status was computed for
+    private (string, string, string, string) _lastSeen;
+    private long _editAt;
+    private readonly BackgroundJob<(PathStatus Status, (string, string, string, string) Texts)> _checkJob = new();
+    private readonly BackgroundJob<ExportOptions> _detectJob = new();
 
     /// <summary>Called by Save with the edited options; returns an error message, or null when saved.</summary>
     public Func<ExportOptions, string?>? SaveSettings { get; set; }
 
     /// <summary>Called by Detect: the folders found through Steam.</summary>
-    public Func<ExportOptions>? DetectSettings { get; set; }
+    /// <summary>Set by the Save callback: where the file was written (shown instead of "Saved.").</summary>
+    public string? SavedInfo { get; set; }
+
+    public Func<GamePaths>? DetectSettings { get; set; }
 
     /// <summary>Replaces the workflow (after Settings were saved).</summary>
     public void SetWorkflow(WorkflowController workflow) => _workflow = workflow;
@@ -133,34 +141,39 @@ public sealed class MainScreen
         _kotor2Text = o.Kotor2Dir ?? "";
         _jaText = o.JaBaseDir ?? "";
         _workText = o.WorkDir ?? "";
-        _checkedAt = 0;
+        _checkedFor = null;
     }
 
     private void DrawSettings()
     {
         if (!ImGui.CollapsingHeader("Settings")) return;
         long now = Environment.TickCount64;
-        if (now - _checkedAt > 500)
+        if (_checkJob.TryTake(out var checkResult)) { _status = checkResult.Status; _checkedFor = checkResult.Texts; }
+        if (_detectJob.TryTake(out ExportOptions? detected) && detected is not null)
         {
-            _checkedAt = now;
-            _kotorOk = FolderOk(_kotorText, needChitin: true);
-            _kotor2Ok = _kotor2Text.Length == 0 || FolderOk(_kotor2Text, needChitin: true);
-            _jaOk = FolderOk(_jaText, needChitin: false);
-            _workOk = _workText.Length > 0 && !File.Exists(_workText);   // created on demand
-        }
-        PathField("KOTOR", ref _kotorText, _kotorOk);
-        PathField("KOTOR 2", ref _kotor2Text, _kotor2Ok);
-        PathField("JA base", ref _jaText, _jaOk);
-        PathField("Work dir", ref _workText, _workOk);
-        bool busy = _workflow.IsBusy;
-        if (ImGui.Button("Detect") && DetectSettings is { } detect)
-        {
-            ExportOptions d = detect();
-            _kotorText = d.KotorDir ?? ""; _kotor2Text = d.Kotor2Dir ?? ""; _jaText = d.JaBaseDir ?? ""; _workText = d.WorkDir ?? "";
-            _checkedAt = 0;
-            _settingsMessage = "Folders detected through Steam. Click Save to keep them.";
+            _kotorText = detected.KotorDir ?? ""; _kotor2Text = detected.Kotor2Dir ?? ""; _jaText = detected.JaBaseDir ?? ""; _workText = detected.WorkDir ?? "";
+            _settingsMessage = "Folders detected through Steam (valid fields were kept). Click Save to keep them.";
             _settingsMessageIsError = false;
         }
+        var texts = (_kotorText, _kotor2Text, _jaText, _workText);
+        if (texts != _lastSeen) { _lastSeen = texts; _editAt = now; }
+        if (_checkedFor != texts && now - _editAt > 300 && !_checkJob.IsRunning)
+            _checkJob.TryStart(() => (SettingsProbe.Check(texts.Item1, texts.Item2, texts.Item3, texts.Item4), texts));
+        PathField("KOTOR", ref _kotorText, _status.Kotor);
+        PathField("KOTOR 2", ref _kotor2Text, _status.Kotor2);
+        PathField("JA base", ref _jaText, _status.Ja);
+        PathField("Work dir", ref _workText, _status.Work);
+        bool busy = _workflow.IsBusy;
+        ImGui.BeginDisabled(_detectJob.IsRunning);
+        if (ImGui.Button("Detect") && DetectSettings is { } detect)
+        {
+            ExportOptions snapshot = _settings with { KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim() };
+            _settingsMessage = "Detecting...";
+            _settingsMessageIsError = false;
+            _detectJob.TryStart(() => SettingsProbe.ApplyDetected(snapshot, detect(),
+                SettingsProbe.Check(snapshot.KotorDir, snapshot.Kotor2Dir ?? "", snapshot.JaBaseDir, snapshot.WorkDir)));
+        }
+        ImGui.EndDisabled();
         ImGui.SameLine();
         ImGui.BeginDisabled(busy);
         if (ImGui.Button("Save") && SaveSettings is { } save)
@@ -170,7 +183,7 @@ public sealed class MainScreen
                 KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim(),
             });
             _settingsMessageIsError = error is not null;
-            _settingsMessage = error ?? "Saved.";
+            _settingsMessage = error ?? SavedInfo ?? "Saved.";
             if (error is null)
                 _settings = _settings with { KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim() };
         }
@@ -181,17 +194,6 @@ public sealed class MainScreen
             ImGui.TextWrapped(_settingsMessage);
             ImGui.PopStyleColor();
         }
-    }
-
-    private static bool FolderOk(string path, bool needChitin)
-    {
-        try
-        {
-            string p = path.Trim();
-            if (p.Length == 0 || !Directory.Exists(p)) return false;
-            return !needChitin || File.Exists(Path.Combine(p, "chitin.key"));
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
     }
 
     private static void PathField(string label, ref string text, bool ok)

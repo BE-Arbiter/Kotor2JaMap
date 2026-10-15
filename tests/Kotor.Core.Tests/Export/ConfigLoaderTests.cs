@@ -126,4 +126,41 @@ public class ConfigLoaderTests
         Assert.Null(new ExportOptions("k", "j", "w", BspLimits: "Vanilla").Validate());
         Assert.NotNull(new ExportOptions("k", "j", "w", BspLimits: "x").Validate());
     }
+
+    [Fact]
+    public void Save_falls_back_to_appdata_when_exe_folder_is_not_writable_and_load_reads_it()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgfb_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string blocker = Path.Combine(root, "blocker");
+            File.WriteAllText(blocker, "x");                       // a file where the executable folder should be: not writable
+            string exeDir = Path.Combine(blocker, "bin"), appData = Path.Combine(root, "appdata");
+            var o = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", Kotor2Dir: @"D:\k2");
+
+            string written = ConfigLoader.SaveWithFallback(exeDir, o, appData);
+            Assert.Equal(Path.Combine(appData, ConfigLoader.ConfigFileName), written);
+            Assert.Equal(written, ConfigLoader.FindConfig(exeDir, appData));
+            Assert.Equal(o, ConfigLoader.LoadOrDetect(exeDir, _ => null, () => new GamePaths(null, null, null, @"C:\other"), appData));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void Config_next_to_exe_wins_over_appdata()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cfgord_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string exeDir = Path.Combine(root, "exe"), appData = Path.Combine(root, "appdata");
+            ConfigLoader.Save(Path.Combine(appData, ConfigLoader.ConfigFileName), new ExportOptions("A", "J", "W"));
+            Assert.Equal(Path.Combine(appData, ConfigLoader.ConfigFileName), ConfigLoader.FindConfig(exeDir, appData));
+            string written = ConfigLoader.SaveWithFallback(exeDir, new ExportOptions("B", "J", "W"), appData);
+            Assert.Equal(Path.Combine(exeDir, ConfigLoader.ConfigFileName), written);
+            Assert.Equal(written, ConfigLoader.FindConfig(exeDir, appData));
+            Assert.Null(ConfigLoader.FindConfig(Path.Combine(root, "none"), Path.Combine(root, "none2")));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
 }

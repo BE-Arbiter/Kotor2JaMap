@@ -17,7 +17,7 @@ Unzip `Kotor2Ja-win-x64.zip` anywhere. It contains:
 | `kotor2ja.config.example.json` | Example configuration. Copy it to `kotor2ja.config.json` to use it. |
 | `README.md`, `THIRD-PARTY-NOTICES.md` | Documentation and notices. |
 
-No configuration is needed in most cases: without a `kotor2ja.config.json` next to the executables, the KOTOR, KOTOR 2 and Jedi Academy folders are detected through Steam (the Steam path from the registry, then every library listed in `steamapps\libraryfolders.vdf`). The work folder defaults to `%LOCALAPPDATA%\Kotor2Ja\work`. In the application, the `Settings` panel (left column) shows the folders in use (invalid ones are in red), has a `Detect` button and a `Save` button that writes `kotor2ja.config.json` next to the executable and reloads the module list.
+No configuration is needed in most cases: without a `kotor2ja.config.json` next to the executables, the KOTOR, KOTOR 2 and Jedi Academy folders are detected through Steam (the Steam path from the registry, then every library listed in `steamapps\libraryfolders.vdf`). The work folder defaults to `%LOCALAPPDATA%\Kotor2Ja\work`. In the application, the `Settings` panel (left column) shows the folders in use (invalid ones are in red), has a `Detect` button and a `Save` button that writes `kotor2ja.config.json` next to the executable (or, if that folder is not writable, to `%APPDATA%Kotor2Ja`; both locations are read at startup, the executable folder first) and reloads the module list.
 
 To build the same package locally: `powershell -File scripts/publish.ps1` (output: `artifacts/Kotor2Ja-win-x64.zip`). The executables are self-contained single files; the first start unpacks the native libraries to a temporary folder, so it can take a moment.
 
