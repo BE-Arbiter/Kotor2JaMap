@@ -10,4 +10,4 @@ namespace Kotor.Core.Entities;
 /// LinkedToModule (portes, GIT) : module de destination d'une transition, vide sinon. Locked (portes, UTD) : porte verrouillee.
 /// </summary>
 public sealed record ModuleEntity(EntityKind Kind, string Name, string Template, Vector3 Position, float Yaw, Vector3[]? Polygon,
-    string? Model = null, string LinkedToModule = "", bool Locked = false);
+    string? Model = null, string LinkedToModule = "", bool Locked = false, bool Static = false);

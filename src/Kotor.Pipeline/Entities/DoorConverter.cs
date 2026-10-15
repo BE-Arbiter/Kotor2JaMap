@@ -48,7 +48,7 @@ public static class DoorConverter
         var models = new Dictionary<string, PlaceableConverter.ModelInfo>(StringComparer.Ordinal);
         var entities = new List<IReadOnlyDictionary<string, string>>();
         var subModels = new List<SubModelInput>();
-        int converted = 0, locked = 0, skipped = 0, total = 0;
+        int converted = 0, locked = 0, byLocked = 0, byTransition = 0, byStatic = 0, skipped = 0, total = 0;
 
         foreach (ModuleEntity e in doors)
         {
@@ -80,7 +80,16 @@ public static class DoorConverter
                 ["speed"] = "200",
                 ["wait"] = "3",
             };
-            if (e.Locked || e.LinkedToModule.Length > 0) { ent["spawnflags"] = SpawnflagLocked.ToString(System.Globalization.CultureInfo.InvariantCulture); locked++; }
+            // Verrouillee si UTD Locked, transition (LinkedToModule) ou Static (porte decorative : sans cela elle s'ouvre sur le vide).
+            bool isTransition = e.LinkedToModule.Length > 0;
+            if (e.Locked || isTransition || e.Static)
+            {
+                ent["spawnflags"] = SpawnflagLocked.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                locked++;
+                if (e.Locked) byLocked++;
+                if (isTransition) byTransition++;
+                if (e.Static) byStatic++;
+            }
             entities.Add(ent);
             converted++;
         }
@@ -92,7 +101,7 @@ public static class DoorConverter
         var shaders = textureData.Select(kv => Md3ShaderWriter.Write(game, kv.Key, kv.Value)).ToList();
 
         if (total > 0)
-            log.Warn("DOORS", $"{converted} door(s) converted ({locked} locked), {skipped} skipped.");
+            log.Warn("DOORS", $"{converted} door(s) converted ({locked} locked: {byLocked} locked, {byTransition} transition, {byStatic} static), {skipped} skipped.");
         var result = new ConvertedEntities(entities, assetsOut, [])
         {
             TextureData = textureData,

@@ -37,7 +37,7 @@ public sealed class MainScreen
     public void SetModules(IReadOnlyList<ModuleListItem> modules)
     {
         ModuleListItem[] items = modules.ToArray();
-        _labels = items.Select(m => $"{m.Module} — {m.AreaName}").ToArray();
+        _labels = items.Select(m => $"{m.Module} - {m.AreaName}").ToArray();
         _modules = items;
     }
 

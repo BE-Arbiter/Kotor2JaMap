@@ -95,7 +95,7 @@ public static class ModuleEntitiesReader
                     string? model = spec.Kind == EntityKind.Door ? models.ResolveDoor(e.Template, out _) : models.ResolvePlaceable(e.Template, out _);
                     if (model is not null) e = e with { Model = model };
                     if (spec.Kind == EntityKind.Door)
-                        e = e with { Locked = models.IsDoorLocked(e.Template), LinkedToModule = (list[i].Get<string>("LinkedToModule") ?? "").Trim() };
+                        e = e with { Locked = models.IsDoorLocked(e.Template), Static = models.IsDoorStatic(e.Template), LinkedToModule = (list[i].Get<string>("LinkedToModule") ?? "").Trim() };
                 }
                 if (e is null) log.Warn("GIT_ENTRY_INVALID", $"{spec.List}[{i}]: {error}, entry skipped.");
                 else { result.Add(e); if (orientMissing) noOrientation++; }

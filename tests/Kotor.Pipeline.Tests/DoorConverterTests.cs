@@ -69,8 +69,8 @@ public sealed class DoorConverterTests : IDisposable
         public KotorTexture? LoadTexture(string name, ImportLog log) => new(2, 2, new byte[16], false, TxiInfo.Empty);
     }
 
-    private static ModuleEntity Door(string template = "door_a", float yaw = 90, string linked = "", bool locked = false) =>
-        new(EntityKind.Door, template, template, new Vector3(2, 3, 0.25f), yaw, null, null, linked, locked);
+    private static ModuleEntity Door(string template = "door_a", float yaw = 90, string linked = "", bool locked = false, bool isStatic = false) =>
+        new(EntityKind.Door, template, template, new Vector3(2, 3, 0.25f), yaw, null, null, linked, locked, isStatic);
 
     private static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) Run(ImportLog log, params ModuleEntity[] doors) =>
         DoorConverter.Convert(new FakeDoorAssets(), KotorGame.Kotor1, doors, 40f, 1, log);
@@ -112,7 +112,18 @@ public sealed class DoorConverterTests : IDisposable
         Assert.Equal(2, r.Entities.Count);
         Assert.Equal("16", r.Entities[0]["spawnflags"]);
         Assert.Contains(log.Warnings, w => w.Code == "DOOR_SKIPPED" && w.Message.Contains("door_none"));
-        Assert.Contains(log.Warnings, w => w.Code == "DOORS" && w.Message.Contains("2 door(s) converted (1 locked), 1 skipped"));
+        Assert.Contains(log.Warnings, w => w.Code == "DOORS" && w.Message.Contains("2 door(s) converted (1 locked: 1 locked, 0 transition, 0 static), 1 skipped"));
+    }
+
+    [Fact]
+    public void Static_utd_door_is_locked_and_summary_counts_each_cause_once_in_total()
+    {
+        var log = new ImportLog();
+        var (r, _) = Run(log, Door(isStatic: true), Door(locked: true, isStatic: true), Door(linked: "tar_m02ab"), Door());
+        Assert.Equal("16", r.Entities[0]["spawnflags"]);
+        Assert.Equal("16", r.Entities[1]["spawnflags"]);
+        Assert.False(r.Entities[3].ContainsKey("spawnflags"));
+        Assert.Contains(log.Warnings, w => w.Code == "DOORS" && w.Message.Contains("4 door(s) converted (3 locked: 1 locked, 1 transition, 2 static), 0 skipped"));
     }
 
     [Fact]
@@ -241,6 +252,8 @@ public sealed class DoorConverterTests : IDisposable
             string model2 = Regex.Match(d, "\"model2\" \"([^\"]+)\"").Groups[1].Value;
             Assert.Contains(model2, names);
         }
+        Assert.Equal(8, doors.Count);
+        Assert.All(doors, d => Assert.Contains("\"spawnflags\" \"16\"", d));
         Assert.Equal(doors.Count + 1, bsp.Models.Count);
         Assert.DoesNotContain(bsp.LeafBrushes, b => b >= bsp.Models[0].BrushCount);
 

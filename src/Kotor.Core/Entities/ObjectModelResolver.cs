@@ -23,12 +23,17 @@ public sealed class ObjectModelResolver(ResourceResolver res)
         Resolve(template, ResourceType.Utd, "UTD", [("GenericType", "genericdoors", "modelname"), ("Appearance", "doortypes", "model")], out reason);
 
     /// <summary>Vrai si l'UTD de la porte a <c>Locked</c> = 1 (faux si l'UTD manque ou est illisible).</summary>
-    public bool IsDoorLocked(string template)
+    public bool IsDoorLocked(string template) => DoorFlag(template, "Locked");
+
+    /// <summary>Vrai si l'UTD de la porte a <c>Static</c> = 1 (porte decorative ; faux si l'UTD manque ou est illisible).</summary>
+    public bool IsDoorStatic(string template) => DoorFlag(template, "Static");
+
+    private bool DoorFlag(string template, string field)
     {
         if (string.IsNullOrWhiteSpace(template)) return false;
         byte[]? data = res.Find(template, ResourceType.Utd);
         if (data is null) return false;
-        try { return Integer(GffReader.Read(data, out _), "Locked") is { } v && v != 0; }
+        try { return Integer(GffReader.Read(data, out _), field) is { } v && v != 0; }
         catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException
             or EndOfStreamException or IndexOutOfRangeException)
         { return false; }
