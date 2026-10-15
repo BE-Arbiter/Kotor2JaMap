@@ -40,9 +40,13 @@ public sealed class MainScreen
         _modules = items;
     }
 
+    /// <summary>Recopie chaque ligne du journal (mode automatise : sortie console).</summary>
+    public Action<string>? LogSink { get; set; }
+
     public void AddLog(string line)
     {
         lock (_log) { _log.Add(line); _scrollLog = true; }
+        LogSink?.Invoke(line);
     }
 
     public void Draw(Vector2 displaySize, PreviewRenderer renderer)

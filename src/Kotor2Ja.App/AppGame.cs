@@ -26,8 +26,16 @@ public sealed class AppGame : Game
     private string? _framedModule;
     private System.Numerics.Vector3 _framedMin, _framedMax;
 
-    public AppGame()
+    private readonly AutomationOptions? _auto;
+    private int _autoPhase;      // 0 demarrage, 1 etapes, 2 attente de la vue, 3 images avant capture, 4 termine
+    private int _autoFrames;
+
+    /// <summary>Code de sortie du processus (1 : echec en mode automatise avec --exit).</summary>
+    public int ExitCode { get; private set; }
+
+    public AppGame(AutomationOptions? automation = null)
     {
+        _auto = automation;
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = 1600,
@@ -64,12 +72,13 @@ public sealed class AppGame : Game
         }
         _workflow = new WorkflowController(new KotorWorkflowSteps(options));
         _screen = new MainScreen(_workflow, _options);
+        if (_auto is not null) _screen.LogSink = Console.WriteLine;
         if (configWarning is not null) _screen.AddLog(configWarning);
         _screen.AddLog($"KOTOR : {options.KotorDir} (échelle {options.Scale:0.##})");
         _screen.AddLog($"KOTOR 2 : {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
 
-        // La liste des modules lit les noms de zone un par un : hors du fil d'interface.
-        Task.Run(() =>
+        // La liste des modules lit les noms de zone un par un : hors du fil d interface. Inutile en mode automatise.
+        if (_auto is null) Task.Run(() =>
         {
             try
             {
@@ -110,6 +119,8 @@ public sealed class AppGame : Game
             }
         }
 
+        if (_auto is not null) StepAutomation();
+
         int left = (int)MainScreen.LeftWidth;
         var center = new Point(left + (Window.ClientBounds.Width - left) / 2, Window.ClientBounds.Height / 2);
         _camera.Update((float)gameTime.ElapsedGameTime.TotalSeconds, kb, mouse, _lastWheel,
@@ -132,6 +143,78 @@ public sealed class AppGame : Game
         else _camera.Frame(new Vector3(m.BoundsMin.X, m.BoundsMin.Y, m.BoundsMin.Z), new Vector3(m.BoundsMax.X, m.BoundsMax.Y, m.BoundsMax.Z));
     }
 
+    // Mode automatise (--module) : selection, etapes jusqu'a --run-to, camera, 3 images, capture, sortie. Aucun clic.
+    private void StepAutomation()
+    {
+        AutomationOptions a = _auto!;
+        switch (_autoPhase)
+        {
+            case 0:
+                if (!_workflow.SelectModule(a.Game, a.Module)) { FailAutomation("Could not select the module."); return; }
+                _ = _workflow.PreviewAsync();
+                _autoPhase = 1;
+                break;
+            case 1:
+                if (_workflow.IsBusy) return;
+                if (_workflow.LastError is { } error) { FailAutomation(error); return; }
+                int reached = _workflow.Stage switch
+                {
+                    WorkflowStage.Previewed => 0, WorkflowStage.Imported => 1, WorkflowStage.Exported => 2, WorkflowStage.Packed => 3, _ => -1,
+                };
+                if (reached < 0) { FailAutomation("The preview step did not complete."); return; }
+                if (reached < a.StageIndex) { _ = _workflow.NextAsync(); return; }
+                _autoPhase = 2;
+                break;
+            case 2:
+                if (_workflow.Preview is null || ReferenceEquals(_workflow.Preview, _failedPreview)) { FailAutomation("The view could not be displayed."); return; }
+                if (!ReferenceEquals(_workflow.Preview, _renderer.Model)) return;
+                if (a.CameraPosition is { } p)
+                {
+                    _camera.Position = new Vector3(p.X, p.Y, p.Z);
+                    _camera.Yaw = a.CameraYaw;
+                    _camera.Pitch = a.CameraPitch;
+                }
+                _autoFrames = 0;
+                _autoPhase = 3;
+                break;
+        }
+    }
+
+    private void FinishAutomation()
+    {
+        _autoPhase = 4;
+        AutomationOptions a = _auto!;
+        if (a.ScreenshotPath is { } path)
+        {
+            try
+            {
+                PresentationParameters pp = GraphicsDevice.PresentationParameters;
+                int w = pp.BackBufferWidth, h = pp.BackBufferHeight;
+                var data = new byte[w * h * 4];
+                GraphicsDevice.GetBackBufferData(data);
+                for (int i = 3; i < data.Length; i += 4) data[i] = 255;
+                string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
+                if (dir is not null) Directory.CreateDirectory(dir);
+                using var fs = File.Create(path);
+                Kotor.Core.Export.PngWriter.WriteRgba(fs, w, h, data);
+                Console.WriteLine($"Screenshot written: {Path.GetFullPath(path)} ({w}x{h})");
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NotSupportedException)
+            {
+                FailAutomation("Screenshot failed: " + e.Message);
+                return;
+            }
+        }
+        if (a.Exit) Exit();
+    }
+
+    private void FailAutomation(string message)
+    {
+        _autoPhase = 4;
+        Console.Error.WriteLine("Error: " + message);
+        if (_auto!.Exit) { ExitCode = 1; Exit(); }
+    }
+
     protected override void UnloadContent()
     {
         _renderer.Dispose();
@@ -150,6 +233,7 @@ public sealed class AppGame : Game
         _renderer.DrawLabels(_options);
         _screen.Draw(ImGui.GetIO().DisplaySize, _renderer);
         _imgui.AfterLayout();
+        if (_autoPhase == 3 && ++_autoFrames >= 3) FinishAutomation();
         base.Draw(gameTime);
     }
 }

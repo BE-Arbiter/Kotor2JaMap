@@ -101,6 +101,30 @@ public class ModuleEntitiesReaderTests
     }
 
     [Fact]
+    public void Creatures_not_read()
+    {
+        var g = new GffBuilder();
+        int plc = g.AddStruct(9);
+        g.Add(plc, "TemplateResRef", 11, "plc_box").Add(plc, "X", 8, 1f).Add(plc, "Y", 8, 2f).Add(plc, "Z", 8, 3f).Add(plc, "Bearing", 8, 0f);
+        int cre = g.AddStruct(4);
+        g.Add(cre, "TemplateResRef", 11, "n_dark").Add(cre, "XPosition", 8, 5f).Add(cre, "YPosition", 8, 6f).Add(cre, "ZPosition", 8, 7f);
+        int enc = g.AddStruct(7);
+        g.Add(enc, "TemplateResRef", 11, "enc_a").Add(enc, "XPosition", 8, 5f).Add(enc, "YPosition", 8, 6f).Add(enc, "ZPosition", 8, 7f);
+        g.Add(g.Root, "Placeable List", 15, new[] { plc });
+        g.Add(g.Root, "Creature List", 15, new[] { cre });
+        g.Add(g.Root, "Encounter List", 15, new[] { enc });
+        using var k = new FakeKotor(g.Build("GIT "));
+        var log = new ImportLog();
+        var ents = ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
+        Assert.Equal(EntityKind.Placeable, Assert.Single(ents).Kind);
+        var npc = Assert.Single(log.Warnings, w => w.Code == "NPC_SKIPPED");
+        Assert.Contains("1 creature(s), 1 encounter(s)", npc.Message);
+        var bilan = Assert.Single(log.Warnings, w => w.Code == "ENTITIES");
+        Assert.DoesNotContain("Creature", bilan.Message);
+        Assert.DoesNotContain("Encounter", bilan.Message);
+    }
+
+    [Fact]
     public void Invalid_entry_is_skipped_and_logged()
     {
         using var k = new FakeKotor(SyntheticGit(withBadEntry: true));
@@ -119,7 +143,7 @@ public class ModuleEntitiesReaderTests
         var log = new ImportLog();
         var ents = ModuleEntitiesReader.Read(k.Res, k.Info, k.Layout, log);
         Assert.Empty(ents);
-        Assert.Equal(9, log.Warnings.Count(w => w.Code == "GIT_LIST_MISSING"));
+        Assert.Equal(7, log.Warnings.Count(w => w.Code == "GIT_LIST_MISSING")); // sans Creature List ni Encounter List
         Assert.Contains(log.Warnings, w => w.Code == "GIT_LIST_MISSING" && w.Message.Contains("Placeable List"));
     }
 

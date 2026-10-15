@@ -10,7 +10,7 @@ namespace Kotor.Core.Entities;
 
 /// <summary>
 /// Liste les entites d'un module : listes du GIT et noeuds lumiere des modeles de piece.
-/// Libelles (verifies sur le vrai m02aa.git) : Placeable/Door = X,Y,Z + Bearing ; Waypoint/Trigger/Creature/Sound/Store =
+/// Libelles (verifies sur le vrai m02aa.git) : Placeable/Door = X,Y,Z + Bearing ; Waypoint/Trigger/Sound/Store =
 /// XPosition,YPosition,ZPosition (+ XOrientation,YOrientation) ; Trigger.Geometry = PointX/PointY/PointZ relatifs ;
 /// Encounter.Geometry = X/Y/Z ou PointX/PointY/PointZ (PyKotor git.py ; liste vide dans m02aa, non verifie) ;
 /// Camera = Position (vecteur) + Orientation (quaternion).
@@ -25,10 +25,8 @@ public static class ModuleEntitiesReader
         new("Door List", EntityKind.Door, true, false),
         new("WaypointList", EntityKind.Waypoint, false, false),
         new("TriggerList", EntityKind.Trigger, false, true),
-        new("Creature List", EntityKind.Creature, false, false),
         new("SoundList", EntityKind.Sound, false, false),
         new("StoreList", EntityKind.Store, false, false),
-        new("Encounter List", EntityKind.Encounter, false, true),
         new("CameraList", EntityKind.Camera, false, false),
     ];
 
@@ -42,7 +40,8 @@ public static class ModuleEntitiesReader
         ReadGit(res, info, result, log, null);
         ReadLights(res, layout, result, log);
 
-        var counts = Enum.GetValues<EntityKind>().Select(k => $"{k}={result.Count(e => e.Kind == k)}");
+        // Les PNJ (creatures, rencontres) ne sont ni lus ni comptes : voir NPC_SKIPPED.
+        var counts = Enum.GetValues<EntityKind>().Where(k => k is not (EntityKind.Creature or EntityKind.Encounter)).Select(k => $"{k}={result.Count(e => e.Kind == k)}");
         log.Warn("ENTITIES", $"{info.AreaResRef} : {result.Count} entite(s) ({string.Join(", ", counts)}).");
         return result;
     }
@@ -74,6 +73,7 @@ public static class ModuleEntitiesReader
             log.Warn("GIT_UNREADABLE", $"{info.AreaResRef}.git illisible ({ex.Message}) : aucune entite du GIT.");
             return;
         }
+        if (only is null) WarnNpcs(git, info, log);
         var models = new ObjectModelResolver(res);
         foreach (var spec in Specs)
         {
@@ -103,6 +103,15 @@ public static class ModuleEntitiesReader
             if (noOrientation > 0)
                 log.Warn("GIT_ORIENTATION_MISSING", $"{spec.List} : {noOrientation} entree(s) sans orientation exploitable, Yaw = 0.");
         }
+    }
+
+    /// <summary>Les PNJ ne sont pas convertis : une ligne d'information donne leur nombre par type (rien si le GIT n'en contient pas).</summary>
+    private static void WarnNpcs(GffStruct git, ModuleInfo info, ImportLog log)
+    {
+        int creatures = git.Fields.TryGetValue("Creature List", out var c) && c is IReadOnlyList<GffStruct> cl ? cl.Count : 0;
+        int encounters = git.Fields.TryGetValue("Encounter List", out var e) && e is IReadOnlyList<GffStruct> el ? el.Count : 0;
+        if (creatures + encounters > 0)
+            log.Warn("NPC_SKIPPED", $"{info.AreaResRef}: NPCs are not converted ({creatures} creature(s), {encounters} encounter(s) skipped).");
     }
 
     private static ModuleEntity? ReadEntry(GffStruct s, ListSpec spec, out string? error, out bool orientMissing)

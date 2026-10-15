@@ -7,7 +7,11 @@ using Kotor.Core.Export;
 using Kotor.Core.Modules;
 using Kotor.Core.Scene;
 using Kotor.Core.Textures;
+using Kotor.Core;
+using Kotor.Core.Models;
 using Kotor.Pipeline;
+using Kotor.Pipeline.Entities;
+using Kotor.Pipeline.Workflow;
 using Kotor.Pipeline.Preview;
 
 namespace Kotor.Pipeline.Tests;
@@ -174,4 +178,89 @@ public sealed class PreviewBuilderTests : IDisposable
         Assert.True(bt > 0 && it > 0);
         Assert.Equal(it, ia);   // la vue Importer est la reference
         Assert.Equal(bt, ba);   // la vue BSP suit la meme convention
-    }}
+    }
+    private static Md3Asset TriangleMd3(string path)
+    {
+        var part = new ModelPart("tex_a", [new(0, 0, 0), new(10, 0, 0), new(0, 10, 0)], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+            [new(0, 0), new(1, 0), new(0, 1)], [0, 1, 2]);
+        byte[] data = Md3Writer.Write("tri", [part], "models/kotor/");
+        return new Md3Asset(path, data, ["tex_a"]);
+    }
+
+    private static Dictionary<string, string> Ent(string cls, string key, string model, string angles, string origin, string anglesKey) => new()
+    {
+        ["classname"] = cls, [key] = model, ["origin"] = origin, [anglesKey] = angles,
+    };
+
+    [Fact]
+    public void Import_view_has_model_instances()
+    {
+        ImportStepResult imp = PipelineSteps.Import(Scene(), "demo", Opt(), new ImportLog());
+        var tex = new KotorTexture(2, 2, new byte[16], false, TxiInfo.Empty);
+        var converted = new ConvertedEntities(
+            [Ent("misc_model_static", "model", "models/kotor/tri.md3", "0 90 0", "100 200 300", "angles")],
+            [TriangleMd3("models/kotor/tri.md3")], [])
+        {
+            TextureData = new Dictionary<string, KotorTexture?> { ["tex_a"] = tex },
+        };
+        ModuleEntity[] ents = [new(EntityKind.Placeable, "crate", "p_crate", new Vector3(100f / 40, 200f / 40, 300f / 40), 90f, null),
+            new(EntityKind.Waypoint, "wp", "", Vector3.Zero, 0f, null)];
+        PreviewModel m = PreviewBuilder.FromImport(imp with { Converted = converted }, ents, 40f);
+
+        Assert.Single(m.Models);
+        PreviewBatch b = Assert.Single(m.Models["models/kotor/tri.md3"]);
+        Assert.Equal("md3:tex_a", b.DiffuseKey);
+        Assert.Contains("md3:tex_a", m.Textures.Keys);
+        PreviewModelInstance inst = Assert.Single(m.Instances);
+        Assert.Equal(EntityKind.Placeable, inst.Kind);
+        Assert.Equal(new Vector3(100, 200, 300), inst.Transform.Translation);
+        // Lacet 90 degres : +X du modele devient +Y.
+        Vector3 x = Vector3.TransformNormal(Vector3.UnitX, inst.Transform);
+        Assert.Equal(0f, x.X, 3);
+        Assert.Equal(1f, x.Y, 3);
+        // Le cube de l'objet est remplace par le maillage ; les autres reperes restent.
+        PreviewMarker marker = Assert.Single(m.Markers);
+        Assert.Equal(EntityKind.Waypoint, marker.Kind);
+    }
+
+    [Fact]
+    public void Import_view_without_converted_has_no_instances()
+    {
+        ImportStepResult imp = PipelineSteps.Import(Scene(), "demo", Opt(), new ImportLog());
+        PreviewModel m = PreviewBuilder.FromImport(imp, [], 40f);
+        Assert.Empty(m.Instances);
+        Assert.Empty(m.Models);
+    }
+
+    [Fact]
+    public void Md3Reader_round_trips_writer_output()
+    {
+        Md3Asset a = TriangleMd3("x.md3");
+        Md3Surface s = Assert.Single(Md3Reader.Read(a.Data));
+        Assert.Equal("models/kotor/tex_a", s.Shader);
+        Assert.Equal(new Vector3(10, 0, 0), s.Positions[1]);
+        Assert.Equal(1f, s.Normals[0].Z, 2);
+        Assert.Equal(new Vector2(0, 1), s.Uv[0]);   // t = 1 - v dans le fichier
+        Assert.Equal(new[] { 0, 1, 2 }, s.Indices);
+        Assert.Throws<InvalidDataException>(() => Md3Reader.Read(new byte[200]));
+    }
+
+    [SkippableFact]
+    public void Real_tar_m02aa_export_view_has_md3()
+    {
+        Skip.If(TestEnv.KotorDir is null, "KOTOR n'est pas installe.");
+        var opt = new ExportOptions(TestEnv.KotorDir!, Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+        Directory.CreateDirectory(opt.JaBaseDir);
+        var steps = new KotorWorkflowSteps(opt);
+        var progress = new Progress<string>();
+        steps.Preview(KotorGame.Kotor1, "tar_m02aa", progress);
+        PreviewModel imported = steps.Import(progress);
+        PreviewModel exported = steps.Export(progress);
+
+        Assert.True(exported.Instances.Count >= 10, $"{exported.Instances.Count} instance(s)");
+        Assert.Contains(exported.Instances, i => i.Kind == EntityKind.Door);
+        Assert.All(exported.Instances, i => Assert.Contains(i.ModelKey, exported.Models.Keys));
+        Assert.True(imported.Instances.Count >= 10);
+        Assert.DoesNotContain(imported.Markers, mk => mk.Kind is EntityKind.Creature or EntityKind.Encounter);
+    }
+}

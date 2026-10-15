@@ -69,6 +69,8 @@ public sealed class PreviewRenderer : IDisposable
     private readonly BasicEffect _flat; // couleurs de sommet, sans texture
     private readonly Dictionary<string, Texture2D> _textures = [];
     private readonly List<GpuBatch> _batches = [];
+    private readonly Dictionary<string, List<GpuBatch>> _modelBatches = [];
+    private readonly List<(EntityKind Kind, Matrix World, List<GpuBatch> Batches)> _instances = [];
     private readonly Dictionary<EntityKind, VertexBuffer> _markerCubes = [];
     private readonly Dictionary<EntityKind, int> _markerCubeCounts = [];
     private readonly Dictionary<EntityKind, VertexBuffer> _markerLines = [];
@@ -95,7 +97,7 @@ public sealed class PreviewRenderer : IDisposable
     /// <summary>Le modele actuellement envoye au GPU (comparaison par reference).</summary>
     public PreviewModel? Model => _model;
 
-    public IReadOnlyCollection<EntityKind> KindsPresent => _markerCubes.Keys;
+    public IReadOnlyCollection<EntityKind> KindsPresent => _markerCubes.Keys.Concat(_instances.Select(i => i.Kind)).Distinct().ToList();
     public bool HasSky => _batches.Any(b => b.Source.IsSky);
 
     /// <summary>Remplace tout le contenu GPU par celui du modele (null = vide). A appeler depuis le fil de rendu.</summary>
@@ -109,8 +111,27 @@ public sealed class PreviewRenderer : IDisposable
         Texture2D missing = _textures.TryGetValue(PreviewModel.MissingTextureKey, out var m) ? m : Fallback();
 
         foreach (PreviewBatch b in model.Batches)
+            if (MakeGpuBatch(b, missing) is { } gb) _batches.Add(gb);
+
+        // Modeles MD3 (objets et portes) : un jeu de tampons par modele, dessine une fois par instance.
+        foreach (var (key, list) in model.Models)
         {
-            if (b.Vertices.Length == 0 || b.Indices.Length == 0) continue;
+            var gpu = new List<GpuBatch>();
+            foreach (PreviewBatch b in list)
+                if (MakeGpuBatch(b, missing) is { } gb) gpu.Add(gb);
+            _modelBatches[key] = gpu;
+        }
+        foreach (PreviewModelInstance inst in model.Instances)
+            if (_modelBatches.TryGetValue(inst.ModelKey, out var gpuBatches) && gpuBatches.Count > 0)
+                _instances.Add((inst.Kind, ToXna(inst.Transform), gpuBatches));
+
+        UploadOverlays(model);
+    }
+
+    private GpuBatch? MakeGpuBatch(PreviewBatch b, Texture2D missing)
+    {
+        {
+            if (b.Vertices.Length == 0 || b.Indices.Length == 0) return null;
             Texture2D diffuse = _textures.TryGetValue(b.DiffuseKey, out var d) ? d : missing;
             Texture2D? lm = b.LightmapKey is not null && _textures.TryGetValue(b.LightmapKey, out var l) ? l : null;
             bool dual = lm is not null && !b.IsSky;
@@ -139,13 +160,16 @@ public sealed class PreviewRenderer : IDisposable
             }
             var ib = new IndexBuffer(_gd, IndexElementSize.ThirtyTwoBits, b.Indices.Length, BufferUsage.WriteOnly);
             ib.SetData(b.Indices);
-            _batches.Add(new GpuBatch
+            return new GpuBatch
             {
                 Source = b, Vb = vb, Ib = ib, Dual = dual, Diffuse = diffuse, Lightmap = dual ? lm : null,
                 Triangles = b.Indices.Length / 3,
-            });
+            };
         }
+    }
 
+    private void UploadOverlays(PreviewModel model)
+    {
         if (model.CollisionTriangles.Length >= 3)
         {
             var lines = new List<VertexPositionColor>(model.CollisionTriangles.Length * 2);
@@ -201,6 +225,9 @@ public sealed class PreviewRenderer : IDisposable
         }
     }
 
+    private static Matrix ToXna(System.Numerics.Matrix4x4 m) => new(m.M11, m.M12, m.M13, m.M14, m.M21, m.M22, m.M23, m.M24,
+        m.M31, m.M32, m.M33, m.M34, m.M41, m.M42, m.M43, m.M44);
+
     private VertexBuffer MakeColorBuffer(List<VertexPositionColor> v)
     {
         var vb = new VertexBuffer(_gd, VertexPositionColor.VertexDeclaration, v.Count, BufferUsage.WriteOnly);
@@ -225,9 +252,12 @@ public sealed class PreviewRenderer : IDisposable
             _gd.SamplerStates[1] = SamplerState.LinearClamp;
             // Opaques, cutouts et ciel d'abord, puis les lots transparents sans ecriture de profondeur.
             foreach (GpuBatch b in _batches)
-                if (b.Source.Blend is PreviewBlend.Opaque or PreviewBlend.Cutout && Visible(b, opt)) DrawBatch(b, opt);
+                if (b.Source.Blend is PreviewBlend.Opaque or PreviewBlend.Cutout && Visible(b, opt)) DrawBatch(b, opt, Matrix.Identity);
+            foreach (var (kind, world, batches) in _instances)
+                if (!opt.HiddenKinds.Contains(kind))
+                    foreach (GpuBatch b in batches) DrawBatch(b, opt, world);
             foreach (GpuBatch b in _batches)
-                if (b.Source.Blend is PreviewBlend.Additive or PreviewBlend.Alpha && Visible(b, opt)) DrawBatch(b, opt);
+                if (b.Source.Blend is PreviewBlend.Additive or PreviewBlend.Alpha && Visible(b, opt)) DrawBatch(b, opt, Matrix.Identity);
 
             _flat.World = Matrix.Identity; _flat.View = _view; _flat.Projection = _proj;
             _flat.TextureEnabled = false; _flat.VertexColorEnabled = true; _flat.DiffuseColor = XnaVector3.One;
@@ -253,7 +283,7 @@ public sealed class PreviewRenderer : IDisposable
 
     private static bool Visible(GpuBatch b, ViewOptions opt) => !b.Source.IsSky || opt.Sky;
 
-    private void DrawBatch(GpuBatch b, ViewOptions opt)
+    private void DrawBatch(GpuBatch b, ViewOptions opt, Matrix world)
     {
         PreviewBatch s = b.Source;
         _gd.RasterizerState = s.DoubleSided || s.IsSky || opt.BothSides ? CullNone : CullBack;
@@ -272,7 +302,7 @@ public sealed class PreviewRenderer : IDisposable
         if (s.IsSky)
         {
             // Ciel : aplat bleu sombre, sans texture (le shader de ciel n'a pas de diffuse utile).
-            _flat.World = Matrix.Identity; _flat.View = _view; _flat.Projection = _proj;
+            _flat.World = world; _flat.View = _view; _flat.Projection = _proj;
             _flat.VertexColorEnabled = false; _flat.TextureEnabled = false; _flat.DiffuseColor = SkyColor.ToVector3();
             effect = _flat;
         }
@@ -280,7 +310,7 @@ public sealed class PreviewRenderer : IDisposable
         {
             // Cutout + lightmap, deux passes : 1) profondeur seule des texels opaques (alpha test), 2) diffuse x lightmap
             // sur exactement ces pixels (profondeur Equal, sans ecriture).
-            _alphaTest.World = Matrix.Identity; _alphaTest.View = _view; _alphaTest.Projection = _proj;
+            _alphaTest.World = world; _alphaTest.View = _view; _alphaTest.Projection = _proj;
             _alphaTest.Texture = b.Diffuse;
             _gd.BlendState = DepthOnly;
             _gd.DepthStencilState = DepthStencilState.Default;
@@ -291,25 +321,25 @@ public sealed class PreviewRenderer : IDisposable
             }
             _gd.BlendState = BlendState.Opaque;
             _gd.DepthStencilState = DepthEqual;
-            _dual.World = Matrix.Identity; _dual.View = _view; _dual.Projection = _proj;
+            _dual.World = world; _dual.View = _view; _dual.Projection = _proj;
             _dual.Texture = b.Diffuse; _dual.Texture2 = b.Lightmap;
             effect = _dual;
         }
         else if (b.Dual)
         {
-            _dual.World = Matrix.Identity; _dual.View = _view; _dual.Projection = _proj;
+            _dual.World = world; _dual.View = _view; _dual.Projection = _proj;
             _dual.Texture = b.Diffuse; _dual.Texture2 = b.Lightmap;
             effect = _dual;
         }
         else if (s.Blend == PreviewBlend.Cutout)
         {
-            _alphaTest.World = Matrix.Identity; _alphaTest.View = _view; _alphaTest.Projection = _proj;
+            _alphaTest.World = world; _alphaTest.View = _view; _alphaTest.Projection = _proj;
             _alphaTest.Texture = b.Diffuse;
             effect = _alphaTest;
         }
         else
         {
-            _basic.World = Matrix.Identity; _basic.View = _view; _basic.Projection = _proj;
+            _basic.World = world; _basic.View = _view; _basic.Projection = _proj;
             _basic.Texture = b.Diffuse;
             effect = _basic;
         }
@@ -453,6 +483,10 @@ public sealed class PreviewRenderer : IDisposable
     {
         foreach (GpuBatch b in _batches) { b.Vb.Dispose(); b.Ib.Dispose(); }
         _batches.Clear();
+        foreach (List<GpuBatch> list in _modelBatches.Values)
+            foreach (GpuBatch b in list) { b.Vb.Dispose(); b.Ib.Dispose(); }
+        _modelBatches.Clear();
+        _instances.Clear();
         foreach (Texture2D t in _textures.Values) if (!ReferenceEquals(t, _fallback)) t.Dispose();  // le damier partage est libere par Dispose()
         _textures.Clear();
         foreach (VertexBuffer v in _markerCubes.Values) v.Dispose();

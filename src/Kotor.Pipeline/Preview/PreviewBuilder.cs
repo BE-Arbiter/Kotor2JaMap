@@ -12,7 +12,7 @@ using Kotor.Core.Textures;
 namespace Kotor.Pipeline.Preview;
 
 /// <summary>Construit le <see cref="PreviewModel"/> de chacune des etapes (scene, plan d'import, BSP relu).</summary>
-public static class PreviewBuilder
+public static partial class PreviewBuilder
 {
     private const string Key = PreviewModel.MissingTextureKey;
 
@@ -104,7 +104,14 @@ public static class PreviewBuilder
             markers.Add(new PreviewMarker(e.Kind, e.Name, e.Position * scale, e.Yaw, e.Polygon?.Select(p => p * scale).ToArray()));
 
         (Vector3? spawn, float yaw) = SpawnOf(plan.Input.Entities.Select(d => d).ToList());
-        return Make(batches, textures, [.. collision], markers, spawn, yaw);
+        PreviewModel view = Make(batches, textures, [.. collision], markers, spawn, yaw);
+        if (imported.Converted is { Models.Count: > 0 } converted)
+        {
+            // Objets et portes : maillage a la place du cube.
+            view = WithConvertedModels(view, textures, converted);
+            view = view with { Markers = WithoutModelledMarkers(markers, view.Instances) };
+        }
+        return view;
     }
 
     /// <summary>

@@ -86,7 +86,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             PreviewModel model = PreviewBuilder.FromImport(imported, _entities, _opt.Scale, _opt.LightmapBrightness);
             _imported = imported; _exported = null;
             _importModel = model;
-            progress.Report($"Importer : {model.TriangleCount} triangle(s), {model.Markers.Count} repere(s), {imported.Plan.Shaders.Count} shader(s).");
+            progress.Report($"Importer : {model.TriangleCount} triangle(s), {model.Markers.Count} repere(s), {model.Instances.Count} modele(s) pose(s), {imported.Plan.Shaders.Count} shader(s).");
             return model;
         }
         finally { Flush(log, progress); }
@@ -118,11 +118,12 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             if (textures.TryGetValue(ShaderNames.MissingTexture, out PreviewTexture? missing)) textures[PreviewModel.MissingTextureKey] = missing;
 
             PreviewModel model = PreviewBuilder.FromBsp(exported.Bsp, textures, imported.Plan.Shaders);
+            model = PreviewBuilder.WithStagedModels(model, exported.Bsp, exported.StagingDir, _opt.Game, log);
             // Le BSP ne garde ni reperes ni triangles de collision lisibles : on reprend ceux de l'etape Importer.
             if (_importModel is not null) model = model with { Markers = _importModel.Markers, CollisionTriangles = _importModel.CollisionTriangles };
             _exported = exported;
             WarnIfCollisionReduced(log);
-            progress.Report($"Exporter : {model.TriangleCount} triangle(s) relus dans {Path.GetFileName(exported.BspPath)}.");
+            progress.Report($"Exporter : {model.TriangleCount} triangle(s) relus dans {Path.GetFileName(exported.BspPath)}, {model.Instances.Count} modele(s) pose(s).");
             return model;
         }
         finally { Flush(log, progress); }
