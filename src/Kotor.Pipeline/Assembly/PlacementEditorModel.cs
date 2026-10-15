@@ -56,10 +56,10 @@ public sealed class PlacementEditorModel
     /// <summary>Portes de la partie (repere du module), dans l'ordre du GIT.</summary>
     public IReadOnlyList<ModuleEntity> Doors(int part) => _doors[Check(part)];
 
-    /// <summary>Centre de la boite englobante de la partie (maillages et walkmeshes), en repere du module.</summary>
+    /// <summary>Centre de la boite englobante de la partie (walkmeshes, a defaut maillages), en repere du module.</summary>
     public Vector3 LocalCentre(int part) => _localCentre[Check(part)];
 
-    /// <summary>Boite englobante de la partie en repere du module (zero si la scene est vide).</summary>
+    /// <summary>Boite englobante de la partie en repere du module (walkmeshes, a defaut maillages ; zero si la scene est vide).</summary>
     public (Vector3 Min, Vector3 Max) LocalBounds(int part) => _localBounds[Check(part)];
 
     /// <summary>Triangles marchables de la partie en repere du module (sommets par trois).</summary>
@@ -182,7 +182,11 @@ public sealed class PlacementEditorModel
     {
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
         bool any = false;
-        foreach (Vector3 p in s.Meshes.SelectMany(m => m.Positions).Concat(s.Walkmeshes.SelectMany(w => w.Positions)))
+        // Walkmeshes d'abord (les maillages d'un module peuvent deborder tres loin des sols : decor lointain) ; a defaut, maillages.
+        IEnumerable<Vector3> points = s.Walkmeshes.Any(w => w.Positions.Length > 0)
+            ? s.Walkmeshes.SelectMany(w => w.Positions)
+            : s.Meshes.SelectMany(m => m.Positions);
+        foreach (Vector3 p in points)
         {
             min = Vector3.Min(min, p);
             max = Vector3.Max(max, p);
