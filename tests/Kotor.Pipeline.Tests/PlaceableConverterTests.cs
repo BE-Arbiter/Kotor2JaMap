@@ -34,6 +34,8 @@ public sealed class PlaceableConverterTests : IDisposable
             reason = null;
             if (e.Template == "plc_big") return "big";
             if (e.Template == "plc_small") return "small";
+            if (e.Template == "plc_huge") return "huge";
+            if (e.Template == "plc_invis") return "invis";
             reason = $"UTP '{e.Template}' not found";
             return null;
         }
@@ -41,6 +43,27 @@ public sealed class PlaceableConverterTests : IDisposable
         public KotorModel? LoadModel(string model, out string? reason)
         {
             reason = null;
+            if (model == "invis")
+            {
+                var hidden = new KotorMesh("tex_invis", null, false, false, 0,
+                    [new(0, 0, 0), new(1, 0, 0), new(1, 1, 0)], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+                    [new(0, 0), new(1, 0), new(1, 1)], null, [0, 1, 2]);
+                return new KotorModel(model, null, new KotorNode(model, NodeKind.Header | NodeKind.Mesh, Vector3.Zero, Quaternion.Identity, hidden), Vector3.Zero, Vector3.One);
+            }
+            if (model == "huge")
+            {
+                // 65 surfaces de 399 triangles disjoints (1197 sommets) : une seule texture, donc au-dela de 64 surfaces MD3.
+                const int tris = 65 * 399;
+                var pos = new Vector3[tris * 3]; var nor = new Vector3[tris * 3]; var uv = new Vector2[tris * 3]; var idx = new int[tris * 3];
+                for (int t = 0; t < tris; t++)
+                {
+                    float x = t % 100 * 0.1f, y = t / 100 * 0.1f;
+                    pos[t * 3] = new(x, y, 0); pos[t * 3 + 1] = new(x + 0.05f, y, 0); pos[t * 3 + 2] = new(x, y + 0.05f, 0);
+                    for (int k = 0; k < 3; k++) { nor[t * 3 + k] = Vector3.UnitZ; idx[t * 3 + k] = t * 3 + k; }
+                }
+                var big = new KotorMesh("tex_huge", null, true, false, 0, pos, nor, uv, null, idx);
+                return new KotorModel(model, null, new KotorNode(model, NodeKind.Header | NodeKind.Mesh, Vector3.Zero, Quaternion.Identity, big), Vector3.Zero, new Vector3(10));
+            }
             float s = sizes[model];
             var mesh = new KotorMesh("tex_" + model, null, true, false, 0,
                 [new(0, 0, 0), new(s, 0, 0), new(s, s, 0), new(0, s, 0)],
@@ -142,6 +165,54 @@ public sealed class PlaceableConverterTests : IDisposable
         Assert.Single(r.Entities);
         Assert.Empty(r.ExtraSolid);
         Assert.Contains(log.Warnings, w => w.Code == "PLACEABLE_NO_PWK");
+    }
+
+    [Fact]
+    public void Model_with_more_surfaces_than_the_engine_limit_is_split_into_files()
+    {
+        var log = new ImportLog();
+        ConvertedEntities r = PlaceableConverter.Convert(new FakeAssets(new()), KotorGame.Kotor1,
+            [Plc("plc_huge", 1, 2, 30), Plc("plc_huge", 5, 6, 90)], 1f, log);
+
+        // 65 surfaces -> deux fichiers (64 + 1), nommes _p0 et _p1.
+        Assert.Equal(["models/kotor/huge_p0.md3", "models/kotor/huge_p1.md3"], r.Models.Select(m => m.Path).ToArray());
+        Assert.Equal(64, BitConverter.ToInt32(r.Models[0].Data, 84));
+        Assert.Equal(1, BitConverter.ToInt32(r.Models[1].Data, 84));
+        Assert.All(r.Models, m => Assert.Equal("huge_p" + m.Path[^5], Encoding.ASCII.GetString(m.Data, 8, 64).TrimEnd('\0')));
+
+        // Une entite par fichier et par instance, avec la meme origine et les memes angles ; la collision est ajoutee une fois par instance.
+        Assert.Equal(4, r.Entities.Count);
+        foreach (string origin in new[] { "1 2 0.5", "5 6 0.5" })
+        {
+            var group = r.Entities.Where(e => e["origin"] == origin).ToList();
+            Assert.Equal(["models/kotor/huge_p0.md3", "models/kotor/huge_p1.md3"], group.Select(e => e["model"]).ToArray());
+            Assert.Single(group.Select(e => e["angles"]).Distinct());
+        }
+        Assert.Equal(2, r.ExtraSolid.Count);
+        Assert.Contains(log.Warnings, w => w.Code == "PLACEABLES" && w.Message.Contains("2 placeable(s) converted") && w.Message.Contains("2 unique MD3"));
+
+        // Chaque surface respecte les limites du moteur.
+        foreach (Md3Asset m in r.Models)
+        {
+            int surf = BitConverter.ToInt32(m.Data, 100), n = BitConverter.ToInt32(m.Data, 84);
+            for (int i = 0; i < n; i++)
+            {
+                Assert.True(BitConverter.ToInt32(m.Data, surf + 80) < 1200);
+                Assert.True(BitConverter.ToInt32(m.Data, surf + 84) * 3 < 7200);
+                surf += BitConverter.ToInt32(m.Data, surf + 104);
+            }
+        }
+    }
+
+    [Fact]
+    public void Model_without_rendered_mesh_is_skipped_with_its_collision()
+    {
+        var log = new ImportLog();
+        ConvertedEntities r = PlaceableConverter.Convert(new FakeAssets(new()), KotorGame.Kotor1, [Plc("plc_invis")], 40f, log);
+        Assert.Empty(r.Entities);
+        Assert.Empty(r.Models);
+        Assert.Empty(r.ExtraSolid);
+        Assert.Contains(log.Warnings, w => w.Code == "PLACEABLE_SKIPPED" && w.Message.Contains("no rendered mesh (invisible blocker, collision not added)"));
     }
 
     [Fact]

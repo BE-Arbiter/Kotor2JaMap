@@ -72,3 +72,39 @@ Liste complète dans `out/placeables-tar_m02aa.txt` (régénérée par le test) 
 3. La vue Importer/Exporter de l'application ne montre pas encore les MD3 (étape 05).
 4. `Import` relit le GIT via un nouveau résolveur (le workflow l'a déjà lu pour la vue) : légère duplication de lecture, sans effet sur le résultat.
 5. Aucun commit (consigne).
+
+## Correction 1
+
+Statut : FAIT. Commandes finales : `dotnet build Kotor2Ja.sln` (0 avertissement, 0 erreur) et `dotnet test Kotor2Ja.sln` (vert : Compiler 76, Cli 20, Core 149, Pipeline 53 ; aucun test ignoré). Aucun commit, rien écrit dans le dossier Jedi Academy.
+
+### Critical — limites par surface
+
+- Valeurs du moteur SWGL : `SHADER_MAX_VERTEXES = 1200` et `SHADER_MAX_INDEXES = 6*1200` (`code/qcommon/qfiles.h:33-34`) ; `R_LoadMD3` refuse `numVerts >= SHADER_MAX_VERTEXES` et `numTriangles*3 >= SHADER_MAX_INDEXES` (`code/rd-vulkan/tr_model.cpp:1105-1118`). Soit au plus **1199 sommets** et **2399 triangles** par surface.
+- Fait : `Md3Writer.MaxVerticesPerSurface = 1199`, `MaxTrianglesPerSurface = 2399` (constantes citées dans le code). La découpe d'une partie en plusieurs surfaces existait déjà, elle travaille maintenant avec ces bornes.
+- Tests : `Md3WriterTests.Engine_limits_are_the_swgl_loader_limits`, `Surface_at_the_limit_stays_whole_and_one_over_is_split` (1197 sommets entiers ; 1200 sommets coupés en 1197 + 3), `Triangle_limit_splits_a_part_with_shared_vertices` (2399 triangles : une surface ; 2400 : deux), `Large_part_is_split_below_engine_limits` (remplace l'ancien test à 4096). `PlaceableConverterTests.Model_with_more_surfaces_than_the_engine_limit_is_split_into_files` relit aussi chaque surface (`< 1200` sommets, `*3 < 7200`).
+
+### Important 1 — plus de surfaces que la limite MD3
+
+- `MD3_MAX_SURFACES` vaut `32 + 32` (`code/qcommon/qfiles.h:105`), soit **64** (macro sans parenthèses). Le chargeur `R_LoadMD3` ne la vérifie pas (aucune autre occurrence dans le code, `tr_model.cpp:1087-1091` alloue simplement `numSurfaces`) ; c'est la borne déclarée, retenue : `Md3Writer.MaxSurfaces = 64` (c'était 32).
+- Fait : nouveau `Md3Writer.WriteSplit` qui répartit les surfaces (ordre des textures) en fichiers de 64 surfaces au plus ; `Write` garde l'erreur au-delà de 64. `PlaceableConverter` écrit `models/<dossier>/<modele>_p0.md3`, `_p1`… (nom inchangé, sans suffixe, si un seul fichier ; l'en-tête MD3 porte le même nom). Une instance émet une entité `misc_model_static` par fichier (même origine, mêmes angles, même `modelscale`) ; la collision PWK n'est ajoutée qu'une fois par instance ; un fichier par modèle et par morceau, partagé entre instances. Le plafond de 2000 entités du moteur compte maintenant les entités (donc les fichiers).
+- Tests : `Md3WriterTests.Write_rejects_more_surfaces_than_the_model_limit_but_WriteSplit_splits` ; `PlaceableConverterTests.Model_with_more_surfaces_than_the_engine_limit_is_split_into_files` (65 surfaces, 2 instances : 2 fichiers `_p0`/`_p1`, 4 entités, 2 jeux de collision, bilan `PLACEABLES`). Les tests existants confirment que le nom reste sans suffixe pour un modèle d'un seul fichier (`Shared_model_written_once`, `Large_model_gets_modelscale`).
+
+### Important 2 — objets sans maillage rendu
+
+- Conservés entièrement sautés, collision comprise. Seule la raison change : `PLACEABLE_SKIPPED` dit « model '<m>' has no rendered mesh (invisible blocker, collision not added) ».
+- Test : `PlaceableConverterTests.Model_without_rendered_mesh_is_skipped_with_its_collision` (aucune entité, aucun MD3, aucune collision, message vérifié).
+
+### Minor — normales sur 256
+
+- `EncodeNormal` utilise `256/2π` ; le moteur décode un octet avec `lat *= (FUNCTABLE_SIZE/256)` (`code/rd-vulkan/tr_model.cpp:1188-1191`), soit 256 pas par tour.
+- Test : `Md3WriterTests.Normals_are_encoded_on_256_steps` (X → `0x0040`, +Y → `0x4040`, −Y → `0xC040`, Z → `0x0000`).
+
+### Minor — pas de dossier de jeu
+
+- `PipelineSteps.ConvertObjects` journalise `PLACEABLES_NO_GAME_DIR` : « No game folder available: placeable conversion skipped, the map has no placed objects. ».
+- Test : `FinalReviewFixTests.Import_without_game_folder_logs_that_placeables_are_skipped`.
+
+### Réserves
+
+- Aucun essai dans le jeu (consigne). Le modèle découpé en plusieurs entités et la borne de 64 surfaces (non vérifiée par le chargeur) sont à confirmer visuellement ; si un chargement échouait, repasser `MaxSurfaces` à 32 (constante unique).
+- Les autres points mineurs de la relecture (relecture du GIT, normales sous échelle non uniforme, horodatage du zip) ne faisaient pas partie de cette correction.

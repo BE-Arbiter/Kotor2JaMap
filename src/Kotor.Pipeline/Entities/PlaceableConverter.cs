@@ -51,34 +51,39 @@ public static class PlaceableConverter
         var models = new Dictionary<string, ModelInfo>(StringComparer.Ordinal);
         var outEntities = new List<IReadOnlyDictionary<string, string>>();
         var solid = new List<(Vector3, Vector3, Vector3)>();
-        int converted = 0, skipped = 0;
+        int converted = 0, skipped = 0, miscEntities = 0;
 
         foreach (ModuleEntity e in entities)
         {
             if (e.Kind != EntityKind.Placeable) continue;
             string? model = e.Model ?? assets.ModelOf(e, out string? why0) ?? Skip(e, why0 ?? "no model", log, ref skipped);
             if (model is null) continue;
-            if (converted >= MaxMiscModels)
+            if (!models.TryGetValue(model, out ModelInfo? info))
+                models[model] = info = BuildModel(assets, model, game, scale, prefix, log);
+            if (info.Assets.Count == 0) { Skip(e, info.Failure ?? "model not converted", log, ref skipped); continue; }
+            if (miscEntities + info.Assets.Count > MaxMiscModels)
             {
                 Skip(e, $"the engine accepts at most {MaxMiscModels} misc_model_static", log, ref skipped);
                 continue;
             }
-            if (!models.TryGetValue(model, out ModelInfo? info))
-                models[model] = info = BuildModel(assets, model, game, scale, prefix, log);
-            if (info.Asset is null) { Skip(e, info.Failure ?? "model not converted", log, ref skipped); continue; }
 
             float yaw = NormalizeDegrees(e.Yaw);
-            var ent = new Dictionary<string, string>
+            // Un modele reparti sur plusieurs MD3 : une entite par fichier, meme origine, memes angles, meme modelscale.
+            foreach (Md3Asset asset in info.Assets)
             {
-                ["classname"] = "misc_model_static",
-                ["model"] = info.Asset.Path,
-                ["origin"] = $"{Num(e.Position.X * scale)} {Num(e.Position.Y * scale)} {Num(e.Position.Z * scale)}",
-                // Meme repere que KOTOR : les sommets du MD3 sont ceux du MDL et AnglesToAxis tourne de yaw autour de Z (anti-horaire),
-                // comme le Bearing du GIT. Pas de +90 (voir le rapport de l'etape 03).
-                ["angles"] = $"0 {Num(yaw)} 0",
-            };
-            if (info.DivideBy > 1) ent["modelscale"] = info.DivideBy.ToString(CultureInfo.InvariantCulture);
-            outEntities.Add(ent);
+                var ent = new Dictionary<string, string>
+                {
+                    ["classname"] = "misc_model_static",
+                    ["model"] = asset.Path,
+                    ["origin"] = $"{Num(e.Position.X * scale)} {Num(e.Position.Y * scale)} {Num(e.Position.Z * scale)}",
+                    // Meme repere que KOTOR : les sommets du MD3 sont ceux du MDL et AnglesToAxis tourne de yaw autour de Z (anti-horaire),
+                    // comme le Bearing du GIT. Pas de +90 (voir le rapport de l'etape 03).
+                    ["angles"] = $"0 {Num(yaw)} 0",
+                };
+                if (info.DivideBy > 1) ent["modelscale"] = info.DivideBy.ToString(CultureInfo.InvariantCulture);
+                outEntities.Add(ent);
+                miscEntities++;
+            }
             converted++;
 
             if (info.Pwk is { } pwk)
@@ -90,7 +95,7 @@ public static class PlaceableConverter
             }
         }
 
-        var assetsOut = models.Values.Where(m => m.Asset is not null).Select(m => m.Asset!).OrderBy(a => a.Path, StringComparer.Ordinal).ToList();
+        var assetsOut = models.Values.SelectMany(m => m.Assets).OrderBy(a => a.Path, StringComparer.Ordinal).ToList();
 
         // Textures et shaders des modeles, une fois par texture.
         var textureData = new SortedDictionary<string, KotorTexture?>(StringComparer.Ordinal);
@@ -99,7 +104,7 @@ public static class PlaceableConverter
         var shaders = textureData.Select(kv => Md3ShaderWriter.Write(game, kv.Key, kv.Value)).ToList();
 
         if (entities.Any(e => e.Kind == EntityKind.Placeable))
-            log.Warn("PLACEABLES", $"{converted} placeable(s) converted, {skipped} skipped, {assetsOut.Count} unique MD3.");
+            log.Warn("PLACEABLES", $"{converted} placeable(s) converted, {skipped} skipped, {assetsOut.Count} unique MD3 ({models.Values.Count(m => m.Assets.Count > 0)} model(s)).");
         return new ConvertedEntities(outEntities, assetsOut, solid)
         {
             TextureData = textureData,
@@ -114,14 +119,14 @@ public static class PlaceableConverter
         return null;
     }
 
-    private sealed record ModelInfo(Md3Asset? Asset, int DivideBy, Walkmesh? Pwk, string? Failure);
+    private sealed record ModelInfo(IReadOnlyList<Md3Asset> Assets, int DivideBy, Walkmesh? Pwk, string? Failure);
 
     private static ModelInfo BuildModel(IObjectAssets assets, string model, KotorGame game, float scale, string prefix, ImportLog log)
     {
         KotorModel? mdl = assets.LoadModel(model, out string? reason);
         if (mdl is null) return Fail(reason ?? $"model '{model}' not found");
         IReadOnlyList<ModelPart> parts = ModelMeshBuilder.Build(mdl, log, model);
-        if (parts.Count == 0) return Fail($"model '{model}' has no renderable mesh");
+        if (parts.Count == 0) return Fail($"model '{model}' has no rendered mesh (invisible blocker, collision not added)");
 
         float max = 0;
         foreach (ModelPart p in parts)
@@ -132,16 +137,17 @@ public static class PlaceableConverter
         int k = max > ModelLimit ? (int)MathF.Ceiling(max / ModelLimit) : 1;
         float f = scale / k;
         var ja = parts.Select(p => p with { Positions = [.. p.Positions.Select(v => v * f)] }).ToList();
-        byte[] data;
-        try { data = Md3Writer.Write(model, ja, prefix); }
+        IReadOnlyList<Md3Writer.Md3File> files;
+        try { files = Md3Writer.WriteSplit(model, ja, prefix); }
         catch (ArgumentException ex) { return Fail($"MD3 not written ({ex.Message})"); }
 
         Walkmesh? pwk = assets.LoadPwk(model, out string? pwkReason);
         if (pwk is null) log.Warn("PLACEABLE_NO_PWK", $"Model '{model}': {pwkReason ?? "no PWK"}; the placeable has no collision.");
-        var asset = new Md3Asset($"{prefix}{model}.md3", data, [.. parts.Select(p => p.Texture)]);
-        return new ModelInfo(asset, k, pwk, null);
+        // Un fichier : models/<dossier>/<modele>.md3 ; plusieurs : <modele>_p0.md3, <modele>_p1.md3...
+        var list = files.Select((f, i) => new Md3Asset(files.Count == 1 ? $"{prefix}{model}.md3" : $"{prefix}{model}_p{i}.md3", f.Data, f.Textures)).ToList();
+        return new ModelInfo(list, k, pwk, null);
 
-        ModelInfo Fail(string why) => new(null, 1, null, why);
+        ModelInfo Fail(string why) => new([], 1, null, why);
     }
 
     private static float NormalizeDegrees(float deg)

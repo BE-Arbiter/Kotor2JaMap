@@ -117,6 +117,15 @@ public sealed class FinalReviewFixTests : IDisposable
     }
 
     [Fact]
+    public void Import_without_game_folder_logs_that_placeables_are_skipped()
+    {
+        var opt = Opt() with { KotorDir = Path.Combine(Path.GetTempPath(), "k2j_no_such_game_" + Guid.NewGuid().ToString("N")) };
+        var log = new ImportLog();
+        PipelineSteps.Import(Scene(), "nogame", opt, log);
+        Assert.Contains(log.Warnings, w => w.Code == "PLACEABLES_NO_GAME_DIR" && w.Message.Contains("placeable conversion skipped"));
+    }
+
+    [Fact]
     public void Export_view_does_not_warn_without_reduction()
     {
         var log = new ImportLog();

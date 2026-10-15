@@ -69,7 +69,11 @@ public static class PipelineSteps
     /// </summary>
     private static ConvertedEntities ConvertObjects(ModuleScene scene, ExportOptions opt, ImportLog log)
     {
-        if (string.IsNullOrWhiteSpace(opt.KotorDir) || !Directory.Exists(opt.KotorDir)) return ConvertedEntities.Empty;
+        if (string.IsNullOrWhiteSpace(opt.KotorDir) || !Directory.Exists(opt.KotorDir))
+        {
+            log.Warn("PLACEABLES_NO_GAME_DIR", "No game folder available: placeable conversion skipped, the map has no placed objects.");
+            return ConvertedEntities.Empty;
+        }
         try
         {
             using var res = ResourceResolver.ForModule(opt.KotorDir, scene.Info.Module.ToLowerInvariant(), opt.Game);

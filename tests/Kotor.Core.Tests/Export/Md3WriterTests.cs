@@ -75,15 +75,93 @@ public class Md3WriterTests
         Assert.Equal(a, b);
     }
 
-    [Fact]
-    public void Md3_splits_surfaces_over_the_vertex_limit()
+    /// <summary>Partie de <paramref name="tris"/> triangles disjoints (3 sommets chacun) : <c>3 * tris</c> sommets.</summary>
+    private static ModelPart Disjoint(int tris)
     {
-        int n = 5000; // 5000 sommets -> 2 surfaces de 4096 sommets au plus
-        var pos = new Vector3[n]; var nor = new Vector3[n]; var uv = new Vector2[n];
-        var idx = new List<int>();
-        for (int i = 0; i < n; i++) { pos[i] = new Vector3(i % 100, i / 100, 0); nor[i] = Vector3.UnitZ; }
-        for (int i = 0; i + 2 < n; i += 3) idx.AddRange([i, i + 1, i + 2]);
-        byte[] md3 = Md3Writer.Write("big", [new ModelPart("t", pos, nor, uv, [.. idx])], "models/kotor/");
-        Assert.Equal(2, I(md3, 84));
+        var pos = new Vector3[tris * 3]; var nor = new Vector3[tris * 3]; var uv = new Vector2[tris * 3]; var idx = new int[tris * 3];
+        for (int t = 0; t < tris; t++)
+            for (int k = 0; k < 3; k++) { pos[t * 3 + k] = new Vector3(t % 100 + k, t / 100, 0); nor[t * 3 + k] = Vector3.UnitZ; idx[t * 3 + k] = t * 3 + k; }
+        return new ModelPart("t", pos, nor, uv, idx);
+    }
+
+    private static (int Verts, int Tris)[] SurfaceCounts(byte[] md3)
+    {
+        int s = I(md3, 100), n = I(md3, 84);
+        var r = new (int, int)[n];
+        for (int i = 0; i < n; i++) { r[i] = (I(md3, s + 80), I(md3, s + 84)); s += I(md3, s + 104); }
+        return r;
+    }
+
+    [Fact]
+    public void Engine_limits_are_the_swgl_loader_limits()
+    {
+        // OpenJK-SWGL rd-vulkan/tr_model.cpp:1105-1118 refuse numVerts >= 1200 et numTriangles * 3 >= 7200 (qfiles.h:33-34).
+        Assert.Equal(1199, Md3Writer.MaxVerticesPerSurface);
+        Assert.Equal(2399, Md3Writer.MaxTrianglesPerSurface);
+    }
+
+    [Fact]
+    public void Surface_at_the_limit_stays_whole_and_one_over_is_split()
+    {
+        // 1197 sommets : une surface. 399 triangles disjoints = 1197 sommets, sous 1199.
+        Assert.Equal([(1197, 399)], SurfaceCounts(Md3Writer.Write("b", [Disjoint(399)], "models/kotor/")));
+
+        // 400 triangles disjoints = 1200 sommets > 1199 : deux surfaces (399 + 1 triangles).
+        var split = SurfaceCounts(Md3Writer.Write("b", [Disjoint(400)], "models/kotor/"));
+        Assert.Equal([(1197, 399), (3, 1)], split);
+        Assert.All(split, c => { Assert.True(c.Verts < 1200); Assert.True(c.Tris * 3 < 7200); });
+    }
+
+    [Fact]
+    public void Triangle_limit_splits_a_part_with_shared_vertices()
+    {
+        // 2399 triangles sur 3 sommets partages : une surface ; 2400 : deux.
+        static ModelPart Fan(int tris) => new("t", [new(0, 0, 0), new(1, 0, 0), new(0, 1, 0)], [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+            [new(0, 0), new(1, 0), new(0, 1)], [.. Enumerable.Range(0, tris).SelectMany(_ => new[] { 0, 1, 2 })]);
+        Assert.Equal([(3, 2399)], SurfaceCounts(Md3Writer.Write("f", [Fan(2399)], "models/kotor/")));
+        Assert.Equal([(3, 2399), (3, 1)], SurfaceCounts(Md3Writer.Write("f", [Fan(2400)], "models/kotor/")));
+    }
+
+    [Fact]
+    public void Large_part_is_split_below_engine_limits()
+    {
+        var counts = SurfaceCounts(Md3Writer.Write("big", [Disjoint(5000)], "models/kotor/"));
+        Assert.True(counts.Length > 1);
+        Assert.All(counts, c => { Assert.True(c.Verts < 1200); Assert.True(c.Tris * 3 < 7200); });
+        Assert.Equal(5000, counts.Sum(c => c.Tris));
+    }
+
+    [Fact]
+    public void Write_rejects_more_surfaces_than_the_model_limit_but_WriteSplit_splits()
+    {
+        ModelPart[] parts = [.. Enumerable.Range(0, 65).Select(i => Part("tex" + i.ToString("D3")))];
+        Assert.Throws<ArgumentException>(() => Md3Writer.Write("m", parts, "models/kotor/"));
+
+        var files = Md3Writer.WriteSplit("m", parts, "models/kotor/");
+        Assert.Equal(2, files.Count);
+        Assert.Equal(64, I(files[0].Data, 84));
+        Assert.Equal(1, I(files[1].Data, 84));
+        Assert.Equal("m_p0", Str(files[0].Data, 8, 64));
+        Assert.Equal("m_p1", Str(files[1].Data, 8, 64));
+        Assert.Equal(["tex064"], files[1].Textures);
+
+        // Un modele qui tient dans un fichier garde son nom.
+        var one = Md3Writer.WriteSplit("m", parts.Take(64).ToArray(), "models/kotor/");
+        Assert.Single(one);
+        Assert.Equal("m", Str(one[0].Data, 8, 64));
+    }
+
+    [Fact]
+    public void Normals_are_encoded_on_256_steps()
+    {
+        // Le moteur decode lat/lng d'un octet avec lat * (FUNCTABLE_SIZE / 256) : un quart de tour vaut 64.
+        var part = Part("t") with { Normals = [Vector3.UnitX, Vector3.UnitY, -Vector3.UnitY, Vector3.UnitZ] };
+        byte[] md3 = Md3Writer.Write("n", [part], "models/kotor/");
+        int s = I(md3, 100), xyz = s + I(md3, s + 100);
+        ushort N(int v) => BinaryPrimitives.ReadUInt16LittleEndian(md3.AsSpan(xyz + v * 8 + 6));
+        Assert.Equal(0x0040, N(0));   // lat 0, lng 64 (acos(0) = 90 deg)
+        Assert.Equal(0x4040, N(1));   // lat 64 (90 deg), lng 64
+        Assert.Equal(0xC040, N(2));   // lat 192 (-90 deg), lng 64
+        Assert.Equal(0x0000, N(3));   // vers le haut
     }
 }

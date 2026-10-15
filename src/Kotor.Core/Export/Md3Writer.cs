@@ -12,15 +12,52 @@ public static class Md3Writer
 {
     /// <summary>Limite des coordonnees : un short en 1/64 d'unite, soit 32767 / 64 = 511.98.</summary>
     public const float MaxCoordinate = 511.98f;
-    public const int MaxVerticesPerSurface = 4096, MaxTrianglesPerSurface = 8192, MaxSurfaces = 32;
+    /// <summary>
+    /// Limites par surface du chargeur du moteur SWGL : R_LoadMD3 (OpenJK-SWGL code/rd-vulkan/tr_model.cpp:1105-1118) refuse
+    /// <c>numVerts &gt;= SHADER_MAX_VERTEXES</c> et <c>numTriangles * 3 &gt;= SHADER_MAX_INDEXES</c>, avec SHADER_MAX_VERTEXES = 1200 et
+    /// SHADER_MAX_INDEXES = 6 * 1200 (code/qcommon/qfiles.h:33-34) : au plus 1199 sommets et 2399 triangles.
+    /// </summary>
+    public const int MaxVerticesPerSurface = 1199, MaxTrianglesPerSurface = 2399;
+    /// <summary>MD3_MAX_SURFACES = 32 + 32 (code/qcommon/qfiles.h:105), par modele. Le chargeur ne le verifie pas, mais c'est la borne declaree.</summary>
+    public const int MaxSurfaces = 64;
     private const int HeaderSize = 108, FrameSize = 56, SurfaceHeaderSize = 108, ShaderSize = 68;
 
     /// <summary>
-    /// Une image, une surface par <see cref="ModelPart"/> (decoupee si elle depasse 4096 sommets ou 8192 triangles), shader = <paramref name="shaderPrefix"/> + texture.
+    /// Une image, une surface par <see cref="ModelPart"/> (decoupee si elle depasse 1199 sommets ou 2399 triangles), shader = <paramref name="shaderPrefix"/> + texture.
     /// Les positions sont en unites JA. UV : GL en entree, t = 1 - v dans le fichier.
     /// </summary>
     /// <exception cref="ArgumentException">Une coordonnee depasse +-511.98, un nom est trop long, trop de surfaces, ou une partie est incoherente.</exception>
     public static byte[] Write(string name, IReadOnlyList<ModelPart> partsJaUnits, string shaderPrefix)
+    {
+        List<Surface> surfaces = BuildSurfaces(name, partsJaUnits, shaderPrefix);
+        if (surfaces.Count > MaxSurfaces) throw new ArgumentException($"Too many MD3 surfaces ({surfaces.Count}, max {MaxSurfaces}).", nameof(partsJaUnits));
+        return WriteSurfaces(name, surfaces);
+    }
+
+    /// <summary>Un fichier MD3 produit par <see cref="WriteSplit"/> et les textures de ses surfaces.</summary>
+    public sealed record Md3File(byte[] Data, IReadOnlyList<string> Textures);
+
+    /// <summary>
+    /// Comme <see cref="Write"/>, mais un modele qui depasse <see cref="MaxSurfaces"/> surfaces est reparti sur plusieurs fichiers
+    /// (au plus <see cref="MaxSurfaces"/> surfaces chacun, dans l'ordre des textures). Un seul fichier : nom inchange ;
+    /// sinon l'en-tete porte <c>name_p0</c>, <c>name_p1</c>...
+    /// </summary>
+    public static IReadOnlyList<Md3File> WriteSplit(string name, IReadOnlyList<ModelPart> partsJaUnits, string shaderPrefix)
+    {
+        List<Surface> surfaces = BuildSurfaces(name, partsJaUnits, shaderPrefix);
+        var files = new List<Md3File>();
+        int count = (surfaces.Count + MaxSurfaces - 1) / MaxSurfaces;
+        for (int i = 0; i < count; i++)
+        {
+            List<Surface> chunk = surfaces.Skip(i * MaxSurfaces).Take(MaxSurfaces).ToList();
+            string fileName = count == 1 ? name : $"{name}_p{i}";
+            if (fileName.Length > 63) throw new ArgumentException($"MD3 name too long (max 63 characters): {fileName}", nameof(name));
+            files.Add(new Md3File(WriteSurfaces(fileName, chunk), [.. chunk.Select(c => c.Name).Distinct(StringComparer.Ordinal)]));
+        }
+        return files;
+    }
+
+    private static List<Surface> BuildSurfaces(string name, IReadOnlyList<ModelPart> partsJaUnits, string shaderPrefix)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         ArgumentNullException.ThrowIfNull(partsJaUnits);
@@ -36,7 +73,11 @@ public static class Md3Writer
             surfaces.AddRange(Split(part, shader));
         }
         if (surfaces.Count == 0) throw new ArgumentException("An MD3 needs at least one surface.", nameof(partsJaUnits));
-        if (surfaces.Count > MaxSurfaces) throw new ArgumentException($"Too many MD3 surfaces ({surfaces.Count}, max {MaxSurfaces}).", nameof(partsJaUnits));
+        return surfaces;
+    }
+
+    private static byte[] WriteSurfaces(string name, List<Surface> surfaces)
+    {
 
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
         float radius = 0;
@@ -115,7 +156,7 @@ public static class Md3Writer
                 throw new ArgumentException($"Part '{p.Texture}': coordinate ({v.X}, {v.Y}, {v.Z}) out of the MD3 range (+-{MaxCoordinate}).");
     }
 
-    /// <summary>Decoupe une partie en surfaces de 4096 sommets et 8192 triangles au plus (sommets recopies, ordre des triangles conserve).</summary>
+    /// <summary>Decoupe une partie en surfaces de 1199 sommets et 2399 triangles au plus (sommets recopies, ordre des triangles conserve).</summary>
     private static IEnumerable<Surface> Split(ModelPart p, string shader)
     {
         if (p.Positions.Length <= MaxVerticesPerSurface && p.Indices.Length / 3 <= MaxTrianglesPerSurface)
@@ -150,7 +191,10 @@ public static class Md3Writer
 
     private static short Fixed(float v) => (short)Math.Clamp((int)MathF.Round(v * 64f), short.MinValue, short.MaxValue);
 
-    /// <summary>Normale MD3 : octet bas = acos(z) * 255 / 2pi, octet haut = atan2(y, x) * 255 / 2pi (q3map2 NormalToLatLong).</summary>
+    /// <summary>
+    /// Normale MD3 : octet bas = acos(z) * 256 / 2pi, octet haut = atan2(y, x) * 256 / 2pi. Le moteur decode sur 256 pas de 2pi
+    /// (OpenJK-SWGL code/rd-vulkan/tr_model.cpp:1188-1191, <c>lat *= (FUNCTABLE_SIZE/256)</c> sur un octet).
+    /// </summary>
     private static short EncodeNormal(Vector3 n)
     {
         byte lng, lat;
@@ -158,8 +202,8 @@ public static class Md3Writer
         else
         {
             double z = Math.Clamp(n.Z, -1f, 1f);
-            lng = (byte)(((int)Math.Round(Math.Acos(z) * 255.0 / (2 * Math.PI))) & 255);
-            lat = (byte)(((int)Math.Round(Math.Atan2(n.Y, n.X) * 255.0 / (2 * Math.PI))) & 255);
+            lng = (byte)(((int)Math.Round(Math.Acos(z) * 256.0 / (2 * Math.PI))) & 255);
+            lat = (byte)(((int)Math.Round(Math.Atan2(n.Y, n.X) * 256.0 / (2 * Math.PI))) & 255);
         }
         return unchecked((short)((lat << 8) | lng));
     }
