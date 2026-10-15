@@ -66,11 +66,11 @@ Camera: hold the right mouse button to look around, `W`/`Z` `A`/`Q` `S` `D` to m
 The application accepts command line options to run the workflow and take a screenshot unattended:
 
 ```
-Kotor2Ja.App [--game kotor|kotor2] --module <module> [--run-to preview|import|export|pk3]
+Kotor2Ja.App [--game kotor|kotor2] --module <module>[,<module>...] [--run-to preview|import|export|pk3]
              [--camera "x y z yaw pitch"] [--screenshot <png>] [--exit]
 ```
 
-- `--module` selects the module (required with any other option).
+- `--module` selects the module, or several comma-separated modules to assemble (required with any other option).
 - `--run-to` runs the workflow up to the given step (`pk3` writes into the Jedi Academy folder).
 - `--camera` places the camera (position in Jedi Academy units, then yaw and pitch in degrees).
 - `--screenshot` saves the 3D view to a PNG file.
@@ -86,7 +86,7 @@ dotnet run --project src/Kotor2Ja.Cli -- <command> [options]
 | --- | --- |
 | `list-modules` | Lists the modules of the chosen game with the name of their zone. |
 | `export-obj <module> --out <folder>` | Exports a module as OBJ/MTL (visual check in Blender) and writes a log by code. |
-| `export-ja <module>` | Converts a module into a `.pk3` for Jedi Academy. |
+| `export-ja <module>[,<module>...]` | Converts a module (or several assembled modules, see Assembling modules) into a `.pk3` for Jedi Academy. |
 
 Options common to all commands:
 
@@ -95,7 +95,8 @@ Options common to all commands:
 
 Options of `export-ja`:
 
-- `--name <map>` map name (default: the module name). Allowed characters: `a-z`, `0-9` and `_`, 48 characters at most.
+- `--name <map>` map name (default: the module name; several modules: `<reference>_<count>`). Allowed characters: `a-z`, `0-9` and `_`, 48 characters at most.
+- `--reference <module>` reference module of an assembly (default: the first module).
 - `--scale <n>` scale from KOTOR metres to Jedi Academy units.
 - `--lightmap-brightness <n>` lightmap brightness multiplier.
 - `--bsp-limits swgl|vanilla` BSP limits profile.
@@ -109,6 +110,28 @@ Examples:
 dotnet run --project src/Kotor2Ja.Cli -- list-modules --game kotor2
 dotnet run --project src/Kotor2Ja.Cli -- export-ja tar_m02aa --name taris_demo
 ```
+
+## Assembling modules
+
+KOTOR splits a zone into several modules linked by transition doors (for example `end_m01aa` and `end_m01ab` on the Endar Spire). Several modules of the same game can be assembled into one Jedi Academy map, written as a single `.pk3`.
+
+In the application, Ctrl+click selects several modules of one game. One of them is the reference module (the first one by default, selectable in the list): it stays in place and gives the map its lighting and spawn point. Preview places the other modules automatically, door against door, using the transition doors of the modules (`LinkedToModule` / `LinkedTo` in the area GIT). The transition door is kept, unlocked, and a short junction corridor fills any gap between the two door frames. Modules that no transition links to the reference must be placed by hand in Edit placement (move, rotate, choose the two doors to join); Import stays disabled until every module is linked. Overlapping rooms are reported in the log (`ASSEMBLY_OVERLAP`) and in the placement editor.
+
+The command line tool only uses the automatic placement:
+
+```
+dotnet run --project src/Kotor2Ja.Cli -- export-ja end_m01aa,end_m01ab
+dotnet run --project src/Kotor2Ja.Cli -- export-ja end_m01aa,end_m01ab --reference end_m01ab --name endar_spire
+```
+
+- The modules are separated by commas, without spaces (or quote the list).
+- `--reference <module>` chooses the reference module (default: the first one).
+- `--name` defaults to `<reference>_<number of modules>`, for example `end_m01aa_2` (pk3 `kotor_end_m01aa_2.pk3`).
+- If some modules cannot be linked automatically, nothing is written and the exit code is 1 with the message `Modules not linked: <modules>. Use the application to place them manually.`
+
+The scripted runs of the application accept the same list: `--module end_m01aa,end_m01ab` behaves like the multiple selection, and `--run-to import|export|pk3` fails with the same message when a module is not linked.
+
+Limits: transitions made by triggers (not doors) are not used to place modules. The assembled map must still fit the BSP limits; large assemblies can exceed them (the export then fails with a `BSP limit exceeded` message and writes nothing).
 
 ## Configuration
 
