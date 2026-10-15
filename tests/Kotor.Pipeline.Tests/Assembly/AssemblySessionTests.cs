@@ -27,6 +27,29 @@ public class AssemblySessionTests
         return new AssemblySession(parts.Select(p => p.Scene.Info.Module).ToList(), parts, links, Frames);
     }
 
+    /// <summary>Partie dont le sol marchable est le rectangle [x0, x1] x [y0, y1] a z = 0.</summary>
+    private static AssemblyPart FloorPart(string module, float x0, float y0, float x1, float y1, params ModuleEntity[] entities)
+    {
+        var walk = new SceneWalkmesh("room", [new(x0, y0, 0), new(x1, y0, 0), new(x1, y1, 0), new(x0, y1, 0)], [0, 1, 2, 0, 2, 3], [true, true]);
+        var info = new ModuleInfo(module, module, module, new ModuleEntry(Vector3.Zero, Vector2.UnitY));
+        return new AssemblyPart(new ModuleScene(info, [], [walk], new Dictionary<string, Kotor.Core.Textures.KotorTexture?>()), entities);
+    }
+
+    [Fact]
+    public void AutoLinkMayFlip_ButManualJunctionKeepsTheStrictBackToBackRule()
+    {
+        // Memes sols et memes portes : la liaison automatique retourne B (dos a dos, B recouvrirait A), la jonction manuelle non.
+        var auto = Session([FloorPart("m_a", -5, -10, 5, 0, Door("d1", Vector3.Zero, 0, "m_b", "d2")),
+            FloorPart("m_b", -5, 0, 5, 10, Door("d2", Vector3.Zero, 0))]);
+        Assert.Equal(RigidTransform.AligningDoors(Vector3.Zero, 180, Vector3.Zero, 0), auto.Transforms[1]);
+
+        var d1 = Door("d1", Vector3.Zero, 0);
+        var d2 = Door("d2", Vector3.Zero, 0);
+        var manual = Session([FloorPart("m_a", -5, -10, 5, 0, d1), FloorPart("m_b", -5, 0, 5, 10, d2)]);
+        manual.SetManualJunction(0, d1, 1, d2);
+        Assert.Equal(RigidTransform.AligningDoors(Vector3.Zero, 0, Vector3.Zero, 0), manual.Transforms[1]);
+    }
+
     [Fact]
     public void AutoLink_MakesTheSessionComplete()
     {

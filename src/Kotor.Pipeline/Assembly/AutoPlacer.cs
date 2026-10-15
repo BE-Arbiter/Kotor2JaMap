@@ -11,6 +11,16 @@ public sealed record Placement(IReadOnlyList<RigidTransform> Transforms, IReadOn
 /// <summary>Placement automatique : la reference reste a l'identite, les autres parties sont alignees porte contre porte (parcours en largeur).</summary>
 public static class AutoPlacer
 {
+    /// <summary>Ecart de surface (m²) en dessous duquel les deux poses sont a egalite (erreurs d'arrondi de la rotation).</summary>
+    private const float TieToleranceSquareMeters = 0.01f;
+
+    /// <summary>
+    /// Place les parties reliees a <paramref name="referencePart"/>. Le yaw d'une porte KOTOR est ambigu a 180° (il ne dit pas de
+    /// quel cote sont les pieces) : pour chaque liaison, deux poses gardant les portes confondues sont essayees, theta (dos a dos,
+    /// <see cref="RigidTransform.AligningDoors"/>) et theta + 180. La pose retenue est celle dont la surface de recouvrement
+    /// (<see cref="OverlapChecker.OverlapArea"/>) avec les parties deja placees est la plus faible ; a egalite, theta.
+    /// Retournement : <c>ASSEMBLY_FLIPPED</c>.
+    /// </summary>
     public static Placement Place(IReadOnlyList<AssemblyPart> parts, int referencePart, IReadOnlyList<DoorLink> links, ImportLog log)
     {
         ArgumentNullException.ThrowIfNull(parts);
@@ -18,6 +28,10 @@ public static class AutoPlacer
         ArgumentNullException.ThrowIfNull(log);
         if (referencePart < 0 || referencePart >= parts.Count) throw new ArgumentOutOfRangeException(nameof(referencePart));
         var transforms = Enumerable.Repeat(RigidTransform.Identity, parts.Count).ToArray();
+        // Sols seuls (walkmeshes) de chaque partie, et sols des parties deja placees dans le repere assemble.
+        var floors = parts.Select(p => p.Scene with { Meshes = [], Lights = [] }).ToArray();
+        var placedFloors = new ModuleScene?[parts.Count];
+        placedFloors[referencePart] = floors[referencePart];
         var placed = new bool[parts.Count];
         var handled = new HashSet<DoorLink>();
         var used = new List<DoorLink>();
@@ -43,7 +57,24 @@ public static class AutoPlacer
                 var anchorCur = Anchor(parts[cur], forward ? link.FromDoor : link.ToTarget, log);
                 var anchorOther = Anchor(parts[other], forward ? link.ToTarget : link.FromDoor, log);
                 var t = transforms[cur];
-                transforms[other] = RigidTransform.AligningDoors(t.Apply(anchorCur.Position), t.ApplyYaw(anchorCur.Yaw), anchorOther.Position, anchorOther.Yaw);
+                Vector3 doorPos = t.Apply(anchorCur.Position);
+                float doorYaw = t.ApplyYaw(anchorCur.Yaw);
+                var backToBack = RigidTransform.AligningDoors(doorPos, doorYaw, anchorOther.Position, anchorOther.Yaw);
+                var flipped = RigidTransform.AligningDoors(doorPos, doorYaw + 180f, anchorOther.Position, anchorOther.Yaw);
+                var floorBack = floors[other].Transformed(backToBack);
+                var floorFlip = floors[other].Transformed(flipped);
+                // Nettement inferieur : a egalite (aucun sol, recouvrement identique au bruit de la rotation pres), la regle dos a dos est gardee.
+                if (OverlapWithPlaced(floorFlip, placedFloors) < OverlapWithPlaced(floorBack, placedFloors) - TieToleranceSquareMeters)
+                {
+                    transforms[other] = flipped;
+                    placedFloors[other] = floorFlip;
+                    log.Warn("ASSEMBLY_FLIPPED", $"{Name(parts, cur)} -> {Name(parts, other)}: the back-to-back pose overlaps the placed modules, the module is turned by 180 degrees around the door.");
+                }
+                else
+                {
+                    transforms[other] = backToBack;
+                    placedFloors[other] = floorBack;
+                }
                 placed[other] = true;
                 used.Add(link);
                 queue.Enqueue(other);
@@ -54,12 +85,20 @@ public static class AutoPlacer
 
     private static string Name(IReadOnlyList<AssemblyPart> parts, int i) => parts[i].Scene.Info.Module;
 
+    /// <summary>Surface de recouvrement (m²) d'un sol candidat avec les sols des parties deja placees.</summary>
+    private static float OverlapWithPlaced(ModuleScene candidate, ModuleScene?[] placedFloors) =>
+        placedFloors.Where(f => f is not null).Sum(f => OverlapChecker.OverlapArea(f!, candidate));
+
+    /// <summary>Porte de la partie la plus proche d'un point (null si la partie n'a pas de porte).</summary>
+    internal static ModuleEntity? NearestDoor(AssemblyPart part, Vector3 position) =>
+        part.Entities.Where(e => e.Kind == EntityKind.Door)
+            .OrderBy(e => Vector3.DistanceSquared(e.Position, position)).FirstOrDefault();
+
     /// <summary>Un waypoint est remplace par la porte la plus proche de sa partie ; sans porte, le waypoint sert d'ancre.</summary>
     private static ModuleEntity Anchor(AssemblyPart part, ModuleEntity target, ImportLog log)
     {
         if (target.Kind != EntityKind.Waypoint) return target;
-        var door = part.Entities.Where(e => e.Kind == EntityKind.Door)
-            .OrderBy(e => Vector3.DistanceSquared(e.Position, target.Position)).FirstOrDefault();
+        var door = NearestDoor(part, target.Position);
         if (door is not null) return door;
         log.Warn("LINK_NO_TARGET_DOOR", $"{part.Scene.Info.Module}: no door near waypoint '{target.Name}', the waypoint position is used as the anchor.");
         return target;

@@ -9,7 +9,7 @@ public static class TransitionLinks
     /// <summary>
     /// Une entree par paire de parties (la premiere trouvee). Transition vers un module non selectionne : ignoree sans bruit.
     /// Cible introuvable : LINK_TARGET_NOT_FOUND. Paire deja reliee par une autre porte : LINK_EXTRA_EDGE
-    /// (la porte reciproque d'une transition retenue est ignoree sans bruit).
+    /// (la porte retour d'une transition retenue, qu'elle vise la porte source ou un waypoint pres d'elle, est ignoree sans bruit).
     /// </summary>
     public static IReadOnlyList<DoorLink> Find(IReadOnlyList<AssemblyPart> parts, ImportLog log)
     {
@@ -32,8 +32,9 @@ public static class TransitionLinks
                 }
                 if (!pairs.Add((Math.Min(i, j), Math.Max(i, j))))
                 {
-                    // Porte reciproque de la transition deja retenue (cas normal du jeu) : pas une arete en surplus.
-                    if (links.Any(l => l.FromPart == j && l.ToPart == i && ReferenceEquals(l.FromDoor, target))) continue;
+                    // Porte reciproque de la transition deja retenue (cas normal du jeu) : pas une arete en surplus. Elle vise la porte
+                    // source, ou un waypoint dont la porte la plus proche est la porte source (meme regle que l'ancre d'AutoPlacer).
+                    if (links.Any(l => l.FromPart == j && l.ToPart == i && IsReturnTarget(parts[j], l.FromDoor, target))) continue;
                     log.Warn("LINK_EXTRA_EDGE", $"Door '{door.Name}' of {parts[i].Scene.Info.Module} to {parts[j].Scene.Info.Module}: modules already linked, transition ignored.");
                     continue;
                 }
@@ -42,6 +43,10 @@ public static class TransitionLinks
         }
         return links;
     }
+
+    private static bool IsReturnTarget(AssemblyPart sourcePart, ModuleEntity sourceDoor, ModuleEntity target) =>
+        ReferenceEquals(sourceDoor, target)
+        || (target.Kind == EntityKind.Waypoint && ReferenceEquals(AutoPlacer.NearestDoor(sourcePart, target.Position), sourceDoor));
 
     private static int IndexOfModule(IReadOnlyList<AssemblyPart> parts, string module)
     {

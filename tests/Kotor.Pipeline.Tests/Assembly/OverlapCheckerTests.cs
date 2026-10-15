@@ -45,6 +45,15 @@ public class OverlapCheckerTests
     }
 
     [Fact]
+    public void OverlapArea_IsTheSharedSurfaceOfTheShrunkBoxes()
+    {
+        // Boites reduites de 0.5 m : [0.5, 9.5] et [2.5, 11.5] -> 7 x 7 m.
+        Assert.Equal(49f, OverlapChecker.OverlapArea(Square(0, 0, 10), Square(2, 2, 10)), 3);
+        Assert.Equal(0f, OverlapChecker.OverlapArea(Square(0, 0, 10), Square(9.7f, 0, 10)));
+        Assert.Equal(0f, OverlapChecker.OverlapArea(Square(0, 0, 10, 0f), Square(0, 0, 10, 4f)));
+    }
+
+    [Fact]
     public void ThreeScenes_OneLinePerOverlappingPair()
     {
         var pairs = OverlapChecker.Check([Square(0, 0, 10), Square(50, 0, 10), Square(5, 5, 10)]);

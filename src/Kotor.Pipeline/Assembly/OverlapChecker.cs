@@ -16,24 +16,41 @@ public static class OverlapChecker
     public static IReadOnlyList<(int A, int B, string Detail)> Check(IReadOnlyList<ModuleScene> transformedScenes, float shrinkMeters = 0.5f)
     {
         ArgumentNullException.ThrowIfNull(transformedScenes);
-        var boxes = transformedScenes.Select(s => s.Walkmeshes
-            .Select(w => (w.Room, Box: WalkableBox(w, shrinkMeters)))
-            .Where(b => b.Box is not null)
-            .Select(b => (b.Room, Box: b.Box!.Value))
-            .ToList()).ToList();
+        var boxes = transformedScenes.Select(s => Boxes(s, shrinkMeters)).ToList();
         var result = new List<(int, int, string)>();
         for (int a = 0; a < boxes.Count; a++)
             for (int b = a + 1; b < boxes.Count; b++)
             {
-                var hit = FirstHit(boxes[a], boxes[b]);
-                if (hit is { } h)
+                // Premier recouvrement seulement : une ligne par paire de scenes.
+                foreach (var h in Hits(boxes[a], boxes[b]))
+                {
                     result.Add((a, b, string.Create(CultureInfo.InvariantCulture,
                         $"{transformedScenes[a].Info.Module} room {h.RoomA} overlaps {transformedScenes[b].Info.Module} room {h.RoomB} ({h.Size.X:0.00} x {h.Size.Y:0.00} m)")));
+                    break;
+                }
             }
         return result;
     }
 
-    private static (string RoomA, string RoomB, Vector2 Size)? FirstHit(List<(string Room, (Vector3 Min, Vector3 Max) Box)> a,
+    /// <summary>
+    /// Surface totale (m², somme sur toutes les paires de pieces) des recouvrements en XY des boites marchables de deux scenes
+    /// (repere assemble), avec les memes regles que <see cref="Check"/> (reduction XY, intervalles Z fermes). 0 = aucun recouvrement.
+    /// </summary>
+    public static float OverlapArea(ModuleScene a, ModuleScene b, float shrinkMeters = 0.5f)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        return Hits(Boxes(a, shrinkMeters), Boxes(b, shrinkMeters)).Sum(h => h.Size.X * h.Size.Y);
+    }
+
+    private static List<(string Room, (Vector3 Min, Vector3 Max) Box)> Boxes(ModuleScene s, float shrink) => s.Walkmeshes
+        .Select(w => (w.Room, Box: WalkableBox(w, shrink)))
+        .Where(b => b.Box is not null)
+        .Select(b => (b.Room, Box: b.Box!.Value))
+        .ToList();
+
+    /// <summary>Paires de pieces (A, B) dont les boites se recoupent, avec la taille XY du recouvrement.</summary>
+    private static IEnumerable<(string RoomA, string RoomB, Vector2 Size)> Hits(List<(string Room, (Vector3 Min, Vector3 Max) Box)> a,
         List<(string Room, (Vector3 Min, Vector3 Max) Box)> b)
     {
         foreach (var (ra, ba) in a)
@@ -41,9 +58,8 @@ public static class OverlapChecker
             {
                 Vector3 min = Vector3.Max(ba.Min, bb.Min), max = Vector3.Min(ba.Max, bb.Max);
                 // XY : recouvrement strict ; Z : intervalles fermes.
-                if (min.X < max.X && min.Y < max.Y && min.Z <= max.Z) return (ra, rb, new Vector2(max.X - min.X, max.Y - min.Y));
+                if (min.X < max.X && min.Y < max.Y && min.Z <= max.Z) yield return (ra, rb, new Vector2(max.X - min.X, max.Y - min.Y));
             }
-        return null;
     }
 
     /// <summary>Boite des triangles marchables reduite en XY ; null si aucun triangle marchable ou si la reduction la vide.</summary>
