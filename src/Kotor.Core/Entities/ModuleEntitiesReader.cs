@@ -60,6 +60,20 @@ public static class ModuleEntitiesReader
         return result;
     }
 
+    /// <summary>
+    /// Portes, waypoints et declencheurs du GIT (repere du module), pour la decouverte des transitions d'un assemblage.
+    /// Ne lit ni les pieces ni les lumieres et n'ecrit pas le bilan <c>ENTITIES</c>.
+    /// </summary>
+    public static IReadOnlyList<ModuleEntity> ReadTransitionEntities(ResourceResolver res, ModuleInfo info, ImportLog log)
+    {
+        ArgumentNullException.ThrowIfNull(res);
+        ArgumentNullException.ThrowIfNull(info);
+        ArgumentNullException.ThrowIfNull(log);
+        var result = new List<ModuleEntity>();
+        ReadGit(res, info, result, log, [EntityKind.Door, EntityKind.Waypoint, EntityKind.Trigger]);
+        return result;
+    }
+
     private static void ReadGit(ResourceResolver res, ModuleInfo info, List<ModuleEntity> result, ImportLog log, EntityKind[]? only)
     {
         byte[]? data = res.Find(info.AreaResRef, ResourceType.Git);
