@@ -13,14 +13,16 @@ public sealed record DoorMotion(float Duration, IReadOnlyList<DoorPieceSpec> Mov
 {
     /// <summary>Deplacement minimal (m) pour qu'un groupe compte comme mobile.</summary>
     public const float MinOffset = 0.02f;
-    /// <summary>Rotation d'une cle a l'autre (degres) au-dela de laquelle l'animation n'est pas une translation.</summary>
-    public const float MaxRotation = 5f;
+    /// <summary>Au-dela, la porte garde l'ancien comportement (une boite qui monte) : trop de panneaux pour autant d'entites.</summary>
+    public const int MaxPieces = 8;
     private static readonly string[] Names = ["opening1", "opening2", "open1", "open2"];
 
     /// <summary>
-    /// Deduit le mouvement de l'animation d'ouverture du MDL (<c>opening1</c>, a defaut <c>opening2</c>). Les positions d'une animation
-    /// KOTOR sont des deplacements par rapport a la position du noeud (verifie sur dor_lts02 : deux panneaux a +-3,19 m qui coulissent de +-3 m).
-    /// Retourne null si le modele n'a pas d'animation d'ouverture, si elle fait tourner un noeud, ou si aucun maillage ne bouge.
+    /// Deduit le mouvement de l'animation d'ouverture du MDL (<c>opening1</c>, a defaut <c>opening2</c>). Dans une animation KOTOR, une position
+    /// est un deplacement par rapport a celle du noeud (dor_lts02 : deux panneaux a +-3,19 m qui coulissent de +-3 m) et une orientation est absolue
+    /// (l'animation <c>closed</c> reprend l'orientation de repos). JA ne fait pas tourner un <c>func_door</c> : un maillage est donc ramene a une
+    /// translation, celle de son centre entre la pose fermee et la derniere pose de l'animation (un panneau qui pivote glisse sans tourner).
+    /// Retourne null si le modele n'a pas d'animation d'ouverture, si aucun maillage ne bouge, ou s'il y a plus de <see cref="MaxPieces"/> groupes.
     /// </summary>
     public static DoorMotion? Analyze(KotorModel model)
     {
@@ -30,26 +32,27 @@ public sealed record DoorMotion(float Duration, IReadOnlyList<DoorPieceSpec> Mov
             if ((anim = model.Animations.FirstOrDefault(a => a.Name == n && a.Length > 0 && a.Tracks.Count > 0)) is not null) break;
         if (anim is null) return null;
 
-        var delta = new Dictionary<int, Vector3>();
-        foreach (AnimationTrack t in anim.Tracks)
-        {
-            if (t.Orientations.Count > 1)
-            {
-                Quaternion a = t.Orientations[0].Value, b = t.Orientations[^1].Value;
-                float dot = MathF.Min(1f, MathF.Abs(Quaternion.Dot(Quaternion.Normalize(a), Quaternion.Normalize(b))));
-                if (2f * MathF.Acos(dot) * 180f / MathF.PI > MaxRotation) return null;
-            }
-            if (t.Positions.Count > 1) delta[t.NodeNumber] = t.Positions[^1].Value - t.Positions[0].Value;
-        }
-
+        var tracks = anim.Tracks.GroupBy(t => t.NodeNumber).ToDictionary(g => g.Key, g => g.First());
         var groups = new List<(Vector3 Offset, List<KotorNode> Nodes)>();
         var fixedNodes = new List<KotorNode>();
-        void Visit(KotorNode node, Matrix4x4 parentTransform, Vector3 parentOffset)
+
+        void Visit(KotorNode node, Matrix4x4 restParent, Matrix4x4 finalParent)
         {
-            Vector3 offset = parentOffset;
-            if (delta.TryGetValue(node.Number, out Vector3 d)) offset += Vector3.TransformNormal(d, parentTransform);
-            if (node.Mesh is { Render: true } && !node.Kind.HasFlag(NodeKind.Aabb))
+            Vector3 pos = node.Position;
+            Quaternion rot = node.Orientation;
+            if (tracks.TryGetValue(node.Number, out AnimationTrack? t))
             {
+                if (t.Positions.Count > 1) pos += t.Positions[^1].Value - t.Positions[0].Value;
+                if (t.Orientations.Count > 0) rot = Quaternion.Normalize(t.Orientations[^1].Value);
+            }
+            Matrix4x4 rest = node.LocalTransform * restParent;
+            Matrix4x4 end = Matrix4x4.CreateFromQuaternion(rot) * Matrix4x4.CreateTranslation(pos) * finalParent;
+            if (node.Mesh is { Render: true } mesh && !node.Kind.HasFlag(NodeKind.Aabb) && mesh.Positions.Length > 0)
+            {
+                Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
+                foreach (Vector3 v in mesh.Positions) { lo = Vector3.Min(lo, v); hi = Vector3.Max(hi, v); }
+                Vector3 center = (lo + hi) * 0.5f;
+                Vector3 offset = Vector3.Transform(center, end) - Vector3.Transform(center, rest);
                 if (offset.Length() < MinOffset) fixedNodes.Add(node);
                 else
                 {
@@ -57,11 +60,10 @@ public sealed record DoorMotion(float Duration, IReadOnlyList<DoorPieceSpec> Mov
                     if (g < 0) groups.Add((offset, [node])); else groups[g].Nodes.Add(node);
                 }
             }
-            Matrix4x4 t = node.LocalTransform * parentTransform;
-            foreach (KotorNode child in node.Children) Visit(child, t, offset);
+            foreach (KotorNode child in node.Children) Visit(child, rest, end);
         }
-        Visit(model.Root, Matrix4x4.Identity, Vector3.Zero);
-        if (groups.Count == 0) return null;
+        Visit(model.Root, Matrix4x4.Identity, Matrix4x4.Identity);
+        if (groups.Count == 0 || groups.Count > MaxPieces) return null;
         return new DoorMotion(anim.Length, [.. groups.Select(g => new DoorPieceSpec(g.Nodes, g.Offset))], fixedNodes);
     }
 }

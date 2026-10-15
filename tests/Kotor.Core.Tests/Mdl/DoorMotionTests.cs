@@ -31,7 +31,7 @@ public sealed class DoorMotionTests
         Assert.Equal(0.5f, m.Duration);
         Assert.Equal(2, m.Moving.Count);
         Assert.Equal(new Vector3(-3, 0, 0), m.Moving[0].Offset);
-        Assert.Equal(new Vector3(3, 0.2f, 0), m.Moving[1].Offset);
+        Assert.True(Vector3.Distance(new Vector3(3, 0.2f, 0), m.Moving[1].Offset) < 1e-5f);
         Assert.Single(m.Fixed);
         Assert.Equal("f", m.Fixed[0].Name);
     }
@@ -60,18 +60,27 @@ public sealed class DoorMotionTests
     }
 
     [Fact]
-    public void A_rotating_panel_is_not_a_translation()
+    public void A_swinging_panel_is_reduced_to_the_translation_of_its_center()
     {
-        var turn = new AnimationTrack("n", 1, [new PositionKey(0, Vector3.Zero), new PositionKey(1, new(1, 0, 0))],
-            [new OrientationKey(0, Quaternion.Identity), new OrientationKey(1, Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2))]);
-        Assert.Null(DoorMotion.Analyze(Model(new KotorAnimation("opening1", 1f, [turn]))));
+        // Panneau en (-3, 0, 0) dont le centre local est (0.5, 0.5, 0) ; tourne de 90 degres autour de Z : le centre passe de (-2.5, 0.5) a (-3.5, 0.5).
+        var turn = new AnimationTrack("n", 1, [], [new OrientationKey(0, Quaternion.Identity), new OrientationKey(1, Quaternion.CreateFromAxisAngle(Vector3.UnitZ, MathF.PI / 2))]);
+        DoorMotion m = DoorMotion.Analyze(Model(new KotorAnimation("opening1", 1f, [turn])))!;
+        Assert.Single(m.Moving);
+        Assert.True(Vector3.Distance(m.Moving[0].Offset, new Vector3(-1f, 0f, 0f)) < 1e-4f);
+        Assert.Equal(2, m.Fixed.Count);
     }
 
     [Fact]
-    public void Constant_rotation_keys_are_ignored()
+    public void Too_many_groups_give_null()
     {
-        var q = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 1f);
-        var t = new AnimationTrack("n", 1, [new PositionKey(0, Vector3.Zero), new PositionKey(1, new(2, 0, 0))], [new OrientationKey(0, q), new OrientationKey(1, q)]);
-        Assert.NotNull(DoorMotion.Analyze(Model(new KotorAnimation("opening1", 1f, [t]))));
+        var root = new KotorNode("door", NodeKind.Header, Vector3.Zero, Quaternion.Identity, null) { Number = 0 };
+        var tracks = new List<AnimationTrack>();
+        for (int i = 1; i <= DoorMotion.MaxPieces + 1; i++)
+        {
+            root.AddChildForTest(new KotorNode("p", NodeKind.Header | NodeKind.Mesh, Vector3.Zero, Quaternion.Identity, Quad()) { Number = i });
+            tracks.Add(Slide(i, new Vector3(i, 0, 0)));
+        }
+        var model = new KotorModel("door", null, root, Vector3.Zero, Vector3.One) { Animations = [new KotorAnimation("opening1", 1f, tracks)] };
+        Assert.Null(DoorMotion.Analyze(model));
     }
 }
