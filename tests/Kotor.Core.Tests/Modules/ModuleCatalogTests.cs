@@ -8,7 +8,7 @@ namespace Kotor.Core.Tests.Modules;
 public class ModuleCatalogTests
 {
     [Fact]
-    public void ListModuleNames_excludes_s_rims()
+    public void ListModuleNames_excludes_s_rims_and_lists_mods()
     {
         string dir = Path.Combine(Path.GetTempPath(), "k2j_cat_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(dir, "modules"));
@@ -16,7 +16,7 @@ public class ModuleCatalogTests
         {
             foreach (string n in new[] { "b.rim", "a_s.rim", "A.rim" }) File.WriteAllBytes(Path.Combine(dir, "modules", n), new byte[8]);
             File.WriteAllBytes(Path.Combine(dir, "modules", "c.mod"), new byte[8]);
-            Assert.Equal(new[] { "a", "b" }, ModuleCatalog.ListModuleNames(dir));
+            Assert.Equal(new[] { "a", "b", "c" }, ModuleCatalog.ListModuleNames(dir));
         }
         finally { Directory.Delete(dir, true); }
     }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Kotor.Core;
 using Kotor.Pipeline.Preview;
 
 namespace Kotor.Pipeline.Workflow;
@@ -13,6 +14,7 @@ public sealed class WorkflowController
     private readonly ConcurrentQueue<string> _log = new();
     private readonly IWorkflowSteps _steps;
     private string? _module;
+    private KotorGame _game;
     private WorkflowStage _stage;
     private bool _busy;
     private int _generation;
@@ -27,6 +29,8 @@ public sealed class WorkflowController
 
     public IReadOnlyList<ModuleListItem> Modules() => _steps.Modules();
     public string? SelectedModule { get { lock (_gate) return _module; } }
+    public KotorGame SelectedGame { get { lock (_gate) return _game; } }
+    public bool IsInstalled(KotorGame game) => _steps.IsInstalled(game);
     public WorkflowStage Stage { get { lock (_gate) return _stage; } }
     public bool IsBusy { get { lock (_gate) return _busy; } }
     public bool CanPreview { get { lock (_gate) return _module is not null && !_busy; } }
@@ -50,12 +54,13 @@ public sealed class WorkflowController
 
     public bool CanNext { get { lock (_gate) return !_busy && _stage is WorkflowStage.Previewed or WorkflowStage.Imported or WorkflowStage.Exported; } }
 
-    /// <summary>Refuse (false) pendant une etape ; sinon retient le module et remet le deroule a <see cref="WorkflowStage.None"/>.</summary>
-    public bool SelectModule(string module)
+    /// <summary>Refuse (false) pendant une etape ; sinon retient le jeu et le module et remet le deroule a <see cref="WorkflowStage.None"/>.</summary>
+    public bool SelectModule(KotorGame game, string module)
     {
         lock (_gate)
         {
             if (_busy) return false;
+            _game = game;
             _module = module;
             ResetLocked();
             return true;
@@ -83,8 +88,13 @@ public sealed class WorkflowController
         return lines;
     }
 
-    public Task PreviewAsync() => Run(canRun: () => _module is not null,
-        run: (module, progress) => (WorkflowStage.Previewed, _steps.Preview(module!, progress)));
+    public Task PreviewAsync()
+    {
+        KotorGame game;
+        lock (_gate) game = _game;
+        return Run(canRun: () => _module is not null,
+        run: (module, progress) => (WorkflowStage.Previewed, _steps.Preview(game, module!, progress)));
+    }
 
     public Task NextAsync()
     {

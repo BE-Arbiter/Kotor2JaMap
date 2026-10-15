@@ -1,4 +1,5 @@
 using Kotor.Compiler.Bsp;
+using Kotor.Core;
 using Kotor.Core.Archives;
 using Kotor.Core.Diagnostics;
 using Kotor.Core.Export;
@@ -30,7 +31,7 @@ public static class PipelineSteps
                     log.Warn("TLK_UNREADABLE", $"dialog.tlk illisible ({ex.Message}), noms de module non traduits.");
                 }
             }
-            using var res = ResourceResolver.ForModule(opt.KotorDir, module);
+            using var res = ResourceResolver.ForModule(opt.KotorDir, module, opt.Game);
             return ModuleSceneBuilder.Build(res, module, tlk, log);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
@@ -79,8 +80,8 @@ public static class PipelineSteps
             if (!cr.Ok) throw new PipelineStepException("BSP_ERROR", cr.Error ?? "Echec de compilation."); // deja journalise par le compilateur
 
             Directory.CreateDirectory(Path.Combine(stage, "shaders")); // le moteur SWGL ne liste que shaders/*.shader (tr_shader.cpp)
-            File.WriteAllText(Path.Combine(stage, "shaders", "kotor_" + name + ".shader"),
-                string.Join("\n", plan.Shaders.Select(ShaderPlanner.Write)));
+            File.WriteAllText(Path.Combine(stage, "shaders", KotorGames.MapPrefix(opt.Game) + "_" + name + ".shader"),
+                string.Join("\n", plan.Shaders.Select(s => ShaderPlanner.Write(s, opt.Game))));
 
             foreach (ExportTexture t in plan.Textures)
             {
@@ -116,7 +117,7 @@ public static class PipelineSteps
         return parsed;
     }
 
-    /// <summary>Zippe le staging en <c>&lt;JaBaseDir&gt;\kotor_&lt;carte&gt;.pk3</c> (le pk3 existant n'est remplace que si tout reussit).</summary>
+    /// <summary>Zippe le staging en <c>&lt;JaBaseDir&gt;\&lt;prefix&gt;_&lt;carte&gt;.pk3</c> (le pk3 existant n'est remplace que si tout reussit).</summary>
     public static Pk3StepResult CreatePk3(ExportStepResult exported, ImportStepResult imported, ExportOptions opt, ImportLog log)
     {
         ArgumentNullException.ThrowIfNull(exported);
@@ -126,7 +127,7 @@ public static class PipelineSteps
         RequireJaBaseDir(opt, log);
         try
         {
-            string pk3 = Path.Combine(opt.JaBaseDir, "kotor_" + imported.MapName + ".pk3");
+            string pk3 = Path.Combine(opt.JaBaseDir, KotorGames.MapPrefix(opt.Game) + "_" + imported.MapName + ".pk3");
             Pk3Builder.Build(exported.StagingDir, pk3);
             return new Pk3StepResult(pk3);
         }

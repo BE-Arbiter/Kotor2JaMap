@@ -66,6 +66,7 @@ public sealed class AppGame : Game
         _screen = new MainScreen(_workflow, _options);
         if (configWarning is not null) _screen.AddLog(configWarning);
         _screen.AddLog($"KOTOR : {options.KotorDir} (échelle {options.Scale:0.##})");
+        _screen.AddLog($"KOTOR 2 : {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
 
         // La liste des modules lit les noms de zone un par un : hors du fil d'interface.
         Task.Run(() =>

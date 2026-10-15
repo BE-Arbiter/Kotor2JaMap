@@ -23,16 +23,28 @@ public sealed class ResourceResolver : IDisposable
 
     private ResourceResolver(string overrideDir) => _overrideDir = overrideDir;
 
-    public static ResourceResolver ForModule(string kotorDir, string module)
+    /// <summary>
+    /// Archives of a module, in game order. A <c>.mod</c> (ERF) replaces the .rim files when it exists.
+    /// KOTOR 2 also reads <c>&lt;module&gt;_dlg.erf</c>. Missing archives are ignored.
+    /// </summary>
+    public static ResourceResolver ForModule(string kotorDir, string module, KotorGame game = KotorGame.Kotor1)
     {
         var r = new ResourceResolver(Path.Combine(kotorDir, "Override"));
         try
         {
             string modules = Path.Combine(kotorDir, "modules");
-            foreach (string name in new[] { module + ".rim", module + "_s.rim" })
+            string mod = Path.Combine(modules, module + ".mod");
+            if (File.Exists(mod)) r._archives.Add(ErfArchive.Open(mod));
+            else
+                foreach (string name in new[] { module + ".rim", module + "_s.rim" })
+                {
+                    string p = Path.Combine(modules, name);
+                    if (File.Exists(p)) r._archives.Add(RimArchive.Open(p));
+                }
+            if (game == KotorGame.Kotor2)
             {
-                string p = Path.Combine(modules, name);
-                if (File.Exists(p)) r._archives.Add(RimArchive.Open(p));
+                string dlg = Path.Combine(modules, module + "_dlg.erf");
+                if (File.Exists(dlg)) r._archives.Add(ErfArchive.Open(dlg));
             }
             string tp = Path.Combine(kotorDir, "TexturePacks", "swpc_tex_tpa.erf");
             if (File.Exists(tp)) r._texturePack = ErfArchive.Open(tp);

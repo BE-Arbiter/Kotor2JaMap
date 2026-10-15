@@ -19,4 +19,17 @@ public static class TestEnv
             return Directory.Exists(DefaultKotorDir) ? DefaultKotorDir : null;
         }
     }
+
+    private const string DefaultKotor2Dir = @"C:\Program Files (x86)\Steam\steamapps\common\Knights of the Old Republic II";
+
+    /// <summary>Dossier d'installation de KOTOR 2 : variable KOTOR2_PATH, sinon le chemin Steam par defaut s'il existe, sinon null.</summary>
+    public static string? Kotor2Dir
+    {
+        get
+        {
+            string? fromEnv = Environment.GetEnvironmentVariable("KOTOR2_PATH");
+            if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv;
+            return Directory.Exists(DefaultKotor2Dir) ? DefaultKotor2Dir : null;
+        }
+    }
 }

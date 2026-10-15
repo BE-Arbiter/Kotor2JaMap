@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Kotor.Core;
 using Kotor.Core.Archives;
 using Kotor.Core.Diagnostics;
 using Kotor.Core.Export;
@@ -10,21 +11,31 @@ namespace Kotor2Ja.Cli.Commands;
 
 public static class ExportObjCommand
 {
-    public static Command Create(Option<string?> kotorOption)
+    public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
+        gameOption ??= GameOption.Create();
         var cmd = new Command("export-obj", "Exporte un module KOTOR en OBJ (controle visuel dans Blender).");
         var module = new Argument<string>("module") { Description = "Nom du module (ex. tar_m02aa)." };
         var outOpt = new Option<string>("--out") { Description = "Dossier de sortie.", Required = true };
         cmd.Arguments.Add(module);
         cmd.Options.Add(outOpt);
         cmd.Options.Add(kotorOption);
-        cmd.SetAction(pr => Run(ListModulesCommand.ResolveKotorDir(pr.GetValue(kotorOption)), pr.GetValue(module)!,
-            pr.GetValue(outOpt)!, Console.Out, Console.Error));
+        cmd.Options.Add(gameOption);
+        cmd.SetAction(pr =>
+        {
+            if (!GameOption.TryParse(pr.GetValue(gameOption), out KotorGame game))
+            {
+                Console.Error.WriteLine(GameOption.BadValue(pr.GetValue(gameOption)));
+                return 1;
+            }
+            return Run(GameOption.ResolveDir(pr.GetValue(kotorOption), game), pr.GetValue(module)!, pr.GetValue(outOpt)!,
+                Console.Out, Console.Error, game);
+        });
         return cmd;
     }
 
     /// <summary>Code de sortie : 0 si au moins un triangle, 1 sinon, 2 si le module ou l'installation est inconnu.</summary>
-    public static int Run(string? kotorDir, string module, string outDir, TextWriter output, TextWriter error)
+    public static int Run(string? kotorDir, string module, string outDir, TextWriter output, TextWriter error, KotorGame game = KotorGame.Kotor1)
     {
         if (kotorDir is null || !Directory.Exists(kotorDir))
         {
@@ -51,7 +62,7 @@ public static class ExportObjCommand
         ModuleScene scene;
         try
         {
-            using var res = ResourceResolver.ForModule(kotorDir, module);
+            using var res = ResourceResolver.ForModule(kotorDir, module, game);
             scene = ModuleSceneBuilder.Build(res, module, tlk, log);
         }
         catch (InvalidDataException ex)

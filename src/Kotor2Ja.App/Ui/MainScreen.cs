@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using Kotor.Core;
 using Kotor.Core.Entities;
 using Kotor.Pipeline.Workflow;
 using Kotor2Ja.App.Rendering;
@@ -66,24 +67,8 @@ public sealed class MainScreen
         float height = ImGui.GetContentRegionAvail().Y;
         bool busy = _workflow.IsBusy;
 
-        if (ImGui.TreeNodeEx("KOTOR", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            if (ImGui.BeginChild("##modules", new Vector2(-1, height * 0.5f), ImGuiChildFlags.Borders))
-            {
-                ModuleListItem[]? modules = _modules;
-                string[] labels = _labels;
-                if (modules is null) ImGui.TextDisabled("Chargement des modules...");
-                else
-                {
-                    string? selected = _workflow.SelectedModule;
-                    for (int i = 0; i < modules.Length; i++)
-                        if (ImGui.Selectable(labels[i], modules[i].Module == selected) && !busy)
-                            _workflow.SelectModule(modules[i].Module);
-                }
-            }
-            ImGui.EndChild();
-            ImGui.TreePop();
-        }
+        foreach (KotorGame game in new[] { KotorGame.Kotor1, KotorGame.Kotor2 })
+            DrawGameNode(game, height * 0.25f, busy);
 
         ImGui.BeginDisabled(!_workflow.CanPreview);
         if (ImGui.Button("Prévisualiser", new Vector2(-1, 0))) _ = _workflow.PreviewAsync();
@@ -114,6 +99,38 @@ public sealed class MainScreen
             ImGui.PopStyleColor();
         }
     }
+
+    /// <summary>One tree node per game; a game whose folder is missing is greyed out and labelled "(not found)".</summary>
+    private void DrawGameNode(KotorGame game, float height, bool busy)
+    {
+        bool installed = _workflow.IsInstalled(game);
+        string label = installed ? KotorGames.DisplayName(game) : KotorGames.DisplayName(game) + " (not found)";
+        ImGui.BeginDisabled(!installed);
+        if (ImGui.TreeNodeEx(label + "###game" + (int)game, installed ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None))
+        {
+            if (ImGui.BeginChild("##modules" + (int)game, new Vector2(-1, height), ImGuiChildFlags.Borders))
+            {
+                ModuleListItem[]? modules = _modules;
+                string[] labels = _labels;
+                if (modules is null) ImGui.TextDisabled("Chargement des modules...");
+                else
+                {
+                    string? selected = _workflow.SelectedModule;
+                    bool selectedGame = _workflow.SelectedGame == game;
+                    for (int i = 0; i < modules.Length; i++)
+                    {
+                        if (modules[i].Game != game) continue;
+                        if (ImGui.Selectable(labels[i] + "###" + game + modules[i].Module, selectedGame && modules[i].Module == selected) && !busy)
+                            _workflow.SelectModule(game, modules[i].Module);
+                    }
+                }
+            }
+            ImGui.EndChild();
+            ImGui.TreePop();
+        }
+        ImGui.EndDisabled();
+    }
+
 
     private void DrawViewOptions(Vector2 displaySize, PreviewRenderer renderer)
     {

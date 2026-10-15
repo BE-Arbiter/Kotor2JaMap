@@ -1,4 +1,5 @@
 using System.Numerics;
+using Kotor.Core;
 using Kotor.Core.Export;
 using Kotor.Pipeline;
 using Kotor.Pipeline.Preview;
@@ -14,11 +15,12 @@ public sealed class WorkflowControllerTests
     private sealed class FakeSteps : IWorkflowSteps
     {
         public Func<PreviewModel> OnPreview = Model;
+        public Action<KotorGame>? OnPreviewGame;
         public Func<PreviewModel> OnImport = Model;
         public Func<PreviewModel> OnExport = Model;
         public Func<string> OnPack = () => "x.pk3";
-        public IReadOnlyList<ModuleListItem> Modules() => [new("m1", "One"), new("m2", "Two")];
-        public PreviewModel Preview(string module, IProgress<string> log) => OnPreview();
+        public IReadOnlyList<ModuleListItem> Modules() => [new(KotorGame.Kotor1, "m1", "One"), new(KotorGame.Kotor1, "m2", "Two")];
+        public PreviewModel Preview(KotorGame game, string module, IProgress<string> log) { OnPreviewGame?.Invoke(game); return OnPreview(); }
         public PreviewModel Import(IProgress<string> log) => OnImport();
         public PreviewModel Export(IProgress<string> log) => OnExport();
         public string CreatePk3(IProgress<string> log) => OnPack();
@@ -27,7 +29,7 @@ public sealed class WorkflowControllerTests
     private static async Task<WorkflowController> ToStage(FakeSteps f, int steps)
     {
         var c = new WorkflowController(f);
-        c.SelectModule("m1");
+        c.SelectModule(KotorGame.Kotor1, "m1");
         await c.PreviewAsync();
         for (int i = 1; i < steps; i++) await c.NextAsync();
         return c;
@@ -37,7 +39,7 @@ public sealed class WorkflowControllerTests
     public async Task Labels_follow_stages()
     {
         var c = new WorkflowController(new FakeSteps());
-        c.SelectModule("m1");
+        c.SelectModule(KotorGame.Kotor1, "m1");
         Assert.Null(c.NextLabel);
         Assert.True(c.CanPreview);
         await c.PreviewAsync();
@@ -65,7 +67,7 @@ public sealed class WorkflowControllerTests
         Task t = c.NextAsync();
         await started.Task;
         Assert.True(c.IsBusy);
-        Assert.False(c.SelectModule("m2"));
+        Assert.False(c.SelectModule(KotorGame.Kotor1, "m2"));
         Assert.False(c.CanNext);
         Assert.False(c.CanPreview);
         gate.SetResult();
@@ -100,7 +102,7 @@ public sealed class WorkflowControllerTests
         var started = new TaskCompletionSource();
         var f = new FakeSteps { OnPreview = () => { started.SetResult(); gate.Task.Wait(); return Model(); } };
         var c = new WorkflowController(f);
-        c.SelectModule("m1");
+        c.SelectModule(KotorGame.Kotor1, "m1");
         Task t = c.PreviewAsync();
         await started.Task;
         c.Reset(); // nouvelle generation : le resultat tardif est ecarte
@@ -148,19 +150,19 @@ public sealed class WorkflowControllerTests
             Directory.CreateDirectory(opt.JaBaseDir);
             var c = new WorkflowController(new KotorWorkflowSteps(opt));
             Skip.If(!c.Modules().Any(m => m.Module == "tar_m02aa"), "tar_m02aa absent");
-            c.SelectModule("tar_m02aa");
+            c.SelectModule(KotorGame.Kotor1, "tar_m02aa");
             await c.PreviewAsync();
             await c.NextAsync();
             Assert.Equal(WorkflowStage.Imported, c.Stage);
 
             // Re-previsualisation en echec (module inexistant) : Stage et etat interne restent coherents.
-            c.SelectModule("zzz_inexistant");
+            c.SelectModule(KotorGame.Kotor1, "zzz_inexistant");
             Assert.Equal(WorkflowStage.None, c.Stage); // SelectModule remet a zero le controleur
             var steps = new KotorWorkflowSteps(opt);
             var progress = new Progress<string>();
-            steps.Preview("tar_m02aa", progress);
+            steps.Preview(KotorGame.Kotor1, "tar_m02aa", progress);
             steps.Import(progress);
-            Assert.ThrowsAny<Exception>(() => steps.Preview("zzz_inexistant", progress));
+            Assert.ThrowsAny<Exception>(() => steps.Preview(KotorGame.Kotor1, "zzz_inexistant", progress));
             PreviewModel exported = steps.Export(progress); // l'etat Imported a survecu a l'echec
             Assert.NotEmpty(exported.Batches);
         }
@@ -171,11 +173,49 @@ public sealed class WorkflowControllerTests
     }
 
     [Fact]
+    public async Task Select_takes_game()
+    {
+        var seen = new List<KotorGame>();
+        var f = new FakeSteps { OnPreviewGame = g => seen.Add(g) };
+        var c = new WorkflowController(f);
+        Assert.True(c.SelectModule(KotorGame.Kotor2, "m1"));
+        Assert.Equal(KotorGame.Kotor2, c.SelectedGame);
+        Assert.Equal("m1", c.SelectedModule);
+        await c.PreviewAsync();
+        Assert.Equal([KotorGame.Kotor2], seen);
+        Assert.True(c.SelectModule(KotorGame.Kotor1, "m1"));
+        Assert.Equal(KotorGame.Kotor1, c.SelectedGame);
+        Assert.Equal(WorkflowStage.None, c.Stage);
+    }
+
+    [Fact]
+    public void Missing_game_folder_is_reported_not_installed()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "k2j_wf3_" + Guid.NewGuid().ToString("N"));
+        var steps = new KotorWorkflowSteps(new ExportOptions(root, "b", "w", Kotor2Dir: null));
+        Assert.False(steps.IsInstalled(KotorGame.Kotor1));
+        Assert.False(steps.IsInstalled(KotorGame.Kotor2));
+        Assert.Empty(steps.Modules());
+        var ex = Assert.Throws<PipelineStepException>(() => steps.Preview(KotorGame.Kotor2, "001ebo", new Progress<string>()));
+        Assert.Equal("GAME_NOT_FOUND", ex.Code);
+    }
+
+    [SkippableFact]
+    public void Real_modules_list_both_games()
+    {
+        Skip.If(TestEnv.KotorDir is null || TestEnv.Kotor2Dir is null, "KOTOR or KOTOR 2 absent");
+        var steps = new KotorWorkflowSteps(new ExportOptions(TestEnv.KotorDir!, "b", "w", Kotor2Dir: TestEnv.Kotor2Dir));
+        var all = steps.Modules();
+        Assert.Contains(all, m => m.Game == KotorGame.Kotor1 && m.Module == "tar_m02aa");
+        Assert.Contains(all, m => m.Game == KotorGame.Kotor2 && m.Module == "001ebo" && m.AreaName.Length > 0);
+    }
+
+    [Fact]
     public async Task Select_resets()
     {
         var c = await ToStage(new FakeSteps(), 2);
         Assert.Equal(WorkflowStage.Imported, c.Stage);
-        Assert.True(c.SelectModule("m2"));
+        Assert.True(c.SelectModule(KotorGame.Kotor1, "m2"));
         Assert.Equal(WorkflowStage.None, c.Stage);
         Assert.Null(c.Preview);
         Assert.Null(c.NextLabel);
@@ -193,7 +233,7 @@ public sealed class WorkflowControllerTests
             Directory.CreateDirectory(opt.JaBaseDir);
             var c = new WorkflowController(new KotorWorkflowSteps(opt));
             Skip.If(!c.Modules().Any(m => m.Module == "tar_m02aa"), "tar_m02aa absent");
-            c.SelectModule("tar_m02aa");
+            c.SelectModule(KotorGame.Kotor1, "tar_m02aa");
             await c.PreviewAsync();
             Assert.Null(c.LastError);
             long tScene = c.Preview!.TriangleCount;

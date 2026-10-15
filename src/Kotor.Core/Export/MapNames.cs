@@ -1,7 +1,7 @@
 namespace Kotor.Core.Export;
 
 /// <summary>
-/// Nom de carte JA : sert de nom de dossier de travail, de <c>maps/&lt;nom&gt;.bsp</c>, de <c>shaders/kotor_&lt;nom&gt;.shader</c>
+/// Nom de carte JA : sert de nom de dossier de travail, de <c>maps/&lt;nom&gt;.bsp</c>, de <c>shaders/kotor_&lt;nom&gt;.shader</c> (K2 : kotor2_)
 /// et de <c>kotor_&lt;nom&gt;.pk3</c>. Normalise en minuscules puis valide (<c>[a-z0-9_]</c>, 1 a 48 caracteres, sous MAX_QPATH = 64).
 /// </summary>
 public static class MapNames

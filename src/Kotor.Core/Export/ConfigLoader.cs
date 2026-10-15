@@ -6,13 +6,16 @@ namespace Kotor.Core.Export;
 public static class ConfigLoader
 {
     public const string DefaultKotorDir = @"C:\Program Files (x86)\Steam\steamapps\common\swkotor";
+    public const string DefaultKotor2Dir = @"C:\Program Files (x86)\Steam\steamapps\common\Knights of the Old Republic II";
     public const string DefaultJaBaseDir = @"C:\Program Files (x86)\Steam\steamapps\common\Jedi Academy - SWGL_DEV\GameData\base";
     public const string DefaultWorkDir = @"C:\jka_maps\kotor_work";
 
     public static ExportOptions Defaults()
     {
         string? env = Environment.GetEnvironmentVariable("KOTOR_PATH");
-        return new ExportOptions(!string.IsNullOrWhiteSpace(env) ? env : DefaultKotorDir, DefaultJaBaseDir, DefaultWorkDir);
+        string? env2 = Environment.GetEnvironmentVariable("KOTOR2_PATH");
+        return new ExportOptions(!string.IsNullOrWhiteSpace(env) ? env : DefaultKotorDir, DefaultJaBaseDir, DefaultWorkDir,
+            Kotor2Dir: !string.IsNullOrWhiteSpace(env2) ? env2 : DefaultKotor2Dir);
     }
 
     public static ExportOptions Load(string? configPath)
@@ -27,7 +30,8 @@ public static class ConfigLoader
         float Num(string key, float def) =>
             Find(root, key) is { ValueKind: JsonValueKind.Number } e ? e.GetSingle() : def;
         return new ExportOptions(Str("kotorDir", o.KotorDir), Str("jaBaseDir", o.JaBaseDir), Str("workDir", o.WorkDir),
-            Num("scale", o.Scale), Num("lightmapBrightness", o.LightmapBrightness), Str("bspLimits", o.BspLimits));
+            Num("scale", o.Scale), Num("lightmapBrightness", o.LightmapBrightness), Str("bspLimits", o.BspLimits),
+            Kotor2Dir: Str("kotor2Dir", o.Kotor2Dir ?? ""));
     }
 
     private static JsonElement? Find(JsonElement obj, string key)

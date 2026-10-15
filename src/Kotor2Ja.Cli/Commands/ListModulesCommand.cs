@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Kotor.Core;
 using Kotor.Core.Archives;
 using Kotor.Core.Modules;
 using Kotor.Core.Tlk;
@@ -16,15 +17,25 @@ public static class ListModulesCommand
         return !string.IsNullOrWhiteSpace(env) ? env : DefaultKotorDir;
     }
 
-    public static Command Create(Option<string?> kotorOption)
+    public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
+        gameOption ??= GameOption.Create();
         var cmd = new Command("list-modules", "Liste les modules KOTOR avec le nom de leur zone.");
         cmd.Options.Add(kotorOption);
-        cmd.SetAction(pr => Run(ResolveKotorDir(pr.GetValue(kotorOption)), Console.Out, Console.Error));
+        cmd.Options.Add(gameOption);
+        cmd.SetAction(pr =>
+        {
+            if (!GameOption.TryParse(pr.GetValue(gameOption), out KotorGame game))
+            {
+                Console.Error.WriteLine(GameOption.BadValue(pr.GetValue(gameOption)));
+                return 1;
+            }
+            return Run(GameOption.ResolveDir(pr.GetValue(kotorOption), game), Console.Out, Console.Error, game);
+        });
         return cmd;
     }
 
-    public static int Run(string? kotorDir, TextWriter output, TextWriter error)
+    public static int Run(string? kotorDir, TextWriter output, TextWriter error, KotorGame game = KotorGame.Kotor1)
     {
         if (kotorDir is null || !Directory.Exists(kotorDir))
         {
@@ -38,7 +49,7 @@ public static class ListModulesCommand
             string name;
             try
             {
-                using var res = ResourceResolver.ForModule(kotorDir, module);
+                using var res = ResourceResolver.ForModule(kotorDir, module, game);
                 name = ModuleCatalog.Load(res, module, tlk).AreaName;
             }
             catch (Exception ex) when (ex is InvalidDataException or IOException)

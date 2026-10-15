@@ -120,7 +120,7 @@ public static class ModuleExporter
                 }
             }
 
-            PlannedShader planned = ShaderPlanner.Plan(mesh, tex);
+            PlannedShader planned = ShaderPlanner.Plan(mesh, tex, opt.Game);
             if (shaders.TryGetValue(planned.Name, out PlannedShader? existing) && existing != planned)
             {
                 string renamed = planned.Name + "_" + planned.Kind.ToString().ToLowerInvariant();
@@ -129,11 +129,11 @@ public static class ModuleExporter
             }
             shaders.TryAdd(planned.Name, planned);
 
-            string texFile = ShaderNames.Prefix + planned.Texture + ".tga";
+            string texFile = ShaderNames.PrefixFor(opt.Game) + planned.Texture + ".tga";
             textures.TryAdd(texFile, new ExportTexture(texFile, tex, false));
             if (planned.Lightmap is not null)
             {
-                string lmFile = ShaderNames.LightmapPrefix + planned.Lightmap + ".tga";
+                string lmFile = ShaderNames.LightmapPrefixFor(opt.Game) + planned.Lightmap + ".tga";
                 textures.TryAdd(lmFile, new ExportTexture(lmFile, lmTex, true));
             }
 

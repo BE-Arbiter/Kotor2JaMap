@@ -1,5 +1,6 @@
 using System.CommandLine;
 using Kotor.Pipeline;
+using Kotor.Core;
 using Kotor.Core.Archives;
 using Kotor.Core.Diagnostics;
 using Kotor.Core.Export;
@@ -9,8 +10,9 @@ namespace Kotor2Ja.Cli.Commands;
 
 public static class ExportJaCommand
 {
-    public static Command Create(Option<string?> kotorOption)
+    public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
+        gameOption ??= GameOption.Create();
         var cmd = new Command("export-ja", "Exporte un module KOTOR en pk3 pour Jedi Academy (BSP, shaders, textures).");
         var module = new Argument<string>("module") { Description = "Nom du module (ex. tar_m02aa)." };
         var nameOpt = new Option<string?>("--name") { Description = "Nom de la carte (defaut : le module)." };
@@ -19,11 +21,17 @@ public static class ExportJaCommand
         var limOpt = new Option<string?>("--bsp-limits") { Description = "Profil de limites BSP : swgl (defaut) ou vanilla." };
         var cfgOpt = new Option<string?>("--config") { Description = "Fichier de configuration JSON (defaut : kotor2ja.config.json a cote de l'exe)." };
         cmd.Arguments.Add(module);
-        foreach (Option o in new Option[] { nameOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption }) cmd.Options.Add(o);
+        foreach (Option o in new Option[] { nameOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption, gameOption }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
         {
             string? cfgPath = pr.GetValue(cfgOpt) ?? Path.Combine(AppContext.BaseDirectory, "kotor2ja.config.json");
             ExportOptions opt = ConfigLoader.Load(cfgPath);
+            if (!GameOption.TryParse(pr.GetValue(gameOption), out KotorGame game))
+            {
+                Console.Error.WriteLine(GameOption.BadValue(pr.GetValue(gameOption)));
+                return 1;
+            }
+            opt = opt.ForGame(game);
             string? kotor = pr.GetValue(kotorOption);
             if (!string.IsNullOrWhiteSpace(kotor)) opt = opt with { KotorDir = kotor };
             if (pr.GetValue(scaleOpt) is { } s) opt = opt with { Scale = s };
@@ -49,7 +57,7 @@ public static class ExportJaCommand
         }
         if (!Directory.Exists(opt.KotorDir))
         {
-            error.WriteLine($"Installation KOTOR introuvable : {opt.KotorDir}");
+            error.WriteLine($"Installation {KotorGames.DisplayName(opt.Game)} introuvable : {opt.KotorDir}");
             return 2;
         }
         module = module.ToLowerInvariant();

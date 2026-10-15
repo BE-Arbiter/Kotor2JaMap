@@ -12,7 +12,10 @@ public static class ModuleCatalog
     {
         string dir = Path.Combine(kotorDir, "modules");
         if (!Directory.Exists(dir)) return Array.Empty<string>();
-        return Directory.EnumerateFiles(dir, "*.rim")
+        // A module is a .rim (its _s.rim companion is not a module) or a .mod, which replaces the .rim of the same name.
+        return Directory.EnumerateFiles(dir, "*.rim").Concat(Directory.EnumerateFiles(dir, "*.mod"))
+            .Where(p => Path.GetExtension(p).Equals(".rim", StringComparison.OrdinalIgnoreCase)
+                     || Path.GetExtension(p).Equals(".mod", StringComparison.OrdinalIgnoreCase))
             .Select(p => Path.GetFileNameWithoutExtension(p).ToLowerInvariant())
             .Where(n => !n.EndsWith("_s", StringComparison.Ordinal))
             .Distinct()

@@ -12,10 +12,15 @@ public static class Program
         {
             Description = "Dossier d'installation de KOTOR (defaut : variable KOTOR_PATH, puis le chemin Steam par defaut).",
         };
+        var gameOption = new Option<string>("--game")
+        {
+            Description = "Game to read: kotor (default) or kotor2.",
+            DefaultValueFactory = _ => "kotor",
+        };
         var root = new RootCommand("Convertit des modules KOTOR vers Jedi Academy.");
-        root.Subcommands.Add(ListModulesCommand.Create(kotorOption));
-        root.Subcommands.Add(ExportObjCommand.Create(kotorOption));
-        root.Subcommands.Add(ExportJaCommand.Create(kotorOption));
+        root.Subcommands.Add(ListModulesCommand.Create(kotorOption, gameOption));
+        root.Subcommands.Add(ExportObjCommand.Create(kotorOption, gameOption));
+        root.Subcommands.Add(ExportJaCommand.Create(kotorOption, gameOption));
         return root.Parse(args).Invoke();
     }
 }

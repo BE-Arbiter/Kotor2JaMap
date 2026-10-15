@@ -21,7 +21,7 @@ public class ConfigLoaderTests
         try
         {
             var o = ConfigLoader.Load(p);
-            Assert.Equal(new ExportOptions("K", "J", "W", 10f, 1.5f), o);
+            Assert.Equal(new ExportOptions("K", "J", "W", 10f, 1.5f, Kotor2Dir: o.Kotor2Dir), o);
         }
         finally { File.Delete(p); }
     }

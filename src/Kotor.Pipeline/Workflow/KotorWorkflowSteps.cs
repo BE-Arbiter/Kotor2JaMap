@@ -1,4 +1,5 @@
 using System.Text;
+using Kotor.Core;
 using Kotor.Core.Archives;
 using Kotor.Core.Diagnostics;
 using Kotor.Core.Entities;
@@ -14,43 +15,59 @@ namespace Kotor.Pipeline.Workflow;
 /// <summary>Enchaine <see cref="PipelineSteps"/> et garde l'etat (scene, plan, BSP) d'une etape a l'autre.</summary>
 public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
 {
-    private readonly ExportOptions _opt = options ?? throw new ArgumentNullException(nameof(options));
+    private readonly ExportOptions _base = options ?? throw new ArgumentNullException(nameof(options));
+    private ExportOptions _opt = options;   // options of the game being worked on (set by Preview)
     private ModuleScene? _scene;
     private IReadOnlyList<ModuleEntity> _entities = [];
     private ImportStepResult? _imported;
     private ExportStepResult? _exported;
     private PreviewModel? _importModel;
 
+    public bool IsInstalled(KotorGame game)
+    {
+        string dir = _base.ForGame(game).KotorDir;
+        return !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir);
+    }
+
     public IReadOnlyList<ModuleListItem> Modules()
     {
-        TlkFile? tlk = null;
-        string tlkPath = Path.Combine(_opt.KotorDir, "dialog.tlk");
-        try { if (File.Exists(tlkPath)) tlk = TlkFile.Open(tlkPath); }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException) { }
-
         var list = new List<ModuleListItem>();
-        foreach (string module in ModuleCatalog.ListModuleNames(_opt.KotorDir))
+        foreach (KotorGame game in new[] { KotorGame.Kotor1, KotorGame.Kotor2 })
         {
-            string name = module;
-            try
-            {
-                using var res = ResourceResolver.ForModule(_opt.KotorDir, module);
-                name = ModuleCatalog.Load(res, module, tlk).AreaName;
-            }
+            if (!IsInstalled(game)) continue;
+            string dir = _base.ForGame(game).KotorDir;
+            TlkFile? tlk = null;
+            string tlkPath = Path.Combine(dir, "dialog.tlk");
+            try { if (File.Exists(tlkPath)) tlk = TlkFile.Open(tlkPath); }
             catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException) { }
-            list.Add(new ModuleListItem(module, name));
+
+            foreach (string module in ModuleCatalog.ListModuleNames(dir))
+            {
+                string name = module;
+                try
+                {
+                    using var res = ResourceResolver.ForModule(dir, module, game);
+                    name = ModuleCatalog.Load(res, module, tlk).AreaName;
+                }
+                catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException) { }
+                list.Add(new ModuleListItem(game, module, name));
+            }
         }
         return list;
     }
 
-    public PreviewModel Preview(string module, IProgress<string> progress)
+    public PreviewModel Preview(KotorGame game, string module, IProgress<string> progress)
     {
         var log = new ImportLog();
         try
         {
-            ModuleScene scene = PipelineSteps.Preview(module, _opt, log);
-            IReadOnlyList<ModuleEntity> entities = ReadEntities(scene, module, log);
-            PreviewModel model = PreviewBuilder.FromScene(scene, _opt.Scale);
+            ExportOptions opt = _base.ForGame(game);
+            if (!IsInstalled(game))
+                throw new PipelineStepException("GAME_NOT_FOUND", $"{KotorGames.DisplayName(game)} folder not found: {opt.KotorDir}");
+            ModuleScene scene = PipelineSteps.Preview(module, opt, log);
+            IReadOnlyList<ModuleEntity> entities = ReadEntities(opt, scene, module, log);
+            PreviewModel model = PreviewBuilder.FromScene(scene, opt.Scale);
+            _opt = opt;
             _scene = scene; _imported = null; _exported = null; _importModel = null;
             _entities = entities;
             progress.Report($"Previsualiser : {scene.Meshes.Count} maillage(s), {model.TriangleCount} triangle(s), {entities.Count} entite(s).");
@@ -125,11 +142,11 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         finally { Flush(log, progress); }
     }
 
-    private IReadOnlyList<ModuleEntity> ReadEntities(ModuleScene scene, string module, ImportLog log)
+    private static IReadOnlyList<ModuleEntity> ReadEntities(ExportOptions opt, ModuleScene scene, string module, ImportLog log)
     {
         try
         {
-            using var res = ResourceResolver.ForModule(_opt.KotorDir, module.ToLowerInvariant());
+            using var res = ResourceResolver.ForModule(opt.KotorDir, module.ToLowerInvariant(), opt.Game);
             byte[] lyt = res.Find(scene.Info.AreaResRef, ResourceType.Lyt)
                 ?? throw new InvalidDataException($"{scene.Info.AreaResRef}.lyt introuvable.");
             LayoutFile layout = LayoutFile.Parse(Encoding.ASCII.GetString(lyt));

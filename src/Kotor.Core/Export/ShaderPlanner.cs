@@ -15,7 +15,7 @@ public sealed record PlannedShader(string Name, ShaderKind Kind, string Texture,
 
 public static class ShaderPlanner
 {
-    public static PlannedShader Plan(SceneMesh mesh, KotorTexture? texture)
+    public static PlannedShader Plan(SceneMesh mesh, KotorTexture? texture, KotorGame game = KotorGame.Kotor1)
     {
         ArgumentNullException.ThrowIfNull(mesh);
         string tex = mesh.Texture;
@@ -24,7 +24,7 @@ public static class ShaderPlanner
         // unless the TXI explicitly asks for punchthrough or a decal.
         bool punch = mesh.Txi.Blending == "punchthrough";
         bool alpha = texture?.HasAlpha == true && (mesh.Txi.EnvMapTexture is null || punch || mesh.Txi.Decal);
-        string plain = ShaderNames.Prefix + tex;
+        string plain = ShaderNames.PrefixFor(game) + tex;
         string lit = lm is null ? plain : plain + "__" + lm;
 
         if (mesh.Txi.Blending == "additive") return new PlannedShader(plain, ShaderKind.Additive, tex, null);
@@ -35,11 +35,11 @@ public static class ShaderPlanner
         return new PlannedShader(plain, ShaderKind.Unlit, tex, null);
     }
 
-    public static string Write(PlannedShader s)
+    public static string Write(PlannedShader s, KotorGame game = KotorGame.Kotor1)
     {
         ArgumentNullException.ThrowIfNull(s);
-        string map = "map " + ShaderNames.Prefix + s.Texture + ".tga";
-        string lmMap = s.Lightmap is null ? "" : "map " + ShaderNames.LightmapPrefix + s.Lightmap + ".tga";
+        string map = "map " + ShaderNames.PrefixFor(game) + s.Texture + ".tga";
+        string lmMap = s.Lightmap is null ? "" : "map " + ShaderNames.LightmapPrefixFor(game) + s.Lightmap + ".tga";
         var b = new StringBuilder();
         b.Append(s.Name).Append("\n{\n");
         // The lightmap atlases are tiny: no reduction and no mipmaps (rd-vulkan tr_shader.cpp ParseShader: nomipmaps / nopicmip).

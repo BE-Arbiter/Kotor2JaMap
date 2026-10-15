@@ -22,7 +22,12 @@ public static class MdlReader
     private const int ModelSuperName = 136;         // 32 octets
     private const int ModelNameArray = 184;         // offset, count
     private const int ModelHeaderSize = 192;
-    private const uint FnPtrK1Pc = 4273776, FnPtrK2Pc = 4285200;   // KotorBlender types.py MODEL_FN_PTR_1_*
+    // First function pointer of the geometry header: K1 PC 4273776, K2 PC 4285200 (KotorBlender types.py MODEL_FN_PTR_1_*; measured on
+    // real K2 models: 4285200 and, second pointer, 4216320 -- K1 PC second pointer is 4216096).
+    private const uint FnPtrK1Pc = 4273776, FnPtrK2Pc = 4285200;
+    // KOTOR 2 mesh header: 8 more bytes (dirt fields) before the MDX data offset and the vertex array offset (xoreos readMesh: "if kotor2 skip 8").
+    // Measured on 001ebo room models: with +8 the MDL positions equal the MDX positions for every mesh, with +0 for none.
+    private const int K2MeshExtra = 8;
     // Noeud (relatifs au debut du noeud)
     private const int NodeFlags = 0, NodeNameIndex = 6, NodePosition = 16, NodeOrientation = 28; // quaternion w,x,y,z
     private const int NodeChildren = 44, NodeCtrlKeys = 56, NodeCtrlData = 68, NodeHeaderSize = 80;
@@ -48,10 +53,9 @@ public static class MdlReader
         if (ctx.U32(0) != 0) throw ctx.Bad("MDL ASCII non supporte");
 
         uint fn = ctx.U32(FileHeader + GeoFnPtr);
-        if (fn == FnPtrK2Pc)
-            throw new NotSupportedException("Modele KOTOR 2 (TSL) non supporte : seul KOTOR 1 PC est lu.");
-        if (fn != FnPtrK1Pc)
-            throw new NotSupportedException($"Pointeur de fonction MDL inconnu ({fn}) : seul KOTOR 1 PC est lu.");
+        if (fn != FnPtrK1Pc && fn != FnPtrK2Pc)
+            throw new NotSupportedException($"Unknown MDL function pointer ({fn}): only KOTOR 1 PC and KOTOR 2 PC models are read.");
+        ctx.K2 = fn == FnPtrK2Pc;
 
         ctx.ModelName = ctx.FixedString(FileHeader + GeoName, 32);
         int root = ctx.Off(FileHeader + GeoRootNode, "noeud racine");
@@ -206,7 +210,8 @@ public static class MdlReader
 
     private static KotorMesh ReadMesh(Ctx c, int m)
     {
-        c.Need(m, MeshHeaderSize, "en-tete de maillage de " + c.NodeName);
+        int k2 = c.K2 ? K2MeshExtra : 0;
+        c.Need(m, MeshHeaderSize + k2, "en-tete de maillage de " + c.NodeName);
         int faceOff = c.Off(m + MeshFaces, "faces");
         int faceCount = c.Count(m + MeshFaces + 4, "nombre de faces");
         int transparency = (int)c.U32(m + MeshTransparency);
@@ -223,8 +228,8 @@ public static class MdlReader
         int vertCount = c.U16(m + MeshVertexCount);
         bool hasLightmap = c.Bytes[m + MeshHasLightmap] != 0;
         bool render = c.Bytes[m + MeshRender] != 0;
-        long mdxOff = c.U32(m + MeshMdxDataOffset);
-        int vertArr = c.Off(m + MeshVertexArrayOffset, "sommets");
+        long mdxOff = c.U32(m + MeshMdxDataOffset + k2);
+        int vertArr = c.Off(m + MeshVertexArrayOffset + k2, "sommets");
 
         var tris = new int[faceCount * 3];
         if (faceCount > 0)
@@ -281,6 +286,7 @@ public static class MdlReader
         public string ModelName = "?";
         public string NodeName = "?";
         public string[] Names = Array.Empty<string>();
+        public bool K2;
 
         public Ctx(byte[] mdl, byte[] mdx) { Bytes = mdl; Mdx = mdx; }
 
