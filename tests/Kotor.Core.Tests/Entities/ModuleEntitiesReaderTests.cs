@@ -41,7 +41,8 @@ public class ModuleEntitiesReaderTests
          .Add(plc, "X", 8, 1f).Add(plc, "Y", 8, 2f).Add(plc, "Z", 8, 3f).Add(plc, "Bearing", 8, MathF.PI / 2);
         int door = g.AddStruct(8);
         g.Add(door, "TemplateResRef", 11, "door_a")
-         .Add(door, "X", 8, 10f).Add(door, "Y", 8, 20f).Add(door, "Z", 8, 0f).Add(door, "Bearing", 8, 0f);
+         .Add(door, "X", 8, 10f).Add(door, "Y", 8, 20f).Add(door, "Z", 8, 0f).Add(door, "Bearing", 8, 0f)
+         .Add(door, "LinkedTo", 10, "wp_x");
         int wp = g.AddStruct(5);
         g.Add(wp, "Tag", 10, "wp_01")
          .Add(wp, "XPosition", 8, 5f).Add(wp, "YPosition", 8, 6f).Add(wp, "ZPosition", 8, 7f)
@@ -86,6 +87,7 @@ public class ModuleEntitiesReaderTests
         Assert.Equal("door_a", door.Name);
         Assert.Equal(new Vector3(10, 20, 0), door.Position);
         Assert.Equal(0f, door.Yaw, 3);
+        Assert.Equal("wp_x", door.LinkedTo);
 
         var wp = Assert.Single(ents, e => e.Kind == EntityKind.Waypoint);
         Assert.Equal("wp_01", wp.Name);

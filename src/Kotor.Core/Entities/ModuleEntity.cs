@@ -7,7 +7,9 @@ namespace Kotor.Core.Entities;
 /// Position en metres KOTOR (repere du module). Yaw : rotation en degres autour de Z (anti-horaire, 0 = face a +Y).
 /// Polygon : points absolus des declencheurs et rencontres, sinon null.
 /// Model : resref du modele (minuscules) d'un objet place ou d'une porte, resolu par <see cref="ObjectModelResolver"/>, sinon null.
+/// LinkedTo (portes et declencheurs, GIT) : tag du point d'arrivee (waypoint) de la transition, vide sinon.
 /// LinkedToModule (portes, GIT) : module de destination d'une transition, vide sinon. Locked (portes, UTD) : porte verrouillee.
 /// </summary>
 public sealed record ModuleEntity(EntityKind Kind, string Name, string Template, Vector3 Position, float Yaw, Vector3[]? Polygon,
-    string? Model = null, string LinkedToModule = "", bool Locked = false, bool Static = false);
+    string? Model = null, string LinkedToModule = "", bool Locked = false, bool Static = false,
+    string LinkedTo = "");

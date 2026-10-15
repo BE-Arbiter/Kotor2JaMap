@@ -22,4 +22,31 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
 
     /// <summary>True when the ARE was found and readable: the area ambient and sun colour then replace the faux sun of a module without light node.</summary>
     public bool AreaLightingKnown { get; init; }
+
+    /// <summary>Modules d'une carte assemblee avec leur transformation ; null pour la scene d'un seul module.</summary>
+    public IReadOnlyList<AssemblyPartRef>? Parts { get; init; } = null;
+
+    /// <summary>Copie de la scene transformee : positions, normales (rotation seule), lumieres et entree ; textures partagees.</summary>
+    public ModuleScene Transformed(RigidTransform t)
+    {
+        var meshes = Meshes.Select(m => m with
+        {
+            Positions = m.Positions.Select(t.Apply).ToArray(),
+            Normals = m.Normals.Select(t.ApplyDirection).ToArray(),
+        }).ToList();
+        var walkmeshes = Walkmeshes.Select(w => w with { Positions = w.Positions.Select(t.Apply).ToArray() }).ToList();
+        var dir = Info.Entry.Direction;
+        var d3 = t.ApplyDirection(new Vector3(dir.X, dir.Y, 0f));
+        var info = Info with { Entry = new ModuleEntry(t.Apply(Info.Entry.Position), new Vector2(d3.X, d3.Y)) };
+        return this with
+        {
+            Info = info,
+            Meshes = meshes,
+            Walkmeshes = walkmeshes,
+            Lights = Lights.Select(l => l with { Position = t.Apply(l.Position) }).ToList(),
+        };
+    }
 }
+
+/// <summary>Module d'une carte assemblee et transformation qui lui a ete appliquee.</summary>
+public sealed record AssemblyPartRef(string Module, RigidTransform Transform);

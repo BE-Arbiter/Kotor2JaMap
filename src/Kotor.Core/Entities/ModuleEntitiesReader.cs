@@ -97,6 +97,8 @@ public static class ModuleEntitiesReader
                     if (spec.Kind == EntityKind.Door)
                         e = e with { Locked = models.IsDoorLocked(e.Template), Static = models.IsDoorStatic(e.Template), LinkedToModule = (list[i].Get<string>("LinkedToModule") ?? "").Trim() };
                 }
+                if (e is not null && spec.Kind is EntityKind.Door or EntityKind.Trigger)
+                    e = e with { LinkedTo = (list[i].Get<string>("LinkedTo") ?? "").Trim() };
                 if (e is null) log.Warn("GIT_ENTRY_INVALID", $"{spec.List}[{i}]: {error}, entry skipped.");
                 else { result.Add(e); if (orientMissing) noOrientation++; }
             }
