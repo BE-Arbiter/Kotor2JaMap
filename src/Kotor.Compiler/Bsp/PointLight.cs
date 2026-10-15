@@ -3,5 +3,5 @@ using System.Numerics;
 
 namespace Kotor.Compiler.Bsp;
 
-/// <summary>Point light baked into the vertex colours. Position and radius in JA units, colour 0..1.</summary>
-public sealed record PointLight(Vector3 Position, Vector3 Color, float Radius, float Multiplier);
+/// <summary>Point light baked into the vertex colours. Position and radius in JA units, colour 0..1. <paramref name="AmbientOnly"/>: added to the ambient term, no direction, no attenuation.</summary>
+public sealed record PointLight(Vector3 Position, Vector3 Color, float Radius, float Multiplier, bool AmbientOnly = false);

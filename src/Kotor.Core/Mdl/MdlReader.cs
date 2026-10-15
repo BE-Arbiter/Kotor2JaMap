@@ -109,9 +109,16 @@ public static class MdlReader
             mesh = ReadMesh(c, b + NodeHeaderSize);
         }
 
-        KotorLight? light = lv is null ? null : new KotorLight(
-            lv.Color ?? Vector3.One, lv.Radius ?? DefaultLightRadius, lv.Multiplier ?? 1f,
-            lv.Color is null || lv.Radius is null || lv.Multiplier is null);
+        KotorLight? light = null;
+        if (lv is not null)
+        {
+            // Light header (92 bytes, right after the node header; KotorBlender reader.py): flare_radius f32, 5 array definitions
+            // of 12 bytes, then 7 u32: priority, ambient_only, dynamic_type, affect_dynamic, shadow, flare, fading_light.
+            c.Need(b + NodeHeaderSize, LightHeaderSize, "light header of " + name);
+            bool ambientOnly = c.U32(b + NodeHeaderSize + LightAmbientOnly) != 0;
+            light = new KotorLight(lv.Color ?? Vector3.One, lv.Radius ?? DefaultLightRadius, lv.Multiplier ?? 1f,
+                lv.Color is null || lv.Radius is null || lv.Multiplier is null, ambientOnly, lv.Invalid);
+        }
         var node = new KotorNode(name, kind, pos, rot, mesh, light);
         c.Need(FileHeader + childOff, childCount * 4L, "enfants de " + name);
         for (int i = 0; i < childCount; i++)
@@ -125,9 +132,10 @@ public static class MdlReader
     /// <summary>Default radius (metres) of a light node without a radius controller.</summary>
     public const float DefaultLightRadius = 5f;
     // Light controllers (xoreos kControllerTypeColor/Radius/Multiplier). Only meaningful on Light nodes (88 and 140 collide with emitter controllers).
+    private const int LightHeaderSize = 92, LightAmbientOnly = 4 + 5 * 12 + 4;   // flare_radius, 5 array defs, then priority
     private const uint CtrlLightColor = 76, CtrlLightRadius = 88, CtrlLightMultiplier = 140;
 
-    private sealed class LightValues { public Vector3? Color; public float? Radius; public float? Multiplier; }
+    private sealed class LightValues { public Vector3? Color; public float? Radius; public float? Multiplier; public bool Invalid; }
 
     private static void ReadControllers(Ctx c, int keyOff, int keyCount, int dataOff, int dataCount,
         ref Vector3 pos, ref Quaternion rot, LightValues? light)
@@ -147,7 +155,7 @@ public static class MdlReader
             {
                 int n = type == CtrlLightColor ? 3 : 1;
                 if ((cols & 0xF) < n) continue;
-                if (valIdx + (long)n > dataCount) throw c.Bad($"controleur de lumiere {type} hors limites");
+                if (valIdx + (long)n > dataCount) { light.Invalid = true; continue; }   // only this light is skipped (LIGHT_INVALID)
                 int o = d0 + valIdx * 4;
                 if (type == CtrlLightColor) light.Color = new Vector3(c.F32(o), c.F32(o + 4), c.F32(o + 8));
                 else if (type == CtrlLightRadius) light.Radius = c.F32(o);

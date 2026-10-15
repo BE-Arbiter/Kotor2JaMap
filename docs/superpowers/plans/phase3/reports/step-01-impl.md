@@ -37,20 +37,16 @@ Renderer réellement utilisé : `rdsp-vulkan_x86.dll` (option CMake `BuildSPVulk
 - lignes 1287-1291 : lors de la lecture de `map`, les drapeaux d'image `IMGFLAG_MIPMAP` / `IMGFLAG_PICMIP` ne sont ajoutés que si ces drapeaux ne sont pas posés ; les mots-clés doivent donc précéder les étapes, ce que fait `ShaderPlanner.Write` (juste après l'accolade ouvrante).
 - Le renderer par défaut `rd-vanilla/tr_shader.cpp` (lignes 2301 et 2308) les accepte aussi.
 
-## Zone blanche de Taris : cause
+## Zone blanche de Taris : mesures (remplace la section « cause » du premier rapport)
 
-Sondage fait sur les données (jeu non lancé). Point d'apparition `3678 5309 25` ÷ 40 = (91,95 ; 132,73 ; 0,63) m, soit l'entrée du module (91,95 ; 132,74). Les murs autour sont dans les pièces `m02aa_03a` et `m02aa_09a/09b`, majoritairement `lts_nwall04i`, `lts_pwall01i`, `lts_bwall0*` et `lts_floor02`.
+Le premier rapport concluait à tort que `depthFunc equal` échouait aux frontières de pièces ; cette conclusion est retirée (elle n'a jamais été prouvée). Mesures de l'orchestrateur en jeu, après le correctif de découpe :
 
-Constat (export de la version précédente, aussi dans `C:\jka_maps\kotor_work\tar_m02aa\pk3\shaders\kotor_tar_m02aa.shader`, que je n'ai pas modifié) :
+- La zone blanche reste. Un rayon lancé depuis le point d'apparition montre que les murs blancs sont des surfaces AVEC lightmap : `lts_pwall01i__m02aa_09b_lm0`, `lts_nwall04i__m02aa_09b_lm3` et `lts_nwall04i__m02aa_09a_lm0`.
+- Leurs lightmaps sont claires (p90 = 255).
+- Le moteur rdsp-vulkan applique un facteur effectif d'environ ×2,8 à texture × lightmap (mesuré : pixel ≈ 14 + 319·L). La saturation vient de là.
+- La luminosité des lightmaps reste à 1 par défaut. La cause n'est plus recherchée (décision de l'orchestrateur).
 
-1. `textures/kotor/lts_nwall04i__m02aa_03a_lm0` est un shader `LightmappedCutout` : première passe = la texture seule en pleine luminosité (`rgbGen identity`, `alphaFunc GE128`, `depthWrite`, `cull none`), deuxième passe = la lightmap en multiplication avec `depthFunc equal`.
-2. Cause racine : `lts_nwall04i` (et `pwall01i`, `bwall02i`, `bwall04i`, `bwall09`, `floor01`, `floor02`) ont `bumpyshinytexture`/`envmaptexture` dans leur TXI, donc leur alpha DXT5 (valeurs entre 128 et 254, 0 % sous 128 sur `nwall04i`) est le masque de reflet. L'ancien `ShaderPlanner` les classait « avec alpha » donc `LightmappedCutout` : 152 des 262 shaders de `tar_m02aa`.
-3. Teinte : la moyenne de `lts_nwall04i` est (194, 178, 161), un beige rosé très clair. Un mur de cette texture montré sans multiplication par la lightmap (passe lightmap qui échoue à `depthFunc equal`, ce qui arrive aux frontières de pièces où deux surfaces coplanaires ou deux pipelines se recouvrent) a exactement l'aspect « mur blanc rosé » décrit. Les murs voisins en `lts_pwall04` (98, 100, 112) ou `lts_gwall01`, non concernés par l'alpha de reflet, restent normaux.
-4. Le faux soleil n'est pas la cause : les surfaces sans lightmap de ce secteur sont `lts_nums`, `lts_lite08` (panneaux lumineux) et `lts_trim01`, bleutées/vertes, et le soleil DAG_1 est cyan. Les bruits d'atlas de Taris sont noirs pour la plupart (seules `06a_lm5`, `05a_lm3` ont quelques texels magenta/vert) et aucune UV de sommet ne tombe sur un texel invalide (0 sur environ 90 000), donc le bruit des atlas n'explique pas non plus cette zone.
-
-Correction : à la racine (`ShaderPlanner`, alpha de reflet ignoré). Le même export refait avec le nouveau code donne 0 shader `LightmappedCutout` sur `tar_m02aa` (152 avant), tous en `Lightmapped` (une seule passe, pas de dépendance à l'égalité de profondeur).
-
-Niveau de preuve : cause établie par les données et le texte des shaders, mais non confirmée visuellement (le jeu n'est pas lancé). Je n'ai pas pu prouver côté source que la passe `depthFunc equal` échoue sur rd-vulkan (le renderer l'implémente par `VK_COMPARE_OP_EQUAL`, `vk_pipelines.cpp` lignes 1507/1509, et aucun `invariant` n'est présent dans les shaders GLSL de géométrie). C'est l'hypothèse la plus forte ; à confirmer par l'essai visuel de l'orchestrateur (même point d'apparition, regard à -45°).
+La correction de l'alpha de reflet (152 `LightmappedCutout` avant, 0 après sur `tar_m02aa`) reste justifiée en soi (découpe abusive), mais elle n'est pas la cause de la zone blanche.
 
 ## Avant / après : nombre de shaders par type
 
@@ -108,3 +104,34 @@ Les valeurs suivent les lumières réelles de chaque pièce au lieu d'un soleil 
 4. Un module sans nœud lumière conserve l'ancien faux soleil (liste vide = comportement actuel).
 5. L'ambiante est utilisée telle quelle même si `DynAmbientColor` vaut 0.
 6. Pas de commit (consigne).
+
+## Correction 1
+
+Statut : FAIT_AVEC_RESERVES. Commandes : `dotnet build Kotor2Ja.sln` (0 avertissement, 0 erreur) puis `dotnet test Kotor2Ja.sln` : vert (Cli 8, Compiler 76, Core 130, Pipeline 34 ; aucun test ignoré, donc les tests sur jeu installé ont bien tourné). Cette section remplace les réserves 1, 2, 4 et 5 de la section « Réserves » ci-dessus. Les tests ont été écrits en même temps que le code (pas de phase rouge séparée).
+
+### Décisions de l'orchestrateur appliquées
+
+- **Zone blanche (écart 1, Important 2)** : la section « cause » a été remplacée par les mesures de l'orchestrateur (surfaces avec lightmap claire, facteur ×2,8 du moteur) ; la conclusion erronée sur `depthFunc equal` est retirée. Aucune nouvelle recherche de cause. Luminosité des lightmaps inchangée (1).
+- **Surbrillance des couleurs de sommet (Important 1)** : `VertexLighting.DefaultOverbrightShift` passe de 2 à 0 (`r_mapOverBrightBits` = 0 par défaut dans OpenJK-SWGL `rd-vulkan/tr_init.cpp:989`, décalage = max(0, r_mapOverBrightBits − overbrightBits) = 0 dans `tr_bsp.cpp:132`) ; les couleurs de sommet sont donc dans la même unité que les texels de lightmap. Documentation du record mise à jour. Tests : `Default_shift_is_zero_like_swgl_and_can_be_overridden` ; `Overbright_shift_divides_stored_colour` utilise désormais explicitement un décalage 2. Le plafond par lumière n'est pas ajouté : la somme est écrêtée à [0,1] par canal (`Point_light_sum_is_clamped_per_channel`) et la lumière de 337 m reste telle que lue.
+- **Module sans nœud lumière (écart 2)** : `ModuleScene` gagne `SunDiffuseColor` et `AreaLightingKnown` ; `ModuleSceneBuilder.ReadAreaLighting` (remplace `ReadAmbient`) lit `DynAmbientColor`/`SunAmbientColor` et `SunDiffuseColor` (BGR). `ModuleExporter.BuildPlan` : sans lumière et ARE lisible = ambiante ARE + soleil directionnel de couleur `SunDiffuseColor` (direction par défaut) ; ARE illisible = défauts du compilateur ; avec lumières = ambiante ARE + lumières, sans soleil. Tests : `Module_without_light_node_uses_area_ambient_and_sun_diffuse`, `Module_without_light_node_and_unreadable_area_keeps_the_compiler_defaults`, `Lights_position_and_radius_are_scaled_and_ambient_comes_from_the_area` (ModuleExporterTests), `Area_lighting_reads_ambient_and_sun_diffuse_as_bgr`, `Area_without_colours_is_known_with_default_ambient_and_black_sun`.
+- **`ambient_only` (Important 5)** : l'en-tête de lumière (92 octets après l'en-tête de nœud ; `ambient_only` = 2e uint32 des 7 finaux, décalage 68 dans l'en-tête, KotorBlender `reader.py`) est lu par `MdlReader` (`KotorLight.AmbientOnly`), transmis par `SceneLight.AmbientOnly` et `PointLight.AmbientOnly`. Une lumière ambient_only s'ajoute à l'ambiante (couleur × multiplicateur), sans terme directionnel ni atténuation. Tests : `Light_node_reads_controllers_and_ambient_only` (MDL binaire synthétique), `Ambient_only_light_adds_to_ambient_without_direction_or_attenuation`, `Invalid_lights_are_skipped_individually_with_LIGHT_INVALID` (le drapeau traverse la scène).
+- **Garde `LIGHT_INVALID` / `ToByte` (Important 5, Minor 5)** : une lumière dont le rayon ou le multiplicateur est non fini ou ≤ 0, ou dont la couleur contient un NaN, est ignorée avec `LIGHT_INVALID` (message anglais, une ligne par lumière) ; un contrôleur de lumière hors limites ne fait plus ignorer toute la pièce : seule la lumière est sautée (`KotorLight.Invalid`). `VertexLighting.Evaluate` applique la même garde et `ToByte` renvoie 0 pour NaN. Le compte `NODE_LIGHT` ne compte que les lumières utilisées. Tests : `Invalid_lights_are_skipped_individually_with_LIGHT_INVALID` (9 cas invalides + 2 valides), `Light_controller_out_of_bounds_marks_only_the_light_invalid`, `Invalid_lights_are_ignored_and_ToByte_is_safe_for_nan`.
+
+### Constats de relecture
+
+- **Important 3 (décalages et types de contrôleur non prouvés)** : `Real_tar_m02aa_lights_read` vérifie maintenant 71 lumières, aucun `LIGHT_DEFAULTS`, aucun `LIGHT_INVALID`, des rayons variés et une lumière réelle connue : `M02aa_03a` en (88,83 ; 132,30 ; 1,5), couleur (155/255 ; 242/255 ; 1), rayon 2,5 m, multiplicateur 2. En plus, `Light_node_reads_controllers_and_ambient_only` lit un MDL binaire synthétique et vérifie couleur, rayon et multiplicateur aux types 76/88/140.
+- **Important 4 (câblage non testé)** : échelle (position et rayon × `Scale`, multiplicateur inchangé), filtre des lumières invalides, repli sans lumière et repli ARE illisible : tests de `ModuleExporterTests` ci-dessus. `LIGHTMAP_NO_VALID_TEXEL` via le chemin réel (`ModuleSceneBuilder` + `TextureLookup`, TGA 2×2 d'alpha 0) : `Lightmap_without_valid_texel_is_logged_and_has_no_alpha` (gris 128, alpha 255, `HasAlpha` faux). `HasAlpha` faux pour une lightmap réparée dont la source avait de l'alpha, tandis que la diffuse garde son alpha : `Repaired_lightmap_has_no_alpha_flag_even_if_source_had_alpha`.
+- **Minor 1 (raccourci de distance nulle)** : `Point_light_attenuates` utilise des sommets éloignés (25, 50, 100, 150 unités sur l'axe, un point hors axe à 50, une normale inclinée à 60°) : le produit scalaire est réellement évalué.
+- **Les autres constats Minor** ne sont pas traités (consigne).
+
+### Valeurs mesurées sur le jeu (sondage, jeu non lancé)
+
+`tar_m02aa` : 71 lumières lues, aucune ambient_only, aucun `LIGHT_DEFAULTS`/`LIGHT_INVALID` ; ambiante (0,39 ; 0,47 ; 0,55) ; `SunDiffuseColor` = 0 (soleil noir si le module n'avait aucune lumière).
+
+### Réserves
+
+1. Aucun essai visuel : l'effet du décalage 0 et de l'écrêtage n'est pas confirmé en jeu. Une lumière de 337,5 m de rayon (`M02aa_10a`) et des multiplicateurs jusqu'à 3 saturent toujours les sommets à portée (écrêtage à 1) ; aucun plafond par lumière n'a été ajouté.
+2. Avec un décalage 0, les défauts du compilateur (`VertexLighting.Default`, soleil 0,75 + ambiante 0,45) saturent les faces tournées vers le soleil : ils servent seulement quand l'ARE est illisible.
+3. `DynAmbientColor` à 0 reste utilisée telle quelle (non traité, Minor 7).
+4. Un module dont toutes les lumières sont invalides retombe sur le cas « sans lumière » (ambiante et soleil de l'ARE).
+5. Pas de commit.

@@ -173,14 +173,18 @@ public static class ModuleExporter
         // Un point de depart deathmatch pour que devmap fonctionne aussi en mode FFA.
         entities.Add(new Dictionary<string, string> { ["classname"] = "info_player_deathmatch", ["origin"] = originText, ["angle"] = angle });
 
-        // KOTOR lighting for the surfaces without lightmap: zone ambient + room light nodes, in JA units. No light = faux sun as before.
+        // KOTOR lighting for the surfaces without lightmap, in JA units.
+        // With light nodes: zone ambient + the lights (no sun). Without: zone ambient + a directional sun of the ARE SunDiffuseColor
+        // (default direction); without a readable ARE: the compiler defaults.
         var lights = scene.Lights
-            .Where(l => l.Radius > 0f)
-            .Select(l => new PointLight(l.Position * scale, l.Color, l.Radius * scale, l.Multiplier))
+            .Where(l => l.Radius > 0f && float.IsFinite(l.Radius) && l.Multiplier > 0f && float.IsFinite(l.Multiplier))
+            .Select(l => new PointLight(l.Position * scale, l.Color, l.Radius * scale, l.Multiplier, l.AmbientOnly))
             .ToList();
         VertexLighting lighting = lights.Count > 0
             ? VertexLighting.Default with { Ambient = scene.AmbientColor }
-            : VertexLighting.Default;
+            : scene.AreaLightingKnown
+                ? VertexLighting.Default with { Ambient = scene.AmbientColor, Sun = scene.SunDiffuseColor }
+                : VertexLighting.Default;
 
         var input = new CompileInput(name, entities, surfaces,
             new ModelMesh { Name = "solid", SubMeshes = solid }, new ModelMesh { Name = "walkable", SubMeshes = walkable },

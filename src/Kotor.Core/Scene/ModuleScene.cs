@@ -16,4 +16,10 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
 
     public IReadOnlyList<SceneLight> Lights { get; init; } = Array.Empty<SceneLight>();
     public Vector3 AmbientColor { get; init; } = DefaultAmbient;
+
+    /// <summary>ARE <c>SunDiffuseColor</c> (0..1); only meaningful when <see cref="AreaLightingKnown"/>.</summary>
+    public Vector3 SunDiffuseColor { get; init; }
+
+    /// <summary>True when the ARE was found and readable: the area ambient and sun colour then replace the faux sun of a module without light node.</summary>
+    public bool AreaLightingKnown { get; init; }
 }

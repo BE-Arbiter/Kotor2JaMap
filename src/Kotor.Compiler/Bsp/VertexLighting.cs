@@ -13,15 +13,11 @@ namespace Kotor.Compiler.Bsp;
 /// <param name="SunDir">Direction de propagation de la lumiere (normalisee), axes Quake.</param>
 /// <param name="Sun">Couleur x intensite du soleil (RGB).</param>
 /// <param name="Ambient">Couleur ambiante (RGB).</param>
-/// <param name="OverbrightShift">Decalage du moteur (<c>r_mapOverBrightBits</c>, 2 par defaut dans JA) : le moteur multiplie les couleurs de sommet du BSP par 2^shift ; on stocke donc la lumiere divisee par 2^shift.</param>
+/// <param name="OverbrightShift">Engine shift applied to the BSP vertex colours: max(0, r_mapOverBrightBits - overbrightBits). In SWGL <c>r_mapOverBrightBits</c> is 0 by default (OpenJK-SWGL rd-vulkan tr_init.cpp:989, tr_bsp.cpp:132), so the shift is 0 and the vertex colours are in the same unit as the lightmap texels. The engine multiplies the colours by 2^shift, so the light is stored divided by 2^shift.</param>
 public sealed record VertexLighting(Vector3 SunDir, Vector3 Sun, Vector3 Ambient, int OverbrightShift = VertexLighting.DefaultOverbrightShift)
 {
-    /// <summary>
-    /// Mesure sur les BSP d'origine (assets*.pk3, surfaces eclairees par sommet) : valeur max des sommets, mediane 40 a 100/255,
-    /// p95 souvent 255 (satures apres decalage). Compatible avec un decalage x4 (JA : r_mapOverBrightBits = 2) ; en cas de decalage
-    /// reel plus faible la scene est simplement plus sombre, jamais saturee.
-    /// </summary>
-    public const int DefaultOverbrightShift = 2;
+    /// <summary>Default shift: 0 in SWGL (see <c>OverbrightShift</c>). A JA build with <c>r_mapOverBrightBits 2</c> would need 2.</summary>
+    public const int DefaultOverbrightShift = 0;
 
     /// <summary>Defauts du compilateur : soleil et ambiante teintes comme DAG_1 (voir <see cref="JaDefaults.SunColor"/> et <see cref="JaDefaults.AmbientColor"/>).</summary>
     public static VertexLighting Default { get; } = new(Vector3.Normalize(JaDefaults.SunDir),
@@ -61,7 +57,8 @@ public sealed record VertexLighting(Vector3 SunDir, Vector3 Sun, Vector3 Ambient
         Vector3 total = Ambient + Sun * k;
         foreach (PointLight l in Lights)
         {
-            if (l.Radius <= 0f) continue;
+            if (!float.IsFinite(l.Radius) || l.Radius <= 0f || !float.IsFinite(l.Multiplier) || l.Multiplier <= 0f || float.IsNaN(l.Color.X + l.Color.Y + l.Color.Z)) continue;
+            if (l.AmbientOnly) { total += l.Color * l.Multiplier; continue; }
             Vector3 toLight = l.Position - position;
             float d = toLight.Length();
             if (d >= l.Radius) continue;
@@ -84,7 +81,7 @@ public sealed record VertexLighting(Vector3 SunDir, Vector3 Sun, Vector3 Ambient
     public static VertexLighting ForKotor(Vector3 ambient, IReadOnlyList<PointLight> lights, int shift = DefaultOverbrightShift) =>
         new(Vector3.Normalize(JaDefaults.SunDir), Vector3.Zero, ambient, shift) { Lights = lights };
 
-    private static byte ToByte(float f) => (byte)Math.Clamp((int)MathF.Round(f * 255f), 0, 255);
+    private static byte ToByte(float f) => float.IsNaN(f) ? (byte)0 : (byte)Math.Clamp((int)MathF.Round(f * 255f), 0, 255);
 
     private static float[]? Floats(IReadOnlyDictionary<string, string> w, string key)
     {

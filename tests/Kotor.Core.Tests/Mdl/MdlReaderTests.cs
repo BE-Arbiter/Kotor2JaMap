@@ -164,6 +164,61 @@ public class MdlReaderTests
         }
         AppendStats($"# models.bif: {count} models read without exception\n");
     }
+
+    /// <summary>Minimal K1 PC MDL with a single light node (header 80 + light header 92 + 3 controller keys: colour 76, radius 88, multiplier 140).</summary>
+    private static byte[] LightMdl(uint ambientOnly, Vector3 color, float radius, float multiplier, int radiusValueIndex = 4)
+    {
+        const int nodeRel = 204, keysRel = nodeRel + 80 + 92, dataRel = keysRel + 3 * 16;
+        var b = new byte[12 + dataRel + 6 * 4];
+        void U32(int abs, uint v) => BitConverter.GetBytes(v).CopyTo(b, abs);
+        void U16(int abs, int v) => BitConverter.GetBytes((ushort)v).CopyTo(b, abs);
+        void F32(int abs, float v) => BitConverter.GetBytes(v).CopyTo(b, abs);
+        U32(12 + 0, 4273776);                                   // K1 PC function pointer
+        Encoding.ASCII.GetBytes("light").CopyTo(b, 12 + 8);
+        U32(12 + 40, nodeRel);                                  // root node
+        U32(12 + 184, 192); U32(12 + 188, 1);                   // name array: offset, count
+        U32(12 + 192, 196);                                     // name 0 offset
+        Encoding.ASCII.GetBytes("light").CopyTo(b, 12 + 196);
+        int n = 12 + nodeRel;
+        U16(n, 0x0003); U16(n + 6, 0);                          // Header | Light, name index 0
+        F32(n + 28, 1f);                                        // orientation w
+        U32(n + 56, keysRel); U32(n + 60, 3); U32(n + 64, 3);   // controller keys
+        U32(n + 68, dataRel); U32(n + 72, 6); U32(n + 76, 6);   // controller data
+        U32(n + 80 + 68, ambientOnly);                          // light header: ambient_only
+        void Key(int i, uint type, int valueIdx, int cols)
+        {
+            int k = 12 + keysRel + i * 16;
+            U32(k, type); U16(k + 6, 1); U16(k + 8, 0); U16(k + 10, valueIdx); b[k + 12] = (byte)cols;
+        }
+        Key(0, 76, 1, 3); Key(1, 88, radiusValueIndex, 1); Key(2, 140, 5, 1);
+        int d = 12 + dataRel;
+        F32(d + 4, color.X); F32(d + 8, color.Y); F32(d + 12, color.Z); F32(d + 16, radius); F32(d + 20, multiplier);
+        return b;
+    }
+
+    [Fact]
+    public void Light_node_reads_controllers_and_ambient_only()
+    {
+        var model = MdlReader.Read(LightMdl(0, new Vector3(0.25f, 0.5f, 0.75f), 7.5f, 2f), []);
+        var l = Assert.IsType<KotorLight>(model.Root.Light);
+        Assert.Equal(new Vector3(0.25f, 0.5f, 0.75f), l.Color);
+        Assert.Equal(7.5f, l.Radius);
+        Assert.Equal(2f, l.Multiplier);
+        Assert.False(l.Defaulted);
+        Assert.False(l.AmbientOnly);
+        Assert.False(l.Invalid);
+
+        var amb = MdlReader.Read(LightMdl(1, Vector3.One, 3f, 1f), []);
+        Assert.True(amb.Root.Light!.AmbientOnly);
+    }
+
+    [Fact]
+    public void Light_controller_out_of_bounds_marks_only_the_light_invalid()
+    {
+        var model = MdlReader.Read(LightMdl(0, Vector3.One, 3f, 1f, radiusValueIndex: 60), []);   // does not throw
+        Assert.True(model.Root.Light!.Invalid);
+    }
+
     [Fact]
     public void Compressed_quaternion_decodes_identity()
     {

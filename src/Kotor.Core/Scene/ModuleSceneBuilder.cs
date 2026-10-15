@@ -49,38 +49,51 @@ public static class ModuleSceneBuilder
         }
         if (stats.Lightmaps > 0)
             log.Warn("LIGHTMAP_REPAIRED", $"{module}: {stats.Lightmaps} lightmap(s) repaired, {stats.Texels} invalid texel(s) replaced by the nearest valid one.");
+        var area = ReadAreaLighting(res, info.AreaResRef, log);
         return new ModuleScene(info, meshes, walks, textures)
         {
             Lights = lights,
-            AmbientColor = ReadAmbient(res, info.AreaResRef, log),
+            AmbientColor = area.Ambient,
+            SunDiffuseColor = area.SunDiffuse,
+            AreaLightingKnown = area.Readable,
         };
     }
 
     /// <summary>Counts for the LIGHTMAP_REPAIRED summary line.</summary>
     internal sealed class RepairStats { public int Lightmaps; public long Texels; }
 
+    /// <summary>Area lighting read from the ARE. <paramref name="Readable"/>: the ARE was found and parsed.</summary>
+    internal readonly record struct AreaLighting(Vector3 Ambient, Vector3 SunDiffuse, bool Readable);
+
     /// <summary>
-    /// Zone ambient colour: ARE <c>DynAmbientColor</c>, else <c>SunAmbientColor</c> (DWORD 0x00BBGGRR, PyKotor Color.from_bgr_integer),
-    /// else (0.2, 0.2, 0.2).
+    /// Zone lighting: ambient = ARE <c>DynAmbientColor</c>, else <c>SunAmbientColor</c> (DWORD 0x00BBGGRR, PyKotor Color.from_bgr_integer),
+    /// else (0.2, 0.2, 0.2); sun = ARE <c>SunDiffuseColor</c> (same encoding), else black.
     /// </summary>
-    internal static Vector3 ReadAmbient(ResourceResolver res, string area, ImportLog log)
+    internal static AreaLighting ReadAreaLighting(ResourceResolver res, string area, ImportLog log)
     {
         byte[]? data = res.Find(area, ResourceType.Are);
-        if (data is null) { log.Warn("AMBIENT_DEFAULT", $"{area}.are not found: default ambient colour used."); return ModuleScene.DefaultAmbient; }
+        if (data is null)
+        {
+            log.Warn("AMBIENT_DEFAULT", $"{area}.are not found: default lighting used.");
+            return new AreaLighting(ModuleScene.DefaultAmbient, Vector3.Zero, false);
+        }
         try
         {
             var are = Gff.GffReader.Read(data, out _);
+            Vector3? ambient = null;
             foreach (string label in new[] { "DynAmbientColor", "SunAmbientColor" })
-                if (are.Get<uint?>(label) is { } v) return FromBgr(v);
+                if (are.Get<uint?>(label) is { } v) { ambient = FromBgr(v); break; }
+            if (ambient is null)
+                log.Warn("AMBIENT_DEFAULT", $"{area}.are has no DynAmbientColor or SunAmbientColor: default ambient colour used.");
+            Vector3 sun = are.Get<uint?>("SunDiffuseColor") is { } sv ? FromBgr(sv) : Vector3.Zero;
+            return new AreaLighting(ambient ?? ModuleScene.DefaultAmbient, sun, true);
         }
         catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException
             or EndOfStreamException or IndexOutOfRangeException)
         {
-            log.Warn("AMBIENT_DEFAULT", $"{area}.are unreadable ({ex.Message}): default ambient colour used.");
-            return ModuleScene.DefaultAmbient;
+            log.Warn("AMBIENT_DEFAULT", $"{area}.are unreadable ({ex.Message}): default lighting used.");
+            return new AreaLighting(ModuleScene.DefaultAmbient, Vector3.Zero, false);
         }
-        log.Warn("AMBIENT_DEFAULT", $"{area}.are has no DynAmbientColor or SunAmbientColor: default ambient colour used.");
-        return ModuleScene.DefaultAmbient;
     }
 
     internal static Vector3 FromBgr(uint v) => new((v & 0xFF) / 255f, ((v >> 8) & 0xFF) / 255f, ((v >> 16) & 0xFF) / 255f);
@@ -132,9 +145,15 @@ public static class ModuleSceneBuilder
                 lights++;
                 if (node.Light is { } kl)
                 {
+                    if (kl.Invalid || !float.IsFinite(kl.Radius) || kl.Radius <= 0f || !float.IsFinite(kl.Multiplier) || kl.Multiplier <= 0f
+                        || float.IsNaN(kl.Color.X) || float.IsNaN(kl.Color.Y) || float.IsNaN(kl.Color.Z))
+                    {
+                        log.Warn("LIGHT_INVALID", $"{room.Model}: light '{node.Name}' ignored (unreadable controller, or non-finite/non-positive radius or multiplier, or NaN colour).");
+                        lights--; continue;
+                    }
                     if (kl.Defaulted) defaulted++;
                     sceneLights?.Add(new SceneLight(node.Name, Vector3.Transform(Vector3.Zero, modelTransform) + room.Position,
-                        Vector3.Clamp(kl.Color, Vector3.Zero, Vector3.One), kl.Radius, kl.Multiplier));
+                        Vector3.Clamp(kl.Color, Vector3.Zero, Vector3.One), kl.Radius, kl.Multiplier, kl.AmbientOnly));
                 }
             }
             if (node.Kind.HasFlag(NodeKind.Emitter)) emitters++;

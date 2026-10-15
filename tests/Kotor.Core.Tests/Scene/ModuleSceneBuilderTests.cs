@@ -94,7 +94,9 @@ public class ModuleSceneBuilderTests
         public string Dir { get; } = Path.Combine(Path.GetTempPath(), "k2j_scn_" + Guid.NewGuid().ToString("N"));
         public ResourceResolver Res { get; }
 
-        public FakeKotor(params (string resRef, uint type, byte[] data)[] extra)
+        public FakeKotor(params (string resRef, uint type, byte[] data)[] extra) : this(null, extra) { }
+
+        public FakeKotor(Action<GffBuilder>? areSetup, (string resRef, uint type, byte[] data)[] extra)
         {
             Directory.CreateDirectory(Path.Combine(Dir, "modules"));
             var ifo = new GffBuilder();
@@ -105,6 +107,7 @@ public class ModuleSceneBuilderTests
                .Add(ifo.Root, "Mod_Entry_Dir_X", 8, 0f).Add(ifo.Root, "Mod_Entry_Dir_Y", 8, 1f);
             var are = new GffBuilder();
             are.Add(are.Root, "Name", 12, (0xFFFFFFFFu, new[] { (0, "Zone") }));
+            areSetup?.Invoke(are);
             string lyt = "beginlayout\n roomcount 1\n m99zz_01a 0.0 0.0 0.0\n trackcount 0\n obstaclecount 0\n doorhookcount 0\ndonelayout\n";
             var entries = new List<(string, uint, byte[])>
             {
@@ -259,6 +262,9 @@ public class ModuleSceneBuilderTests
         Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
         var (scene, log, _) = LoadReal();
         Assert.Equal(71, scene.Lights.Count);
+        // Controllers 76/88/140 are really decoded: no light fell back to the defaults, none was rejected.
+        Assert.DoesNotContain(log.Warnings, w => w.Code == "LIGHT_DEFAULTS");
+        Assert.DoesNotContain(log.Warnings, w => w.Code == "LIGHT_INVALID");
         Assert.All(scene.Lights, l =>
         {
             Assert.True(l.Radius > 0f);
@@ -266,6 +272,126 @@ public class ModuleSceneBuilderTests
             Assert.True(float.IsFinite(l.Position.X + l.Position.Y + l.Position.Z));
             Assert.True(l.Multiplier > 0f);
         });
+        // Known measured value: the first light of room m02aa_03a ("M02aa_03a" at (88.83, 132.30, 1.5)): cyan-white, radius 2.5 m, x2.
+        var known = Assert.Single(scene.Lights, l => l.Name == "M02aa_03a" && Math.Abs(l.Position.X - 88.8253f) < 0.01f);
+        Assert.Equal(155 / 255f, known.Color.X, 3);
+        Assert.Equal(242 / 255f, known.Color.Y, 3);
+        Assert.Equal(1f, known.Color.Z, 3);
+        Assert.Equal(2.5f, known.Radius);
+        Assert.Equal(2f, known.Multiplier);
+        Assert.Equal(132.2996f, known.Position.Y, 2);
+        Assert.Equal(1.5f, known.Position.Z, 2);
+        Assert.False(known.AmbientOnly);
+        // The radii vary: the defaults (5 m) were not applied everywhere.
+        Assert.True(scene.Lights.Select(l => l.Radius).Distinct().Count() > 3);
         Assert.InRange(scene.AmbientColor.X, 0f, 1f);
+        Assert.True(scene.AreaLightingKnown);
+    }
+
+    private static KotorModel LightModel(params KotorLight?[] lights)
+    {
+        var root = new KotorNode("root", NodeKind.Header, Vector3.Zero, Quaternion.Identity, null);
+        int i = 0;
+        foreach (var l in lights)
+            root.AddChild(new KotorNode("lt" + i++, NodeKind.Header | NodeKind.Light, new Vector3(1, 2, 3), Quaternion.Identity, null, l));
+        return new KotorModel("m99zz_01a", null, root, Vector3.Zero, Vector3.One);
+    }
+
+    [Fact]
+    public void Invalid_lights_are_skipped_individually_with_LIGHT_INVALID()
+    {
+        using var k = new FakeKotor();
+        var white = Vector3.One;
+        var model = LightModel(
+            new KotorLight(white, 3f, 1f, false),                              // valid
+            new KotorLight(white, 0f, 1f, false),                              // radius 0
+            new KotorLight(white, -2f, 1f, false),                             // negative radius
+            new KotorLight(white, float.NaN, 1f, false),                       // NaN radius
+            new KotorLight(white, float.PositiveInfinity, 1f, false),          // infinite radius
+            new KotorLight(white, 3f, 0f, false),                              // multiplier 0
+            new KotorLight(white, 3f, float.NaN, false),                       // NaN multiplier
+            new KotorLight(white, 3f, float.PositiveInfinity, false),          // infinite multiplier
+            new KotorLight(new Vector3(float.NaN, 0, 0), 3f, 1f, false),       // NaN colour
+            new KotorLight(white, 3f, 1f, false, Invalid: true),               // controller out of bounds
+            new KotorLight(white, 4f, 2f, false, AmbientOnly: true));          // valid ambient_only
+        var log = new ImportLog();
+        var lights = new List<SceneLight>();
+        ModuleSceneBuilder.AddModel(k.Res, Room, model, new Dictionary<string, KotorTexture?>(), new List<SceneMesh>(), log, lights);
+        Assert.Equal(2, lights.Count);
+        Assert.Equal(9, log.Warnings.Count(w => w.Code == "LIGHT_INVALID"));
+        Assert.All(log.Warnings.Where(w => w.Code == "LIGHT_INVALID"), w => Assert.Contains("ignored", w.Message));
+        Assert.False(lights[0].AmbientOnly);
+        Assert.True(lights[1].AmbientOnly);
+        Assert.Equal(4f, lights[1].Radius);
+        Assert.Equal(new Vector3(1, 2, 3), lights[0].Position);
+        // The summary counts only the lights actually used.
+        Assert.Contains("2 light node(s)", Assert.Single(log.Warnings, w => w.Code == "NODE_LIGHT").Message);
+    }
+
+    [Fact]
+    public void Lightmap_without_valid_texel_is_logged_and_has_no_alpha()
+    {
+        // 2x2 32-bit TGA, every pixel alpha 0 (no valid texel).
+        var tga = new byte[18 + 4 * 4];
+        tga[2] = 2; tga[12] = 2; tga[14] = 2; tga[16] = 32; tga[17] = 8;
+        for (int i = 0; i < 4; i++) { tga[18 + i * 4] = 10; tga[18 + i * 4 + 1] = 20; tga[18 + i * 4 + 2] = 30; tga[18 + i * 4 + 3] = 0; }
+        using var k = new FakeKotor(("lm_a", (uint)ResourceType.Tga, tga));
+        var uv1 = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1) };
+        var log = RunModel(k, Model(("a", NodeKind.Mesh, Mesh(lm: "lm_a", uv1: uv1))), out _, out var textures);
+        var w = Assert.Single(log.Warnings, w => w.Code == "LIGHTMAP_NO_VALID_TEXEL");
+        Assert.Contains("lm_a", w.Message);
+        var lm = Assert.IsType<KotorTexture>(textures["lm_a"]);
+        Assert.False(lm.HasAlpha);
+        for (int i = 0; i < lm.Rgba.Length; i += 4)
+        {
+            Assert.Equal(128, lm.Rgba[i]); Assert.Equal(128, lm.Rgba[i + 1]); Assert.Equal(128, lm.Rgba[i + 2]);
+            Assert.Equal(255, lm.Rgba[i + 3]);
+        }
+    }
+
+    [Fact]
+    public void Repaired_lightmap_has_no_alpha_flag_even_if_source_had_alpha()
+    {
+        // 2x1: one valid texel (alpha 255), one invalid (alpha 0): repaired from its neighbour, HasAlpha false.
+        var tga = new byte[18 + 2 * 4];
+        tga[2] = 2; tga[12] = 2; tga[14] = 1; tga[16] = 32; tga[17] = 8;
+        tga[18] = 1; tga[19] = 2; tga[20] = 3; tga[21] = 255;
+        tga[22] = 9; tga[23] = 9; tga[24] = 9; tga[25] = 0;
+        using var k = new FakeKotor(("lm_b", (uint)ResourceType.Tga, tga));
+        int calls = 0, repaired = 0; bool none = true;
+        var tex = TextureLookup.Find(k.Res, "lm_b", TextureKind.Lightmap, (r, n) => { calls++; repaired = r; none = n; });
+        Assert.NotNull(tex);
+        Assert.False(tex!.HasAlpha);
+        Assert.Equal(1, calls); Assert.Equal(1, repaired); Assert.False(none);
+        Assert.Equal(tex.Rgba[0], tex.Rgba[4]); Assert.Equal(tex.Rgba[1], tex.Rgba[5]); Assert.Equal(tex.Rgba[2], tex.Rgba[6]);
+        Assert.Equal(255, tex.Rgba[7]);
+        // A diffuse texture keeps its real alpha.
+        Assert.True(TextureLookup.Find(k.Res, "lm_b", TextureKind.Diffuse)!.HasAlpha);
+    }
+
+    [Fact]
+    public void Area_lighting_reads_ambient_and_sun_diffuse_as_bgr()
+    {
+        using var k = new FakeKotor(are =>
+        {
+            are.Add(are.Root, "DynAmbientColor", 4, 0x00FF8040u);
+            are.Add(are.Root, "SunDiffuseColor", 4, 0x00204080u);
+        }, []);
+        var scene = ModuleSceneBuilder.Build(k.Res, "tst_m99zz", null, new ImportLog());
+        Assert.True(scene.AreaLightingKnown);
+        Assert.Equal(new Vector3(0x40 / 255f, 0x80 / 255f, 1f), scene.AmbientColor);
+        Assert.Equal(new Vector3(0x80 / 255f, 0x40 / 255f, 0x20 / 255f), scene.SunDiffuseColor);
+    }
+
+    [Fact]
+    public void Area_without_colours_is_known_with_default_ambient_and_black_sun()
+    {
+        using var k = new FakeKotor();
+        var log = new ImportLog();
+        var scene = ModuleSceneBuilder.Build(k.Res, "tst_m99zz", null, log);
+        Assert.True(scene.AreaLightingKnown);
+        Assert.Equal(ModuleScene.DefaultAmbient, scene.AmbientColor);
+        Assert.Equal(Vector3.Zero, scene.SunDiffuseColor);
+        Assert.Contains(log.Warnings, w => w.Code == "AMBIENT_DEFAULT");
     }
 }
