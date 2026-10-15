@@ -60,7 +60,7 @@ public sealed class WorkflowController
     public bool NeedsLinking { get { lock (_gate) return NeedsLinkingLocked(); } }
 
     private bool NeedsLinkingLocked() =>
-        _modules.Count > 1 && _stage != WorkflowStage.None && _steps.Assembly is { IsComplete: false };
+        _modules.Count > 1 && _stage != WorkflowStage.None && _steps.Assembly is { } a && !(a.IsComplete && _steps.AssemblyUpToDate);
 
     public bool CanNext { get { lock (_gate) return !_busy && !NeedsLinkingLocked() && _stage is WorkflowStage.Previewed or WorkflowStage.Imported or WorkflowStage.Exported; } }
 

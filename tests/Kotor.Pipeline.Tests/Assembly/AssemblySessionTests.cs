@@ -89,6 +89,23 @@ public class AssemblySessionTests
     }
 
     [Fact]
+    public void Revision_changes_on_SetTransform_SetManualJunction_and_ReferenceIndex()
+    {
+        var d1 = Door("d1", new(10, 0, 0));
+        var d2 = Door("d2", new(0, 5, 0));
+        var s = Session([Part("m_a", d1), Part("m_b", d2)]);
+        int r = s.Revision;
+        s.SetManualJunction(0, d1, 1, d2);
+        Assert.NotEqual(r, s.Revision);
+        r = s.Revision;
+        s.SetTransform(1, RigidTransform.Identity);
+        Assert.NotEqual(r, s.Revision);
+        r = s.Revision;
+        s.ReferenceIndex = 1;
+        Assert.NotEqual(r, s.Revision);
+    }
+
+    [Fact]
     public void SetTransform_ChangesTheTransform()
     {
         var s = Session([Part("m_a"), Part("m_b")]);

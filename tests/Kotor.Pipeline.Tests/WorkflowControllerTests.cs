@@ -28,12 +28,21 @@ public sealed class WorkflowControllerTests
         public AssemblySession? Session;
         public Func<PreviewModel> OnApply = Model;
         public AssemblySession? Assembly => Session;
+        private int _built = -1;
+        public bool AssemblyUpToDate => Session is not null && _built == Session.Revision;
         public PreviewModel Preview(KotorGame game, IReadOnlyList<string> modules, IProgress<string> log)
         {
             PreviewedModules.Add(modules);
-            return Preview(game, modules[0], log);
+            PreviewModel m = Preview(game, modules[0], log);
+            _built = Session?.Revision ?? -1;
+            return m;
         }
-        public PreviewModel ApplyAssembly(IProgress<string> log) => OnApply();
+        public PreviewModel ApplyAssembly(IProgress<string> log)
+        {
+            PreviewModel m = OnApply();
+            _built = Session?.Revision ?? -1;
+            return m;
+        }
         public IReadOnlyList<ModuleListItem> Modules() => [new(KotorGame.Kotor1, "m1", "One"), new(KotorGame.Kotor1, "m2", "Two")];
         public PreviewModel Preview(KotorGame game, string module, IProgress<string> log) { OnPreviewGame?.Invoke(game); return OnPreview(); }
         public PreviewModel Import(IProgress<string> log) => OnImport();
@@ -122,6 +131,40 @@ public sealed class WorkflowControllerTests
         Assert.True(c.CanNext);
         await c.NextAsync();
         Assert.Equal(WorkflowStage.Imported, c.Stage);
+    }
+
+    [Fact]
+    public async Task Junction_set_outside_Apply_keeps_NeedsLinking_and_blocks_Next()
+    {
+        var f = new FakeSteps { Session = TwoUnlinkedParts(out var d1, out var d2) };
+        var c = new WorkflowController(f);
+        c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]);
+        await c.PreviewAsync();
+        f.Session!.SetManualJunction(0, d1, 1, d2); // la session est complete, mais l'apercu date d'avant
+        Assert.True(f.Session.IsComplete);
+        Assert.True(c.NeedsLinking);
+        Assert.False(c.CanNext);
+        await c.NextAsync();
+        Assert.Equal(WorkflowStage.Previewed, c.Stage);
+
+        await c.ApplyAssemblyAsync();
+        Assert.False(c.NeedsLinking);
+        Assert.True(c.CanNext);
+    }
+
+    [Fact]
+    public async Task SetTransform_after_a_build_makes_the_assembly_stale()
+    {
+        var f = new FakeSteps { Session = TwoUnlinkedParts(out var d1, out var d2) };
+        f.OnApply = () => { f.Session!.SetManualJunction(0, d1, 1, d2); return Model(); };
+        var c = new WorkflowController(f);
+        c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]);
+        await c.PreviewAsync();
+        await c.ApplyAssemblyAsync();
+        Assert.False(c.NeedsLinking);
+        f.Session!.SetTransform(1, RigidTransform.Identity);
+        Assert.True(c.NeedsLinking);
+        Assert.False(c.CanNext);
     }
 
     [Fact]

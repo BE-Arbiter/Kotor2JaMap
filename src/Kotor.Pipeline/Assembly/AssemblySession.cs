@@ -58,6 +58,9 @@ public sealed class AssemblySession
         }
     }
 
+    /// <summary>Compteur incremente a chaque modification (transformation, jonction, partie de reference) : permet de savoir si un assemblage construit est perime.</summary>
+    public int Revision { get; private set; }
+
     public IReadOnlyList<RigidTransform> Transforms => _transforms;
 
     /// <summary>Groupes de parties sans liaison avec la reference apres le placement automatique et les jonctions manuelles.</summary>
@@ -73,6 +76,7 @@ public sealed class AssemblySession
     {
         if (part < 0 || part >= _parts.Count) throw new ArgumentOutOfRangeException(nameof(part));
         _transforms[part] = t;
+        Revision++;
     }
 
     /// <summary>
@@ -98,6 +102,7 @@ public sealed class AssemblySession
             PlaceGroup(partB, tb);
         }
         _manual.Add(new DoorLink(partA, doorA, partB, doorB));
+        Revision++;
     }
 
     /// <summary>Assemble les parties avec les transformations et les jonctions courantes.</summary>
@@ -110,6 +115,7 @@ public sealed class AssemblySession
 
     private void Place()
     {
+        Revision++;
         _placementLog = new ImportLog();
         Placement p = AutoPlacer.Place(_parts, _reference, _links, _placementLog);
         _transforms = [.. p.Transforms];

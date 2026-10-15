@@ -79,6 +79,8 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
     }
 
     public AssemblySession? Assembly { get; private set; }
+    private int _builtRevision = -1;
+    public bool AssemblyUpToDate => Assembly is { } a && a.Revision == _builtRevision;
     private ImportLog _frameLog = new();   // journal recevant les avertissements des cadres de porte pendant Build
     private readonly Dictionary<(string Module, string Door, Vector3 Pos), DoorFrame?> _frames = [];
 
@@ -139,6 +141,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
     {
         _frameLog = log;
         AssemblyResult result = session.Build(log);
+        _builtRevision = session.Revision;
         var entities = result.EntitiesByPart.OrderBy(kv => kv.Key).SelectMany(kv => kv.Value).ToList();
         PreviewModel model = PreviewBuilder.FromScene(result.Scene, opt.Scale);
         model = model with
@@ -173,7 +176,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
     public PreviewModel Import(IProgress<string> progress)
     {
         ModuleScene scene = _scene ?? throw new InvalidOperationException("Preview first.");
-        if (Assembly is { IsComplete: false })
+        if (Assembly is { } a && !(a.IsComplete && a.Revision == _builtRevision))
             throw new PipelineStepException("ASSEMBLY_NOT_LINKED", "The modules are not all linked: link every group before importing.");
         var log = new ImportLog();
         try

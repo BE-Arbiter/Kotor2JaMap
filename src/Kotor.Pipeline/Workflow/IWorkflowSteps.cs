@@ -23,6 +23,8 @@ public interface IWorkflowSteps
     PreviewModel Preview(KotorGame game, IReadOnlyList<string> modules, IProgress<string> log);
     /// <summary>Session d'edition de l'assemblage (non nulle quand la selection a plus d'un module).</summary>
     AssemblySession? Assembly { get; }
+    /// <summary>Vrai si l apercu/la scene gardes viennent de la revision courante de <see cref="Assembly"/> (faux apres une edition sans <see cref="ApplyAssembly"/>).</summary>
+    bool AssemblyUpToDate { get; }
     /// <summary>Reconstruit l'apercu apres l'edition de <see cref="Assembly"/> et remet les etapes suivantes a zero.</summary>
     PreviewModel ApplyAssembly(IProgress<string> log);
     /// <summary>A partir de l'etat garde par l'implementation.</summary>
