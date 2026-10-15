@@ -4,3 +4,10 @@ out/
 .superpowers/
 publish/
 artifacts/
+
+# Visual Studio / Copilot
+.vs/
+*.user
+*.suo
+.copilot/
+CopilotIndices/
