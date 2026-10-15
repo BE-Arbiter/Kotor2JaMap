@@ -39,7 +39,7 @@ public static class ModuleEntitiesReader
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(log);
         var result = new List<ModuleEntity>();
-        ReadGit(res, info, result, log);
+        ReadGit(res, info, result, log, null);
         ReadLights(res, layout, result, log);
 
         var counts = Enum.GetValues<EntityKind>().Select(k => $"{k}={result.Count(e => e.Kind == k)}");
@@ -47,7 +47,21 @@ public static class ModuleEntitiesReader
         return result;
     }
 
-    private static void ReadGit(ResourceResolver res, ModuleInfo info, List<ModuleEntity> result, ImportLog log)
+    /// <summary>
+    /// Objets places et portes du GIT seulement (avec leur modele), sans lire les pieces ni ecrire le bilan <c>ENTITIES</c>.
+    /// Utilise par l'etape Importer pour convertir les objets.
+    /// </summary>
+    public static IReadOnlyList<ModuleEntity> ReadObjects(ResourceResolver res, ModuleInfo info, ImportLog log)
+    {
+        ArgumentNullException.ThrowIfNull(res);
+        ArgumentNullException.ThrowIfNull(info);
+        ArgumentNullException.ThrowIfNull(log);
+        var result = new List<ModuleEntity>();
+        ReadGit(res, info, result, log, [EntityKind.Placeable, EntityKind.Door]);
+        return result;
+    }
+
+    private static void ReadGit(ResourceResolver res, ModuleInfo info, List<ModuleEntity> result, ImportLog log, EntityKind[]? only)
     {
         byte[]? data = res.Find(info.AreaResRef, ResourceType.Git);
         if (data is null) { log.Warn("GIT_MISSING", $"{info.AreaResRef}.git introuvable : aucune entite du GIT."); return; }
@@ -60,8 +74,10 @@ public static class ModuleEntitiesReader
             log.Warn("GIT_UNREADABLE", $"{info.AreaResRef}.git illisible ({ex.Message}) : aucune entite du GIT.");
             return;
         }
+        var models = new ObjectModelResolver(res);
         foreach (var spec in Specs)
         {
+            if (only is not null && !only.Contains(spec.Kind)) continue;
             if (!git.Fields.TryGetValue(spec.List, out var raw) || raw is not IReadOnlyList<GffStruct> list)
             {
                 log.Warn("GIT_LIST_MISSING", git.Fields.ContainsKey(spec.List)
@@ -73,6 +89,12 @@ public static class ModuleEntitiesReader
             for (int i = 0; i < list.Count; i++)
             {
                 var e = ReadEntry(list[i], spec, out string? error, out bool orientMissing);
+                if (e is not null && spec.Kind is EntityKind.Placeable or EntityKind.Door && e.Template.Length > 0)
+                {
+                    // Resolution silencieuse : l'etape Importer journalise la raison (PLACEABLE_SKIPPED) si le modele manque.
+                    string? model = spec.Kind == EntityKind.Door ? models.ResolveDoor(e.Template, out _) : models.ResolvePlaceable(e.Template, out _);
+                    if (model is not null) e = e with { Model = model };
+                }
                 if (e is null) log.Warn("GIT_ENTRY_INVALID", $"{spec.List}[{i}] : {error}, entree sautee.");
                 else { result.Add(e); if (orientMissing) noOrientation++; }
             }

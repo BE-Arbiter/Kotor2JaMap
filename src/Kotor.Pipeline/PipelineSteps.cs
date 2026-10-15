@@ -1,11 +1,16 @@
+using System.Numerics;
+using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
 using Kotor.Core;
 using Kotor.Core.Archives;
 using Kotor.Core.Diagnostics;
+using Kotor.Core.Entities;
+using Kotor.Core.Geometry;
 using Kotor.Core.Export;
 using Kotor.Core.Scene;
 using Kotor.Core.Textures;
 using Kotor.Core.Tlk;
+using Kotor.Pipeline.Entities;
 
 namespace Kotor.Pipeline;
 
@@ -53,7 +58,62 @@ public static class PipelineSteps
         }
         string name = MapNames.Normalize(mapName ?? scene.Info.Module);
         if (MapNames.Validate(name) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
-        return new ImportStepResult(scene, ModuleExporter.BuildPlan(scene, mapName, opt, log), name);
+        ExportPlan plan = ModuleExporter.BuildPlan(scene, mapName, opt, log);
+        ConvertedEntities converted = ConvertObjects(scene, opt, log);
+        return new ImportStepResult(scene, ApplyObjects(plan, converted, opt.Game), name, converted);
+    }
+
+    /// <summary>
+    /// Convertit les objets places du GIT (MD3 + entites + collision PWK). Sans dossier de jeu lisible (scene synthetique),
+    /// il n'y a rien a lire : resultat vide. Une erreur de lecture du GIT est deja journalisee par le lecteur.
+    /// </summary>
+    private static ConvertedEntities ConvertObjects(ModuleScene scene, ExportOptions opt, ImportLog log)
+    {
+        if (string.IsNullOrWhiteSpace(opt.KotorDir) || !Directory.Exists(opt.KotorDir)) return ConvertedEntities.Empty;
+        try
+        {
+            using var res = ResourceResolver.ForModule(opt.KotorDir, scene.Info.Module.ToLowerInvariant(), opt.Game);
+            IReadOnlyList<ModuleEntity> objects = ModuleEntitiesReader.ReadObjects(res, scene.Info, log);
+            return PlaceableConverter.Convert(res, opt.Game, objects, opt.Scale, log);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            log.Warn("PLACEABLES_UNREADABLE", $"Placeables could not be read ({ex.Message}); none converted.");
+            return ConvertedEntities.Empty;
+        }
+    }
+
+    /// <summary>Ajoute au plan les entites, la collision solide, et les textures des objets (les shaders MD3 sont ecrits par l'etape Exporter).</summary>
+    private static ExportPlan ApplyObjects(ExportPlan plan, ConvertedEntities converted, KotorGame game)
+    {
+        if (converted.Entities.Count == 0 && converted.ExtraSolid.Count == 0 && converted.TextureData.Count == 0) return plan;
+        CompileInput input = plan.Input;
+        var entities = new List<IReadOnlyDictionary<string, string>>(input.Entities);
+        entities.AddRange(converted.Entities);
+        ModelMesh solid = input.Solid;
+        if (converted.ExtraSolid.Count > 0)
+        {
+            var pos = new Vector3[converted.ExtraSolid.Count * 3];
+            var tri = new int[pos.Length];
+            for (int i = 0; i < converted.ExtraSolid.Count; i++)
+            {
+                (pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) = converted.ExtraSolid[i];
+                tri[i * 3] = i * 3; tri[i * 3 + 1] = i * 3 + 1; tri[i * 3 + 2] = i * 3 + 2;
+            }
+            solid = new ModelMesh
+            {
+                Name = solid.Name, BBoxCenter = solid.BBoxCenter, BBoxExtents = solid.BBoxExtents,
+                SubMeshes = [.. solid.SubMeshes, new SubMesh { MaterialName = "placeable_solid", Positions = pos, Triangles = tri }],
+            };
+        }
+        var textures = new List<ExportTexture>(plan.Textures);
+        var known = new HashSet<string>(textures.Select(t => t.RelPath), StringComparer.Ordinal);
+        foreach (var (name, tex) in converted.TextureData)
+        {
+            string rel = ShaderNames.PrefixFor(game) + (tex is null ? ShaderNames.MissingTexture : name) + ".tga";
+            if (known.Add(rel)) textures.Add(new ExportTexture(rel, tex, false));
+        }
+        return plan with { Input = input with { Entities = entities, Solid = solid }, Textures = textures };
     }
 
     /// <summary>Ecrit shader et textures dans le staging, compile le .bsp puis le relit.</summary>
@@ -80,8 +140,17 @@ public static class PipelineSteps
             if (!cr.Ok) throw new PipelineStepException("BSP_ERROR", cr.Error ?? "Echec de compilation."); // deja journalise par le compilateur
 
             Directory.CreateDirectory(Path.Combine(stage, "shaders")); // le moteur SWGL ne liste que shaders/*.shader (tr_shader.cpp)
+            // Shaders du BSP, puis ceux des modeles MD3 (models/<dossier>/<texture>) dans le meme fichier.
+            IEnumerable<string> shaderBlocks = plan.Shaders.Select(s => ShaderPlanner.Write(s, opt.Game))
+                .Concat(imported.Converted?.ModelShaders ?? []);
             File.WriteAllText(Path.Combine(stage, "shaders", KotorGames.MapPrefix(opt.Game) + "_" + name + ".shader"),
-                string.Join("\n", plan.Shaders.Select(s => ShaderPlanner.Write(s, opt.Game))));
+                string.Join("\n", shaderBlocks));
+            foreach (Md3Asset md3 in imported.Converted?.Models ?? [])
+            {
+                string md3Path = Path.Combine(stage, md3.Path.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(md3Path)!);
+                File.WriteAllBytes(md3Path, md3.Data);
+            }
 
             foreach (ExportTexture t in plan.Textures)
             {
