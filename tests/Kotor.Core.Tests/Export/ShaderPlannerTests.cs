@@ -52,7 +52,8 @@ public class ShaderPlannerTests
     {
         string expected =
             "textures/kotor/a__b\n{\n\tnopicmip\n\tnomipmaps\n\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\trgbGen identity\n\t}\n" +
-            "\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\trgbGen identity\n\t}\n}\n";
+            "\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_DST_COLOR GL_SRC_COLOR\n\t\trgbGen identity\n\t}\n" +
+            "\t{\n\t\tmap $lightmap\n\t\tblendFunc GL_ZERO GL_ONE\n\t}\n}\n";
         Assert.Equal(expected, ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", ShaderKind.Lightmapped, "a", "b")));
     }
 
@@ -61,7 +62,8 @@ public class ShaderPlannerTests
     {
         Assert.Equal(
             "textures/kotor/a__b\n{\n\tnopicmip\n\tnomipmaps\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\talphaFunc GE128\n\t\tdepthWrite\n\t\trgbGen identity\n\t}\n" +
-            "\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\tdepthFunc equal\n\t\trgbGen identity\n\t}\n}\n",
+            "\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\tblendFunc GL_DST_COLOR GL_SRC_COLOR\n\t\tdepthFunc equal\n\t\trgbGen identity\n\t}\n" +
+            "\t{\n\t\tmap $lightmap\n\t\tblendFunc GL_ZERO GL_ONE\n\t}\n}\n",
             ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", ShaderKind.LightmappedCutout, "a", "b")));
         Assert.Equal(
             "textures/kotor/a\n{\n\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_ONE GL_ONE\n\t\trgbGen identity\n\t}\n}\n",

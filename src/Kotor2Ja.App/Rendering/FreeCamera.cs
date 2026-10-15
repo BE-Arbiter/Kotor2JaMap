@@ -13,6 +13,11 @@ public sealed class FreeCamera
     private const float Sensitivity = 0.15f; // degres par pixel
     private float _speedFactor = 1f;
     private bool _looking;
+    private POINT _anchor;   // position ecran du curseur au debut du regard
+
+    private struct POINT { public int X, Y; }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
 
     public Vector3 Position { get; set; }
     public float Yaw { get; set; }
@@ -63,13 +68,14 @@ public sealed class FreeCamera
     {
         bool rmb = mouse.RightButton == ButtonState.Pressed;
         if (!rmb || !windowActive) _looking = false;
-        else if (!_looking && !mouseCaptured) { _looking = true; Mouse.SetPosition(center.X, center.Y); lookingNow = true; return; }
+        else if (!_looking && !mouseCaptured && GetCursorPos(out _anchor)) { _looking = true; lookingNow = true; return; }
 
-        if (_looking)
+        // Mouse.SetPosition de MonoGame efface les deplacements : on lit le curseur Windows et on le ramene au point d'ancrage.
+        if (_looking && GetCursorPos(out POINT now))
         {
-            Yaw -= (mouse.X - center.X) * Sensitivity;
-            Pitch = MathHelper.Clamp(Pitch - (mouse.Y - center.Y) * Sensitivity, -89f, 89f);
-            Mouse.SetPosition(center.X, center.Y);
+            Yaw -= (now.X - _anchor.X) * Sensitivity;
+            Pitch = MathHelper.Clamp(Pitch - (now.Y - _anchor.Y) * Sensitivity, -89f, 89f);
+            SetCursorPos(_anchor.X, _anchor.Y);
         }
         lookingNow = _looking;
 

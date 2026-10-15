@@ -309,6 +309,10 @@ public static class BspWriter
                     for (int k = 4; k < 16; k++) w.Write((byte)255);
                 }
         });
+        // One dummy 128x128 RGB lightmap (the engine's DEFAULT_LIGHTMAP_SIZE) so that tr.lightmaps[0] exists. The shaders sample their own
+        // TGA lightmaps; this image is only a no-op `$lightmap` stage target. Written only when a surface uses lightmap UVs.
+        if (surfaces.Any(s => s.LightmapUvs is not null))
+            lumps[LumpLightmaps] = Enumerable.Repeat((byte)255, 128 * 128 * 3).ToArray();
         lumps[LumpDrawIndexes] = Make(w =>
         {
             foreach (RenderSurface sf in surfaces) foreach (int ix in sf.Indices) w.Write(ix);
@@ -322,7 +326,10 @@ public static class BspWriter
                 w.Write(firstVert); w.Write(sf.Positions.Length); w.Write(firstIndex); w.Write(sf.Indices.Length);
                 w.Write(new byte[] { 0, 255, 255, 255 });              // lightmapStyles
                 w.Write(new byte[] { 0, 255, 255, 255 });              // vertexStyles
-                for (int k = 0; k < 4; k++) w.Write(LightmapByVertex); // lightmapNum
+                // The engine copies the drawvert lightmap UVs (tcGen lightmap) only when lightmapNum[0] >= 0 (rd-vulkan tr_surface.cpp:502),
+                // and R_FindLightmap needs all four entries to name an existing lightmap: the dummy lump below, index 0.
+                int lmNum = sf.LightmapUvs is not null ? 0 : LightmapByVertex;
+                for (int k = 0; k < 4; k++) w.Write(lmNum);            // lightmapNum
                 for (int k = 0; k < 8; k++) w.Write(0);                // lightmapX[4], lightmapY[4]
                 w.Write(0); w.Write(0);                                // lightmapWidth/Height
                 for (int k = 0; k < 12; k++) w.Write(0f);              // lightmapOrigin + lightmapVecs[3]

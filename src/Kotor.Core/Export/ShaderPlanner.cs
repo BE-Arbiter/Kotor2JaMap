@@ -15,6 +15,21 @@ public sealed record PlannedShader(string Name, ShaderKind Kind, string Texture,
 
 public static class ShaderPlanner
 {
+    /// <summary>
+    /// Diffuse x lightmap x 2 (<c>dst * src + src * dst</c>), the KOTOR lightmap convention that the application preview also uses.
+    /// With the engine defaults (<c>r_overBrightBits 0</c>, <c>r_mapOverBrightBits 0</c>) the usual <c>GL_DST_COLOR GL_ZERO</c> filter
+    /// leaves the unscaled KOTOR lightmaps about twice too dark.
+    /// </summary>
+    public const string LightmapBlend = "GL_DST_COLOR GL_SRC_COLOR";
+
+    /// <summary>
+    /// Last stage of a lightmapped shader: a <c>$lightmap</c> stage that changes nothing (<c>GL_ZERO GL_ONE</c> keeps the framebuffer).
+    /// The engine only keeps a shader's lightmap index (and so only copies the drawvert lightmap UVs for <c>tcGen lightmap</c>) when the
+    /// shader has such a stage; with explicit lightmap TGAs only, rd-vulkan tr_shader.cpp:4483 resets the index and the UVs stay unset,
+    /// which samples a single lightmap texel per surface (flat shading).
+    /// </summary>
+    public const string LightmapMarkerStage = "\t{\n\t\tmap $lightmap\n\t\tblendFunc GL_ZERO GL_ONE\n\t}\n";
+
     public static PlannedShader Plan(SceneMesh mesh, KotorTexture? texture, KotorGame game = KotorGame.Kotor1)
     {
         ArgumentNullException.ThrowIfNull(mesh);
@@ -48,12 +63,14 @@ public static class ShaderPlanner
         {
             case ShaderKind.Lightmapped:
                 b.Append("\t{\n\t\t").Append(lmMap).Append("\n\t\ttcGen lightmap\n\t\trgbGen identity\n\t}\n");
-                b.Append("\t{\n\t\t").Append(map).Append("\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\trgbGen identity\n\t}\n");
+                b.Append("\t{\n\t\t").Append(map).Append("\n\t\tblendFunc ").Append(LightmapBlend).Append("\n\t\trgbGen identity\n\t}\n");
+                b.Append(LightmapMarkerStage);
                 break;
             case ShaderKind.LightmappedCutout:
                 b.Append("\tcull none\n");
                 b.Append("\t{\n\t\t").Append(map).Append("\n\t\talphaFunc GE128\n\t\tdepthWrite\n\t\trgbGen identity\n\t}\n");
-                b.Append("\t{\n\t\t").Append(lmMap).Append("\n\t\ttcGen lightmap\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\tdepthFunc equal\n\t\trgbGen identity\n\t}\n");
+                b.Append("\t{\n\t\t").Append(lmMap).Append("\n\t\ttcGen lightmap\n\t\tblendFunc ").Append(LightmapBlend).Append("\n\t\tdepthFunc equal\n\t\trgbGen identity\n\t}\n");
+                b.Append(LightmapMarkerStage);
                 break;
             case ShaderKind.Additive:
                 b.Append("\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tcull none\n");
