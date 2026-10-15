@@ -29,7 +29,9 @@ public sealed record ConvertedEntities(IReadOnlyList<IReadOnlyDictionary<string,
         var models = Models.Concat(other.Models).GroupBy(m => m.Path, StringComparer.Ordinal).Select(g => g.First())
             .OrderBy(m => m.Path, StringComparer.Ordinal).ToList();
         var textures = new SortedDictionary<string, KotorTexture?>(StringComparer.Ordinal);
-        foreach (var kv in TextureData.Concat(other.TextureData)) textures.TryAdd(kv.Key, kv.Value);
+        // Une texture introuvable d'un cote (null) ne masque pas la meme texture trouvee de l'autre (parties d'un assemblage).
+        foreach (var kv in TextureData.Concat(other.TextureData))
+            if (!textures.TryAdd(kv.Key, kv.Value) && textures[kv.Key] is null && kv.Value is not null) textures[kv.Key] = kv.Value;
         var shaders = ModelShaders.Concat(other.ModelShaders).Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList();
         return new ConvertedEntities([.. Entities, .. other.Entities], models, [.. ExtraSolid, .. other.ExtraSolid])
         {

@@ -153,6 +153,56 @@ public sealed class PipelineStepsTests : IDisposable
         Assert.NotEmpty(exp.Bsp.Surfaces);
     }
 
+    [Fact]
+    public void Import_of_assembled_scene_without_game_dir_logs_and_does_not_throw()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        var scene = SmallScene() with
+        {
+            Parts = [new AssemblyPartRef("tst", RigidTransform.Identity), new AssemblyPartRef("tst2", new RigidTransform(90f, new Vector3(30, 0, 0)))],
+        };
+        ImportStepResult imp = PipelineSteps.Import(scene, "asm", opt, log);
+        Assert.Contains(log.Warnings, w => w.Code == "PLACEABLES_NO_GAME_DIR");
+        Assert.Equal("asm", imp.MapName);
+        Assert.Empty(imp.Plan.Input.SubModels);
+    }
+
+    [SkippableFact]
+    public void Import_of_assembled_endar_spire_converts_doors_of_both_parts_with_one_junction_door()
+    {
+        Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
+        var opt = new ExportOptions(TestEnv.KotorDir!, Path.Combine(_root, "base"), Path.Combine(_root, "work"));
+        string[] modules = ["end_m01aa", "end_m01ab"];
+
+        // Imports separes : nombre de portes converties par module.
+        int separateDoors = 0;
+        var parts = new List<Kotor.Pipeline.Assembly.AssemblyPart>();
+        foreach (string m in modules)
+        {
+            var l = new ImportLog();
+            ModuleScene s = PipelineSteps.Preview(m, opt, l);
+            ImportStepResult single = PipelineSteps.Import(s, null, opt, l);
+            separateDoors += single.Plan.Input.Entities.Count(e => e["classname"] == "func_door");
+            using var res = Kotor.Core.Archives.ResourceResolver.ForModule(opt.KotorDir, m, opt.Game);
+            parts.Add(new(s, Kotor.Core.Entities.ModuleEntitiesReader.ReadTransitionEntities(res, s.Info, l)));
+        }
+
+        var log = new ImportLog();
+        var links = Kotor.Pipeline.Assembly.TransitionLinks.Find(parts, log);
+        var placement = Kotor.Pipeline.Assembly.AutoPlacer.Place(parts, 0, links, log);
+        Assert.Single(placement.Used);
+        var asm = Kotor.Pipeline.Assembly.ModuleAssembler.Assemble(parts, 0, placement.Transforms, placement.Used,
+            (p, d) => Kotor.Pipeline.Assembly.DoorFrames.DefaultFrame(d), log);
+        ImportStepResult imp = PipelineSteps.Import(asm.Scene, "endar", opt, log);
+
+        var doors = imp.Plan.Input.Entities.Where(e => e["classname"] == "func_door").ToList();
+        Assert.Equal(separateDoors - 1, doors.Count); // porte de destination de la jonction retiree
+        Assert.Equal(doors.Count, imp.Plan.Input.SubModels.Count);
+        Assert.Equal(Enumerable.Range(1, doors.Count).Select(i => "*" + i).OrderBy(x => x, StringComparer.Ordinal),
+            doors.Select(d => d["model"]).OrderBy(x => x, StringComparer.Ordinal));
+    }
+
     private static byte[] Bytes(ZipArchive z, string name)
     {
         using var s = z.GetEntry(name)!.Open();

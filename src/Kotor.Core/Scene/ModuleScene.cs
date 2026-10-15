@@ -1,4 +1,5 @@
 using System.Numerics;
+using Kotor.Core.Entities;
 using Kotor.Core.Modules;
 using Kotor.Core.Textures;
 
@@ -48,5 +49,15 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
     }
 }
 
-/// <summary>Module d'une carte assemblee et transformation qui lui a ete appliquee.</summary>
-public sealed record AssemblyPartRef(string Module, RigidTransform Transform);
+/// <summary>
+/// Module d'une carte assemblee et transformation qui lui a ete appliquee.
+/// <see cref="Info"/> : informations du module dans son propre repere (lecture du GIT a l'import) ; null = deduites du nom.
+/// <see cref="OpenedDoors"/> : portes source des jonctions (gardees, deverrouillees) ; <see cref="RemovedDoors"/> : portes de
+/// destination des jonctions (retirees). Toutes en repere du module, reconnues par tag et position.
+/// </summary>
+public sealed record AssemblyPartRef(string Module, RigidTransform Transform)
+{
+    public ModuleInfo? Info { get; init; }
+    public IReadOnlyList<ModuleEntity> OpenedDoors { get; init; } = Array.Empty<ModuleEntity>();
+    public IReadOnlyList<ModuleEntity> RemovedDoors { get; init; } = Array.Empty<ModuleEntity>();
+}

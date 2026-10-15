@@ -7,9 +7,11 @@ using Kotor.Core.Diagnostics;
 using Kotor.Core.Entities;
 using Kotor.Core.Geometry;
 using Kotor.Core.Export;
+using Kotor.Core.Modules;
 using Kotor.Core.Scene;
 using Kotor.Core.Textures;
 using Kotor.Core.Tlk;
+using Kotor.Pipeline.Assembly;
 using Kotor.Pipeline.Entities;
 
 namespace Kotor.Pipeline;
@@ -74,6 +76,7 @@ public static class PipelineSteps
             log.Warn("PLACEABLES_NO_GAME_DIR", "No game folder available: placeable conversion skipped, the map has no placed objects.");
             return (ConvertedEntities.Empty, []);
         }
+        if (scene.Parts is not null) return ConvertAssembledObjects(scene.Parts, opt, log);
         try
         {
             using var res = ResourceResolver.ForModule(opt.KotorDir, scene.Info.Module.ToLowerInvariant(), opt.Game);
@@ -87,6 +90,37 @@ public static class PipelineSteps
             log.Warn("PLACEABLES_UNREADABLE", $"Placeables could not be read ({ex.Message}); none converted.");
             return (ConvertedEntities.Empty, []);
         }
+    }
+
+    /// <summary>
+    /// Objets d'une carte assemblee : chaque partie est lue avec son propre resolveur, passee en repere assemble et filtree
+    /// (<see cref="ModuleAssembler.ApplyPart"/>), convertie puis fusionnee ; les sous-modeles des portes sont numerotes a la suite.
+    /// Une partie illisible est journalisee et ignoree, les autres sont converties.
+    /// </summary>
+    private static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) ConvertAssembledObjects(IReadOnlyList<AssemblyPartRef> parts,
+        ExportOptions opt, ImportLog log)
+    {
+        ConvertedEntities all = ConvertedEntities.Empty;
+        var subModels = new List<SubModelInput>();
+        foreach (AssemblyPartRef part in parts)
+        {
+            string module = part.Module.ToLowerInvariant();
+            try
+            {
+                using var res = ResourceResolver.ForModule(opt.KotorDir, module, opt.Game);
+                ModuleInfo info = part.Info ?? new ModuleInfo(module, module, module, new ModuleEntry(Vector3.Zero, Vector2.UnitY));
+                IReadOnlyList<ModuleEntity> objects = ModuleAssembler.ApplyPart(ModuleEntitiesReader.ReadObjects(res, info, log), part);
+                ConvertedEntities placeables = PlaceableConverter.Convert(res, opt.Game, objects, opt.Scale, log);
+                var (doors, doorModels) = DoorConverter.Convert(res, opt.Game, objects, opt.Scale, 1 + subModels.Count, log);
+                all = all.Merge(placeables).Merge(doors);
+                subModels.AddRange(doorModels);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+            {
+                log.Warn("PLACEABLES_UNREADABLE", $"{module}: placeables could not be read ({ex.Message}); none converted for this module.");
+            }
+        }
+        return (all, subModels);
     }
 
     /// <summary>Ajoute au plan les entites, la collision solide, et les textures des objets (les shaders MD3 sont ecrits par l'etape Exporter).</summary>
