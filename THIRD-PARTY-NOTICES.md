@@ -1,29 +1,29 @@
-# Notices tierces
+# Third-party notices
 
-## Compilateur BSP (`src/Kotor.Compiler/`)
+## BSP compiler (`src/Kotor.Compiler/`)
 
-- Origine : code copié du projet TFU (`SWGLFU-Map-importer`, `src/Tfu.Compiler/`), namespaces renommés `Tfu.*` en `Kotor.*`.
-- Licence : GPL-2.0 (en-tête de chaque fichier concerné).
-- Démarche : inspirée de q3map2 / NetRadiant-custom (chaîne `.map` vers `.bsp`). Les en-têtes des fichiers indiquent qu'aucun code de ces projets n'a été copié.
+- Origin: code copied from the TFU project (`SWGLFU-Map-importer`, `src/Tfu.Compiler/`), namespaces renamed from `Tfu.*` to `Kotor.*`.
+- License: GPL-2.0 (in the header of each concerned file).
+- Approach: inspired by q3map2 / NetRadiant-custom (`.map` to `.bsp` chain). The file headers state that no code from these projects was copied.
 
-## Bibliothèques d'images
+## Image libraries
 
-Aucune bibliothèque d'images n'est utilisée. Le PNG est écrit par un encodeur interne minimal (`src/Kotor.Core/Export/PngWriter.cs`) et le TGA par `TgaWriter` / `TgaReader`. Le projet TFU d'origine utilisait Pfim pour le DDS ; cette dépendance n'est pas reprise.
+No image library is used. The PNG is written by a minimal internal encoder (`src/Kotor.Core/Export/PngWriter.cs`), and the TGA by `TgaWriter` / `TgaReader`. The original TFU project used Pfim for DDS; this dependency is not carried over.
 
-## Dépendances de test
+## Test dependencies
 
-Les paquets de test (xUnit, Xunit.SkippableFact, Microsoft.NET.Test.Sdk, coverlet) ne sont pas distribués avec l'outil.
+The test packages (xUnit, Xunit.SkippableFact, Microsoft.NET.Test.Sdk, coverlet) are not distributed with the tool.
 
 ## MonoGame 3.8.5.1 (MonoGame.Framework.Native, MonoGame.Runtime.Windows.Vulkan)
 
-- Licence : MS-PL.
-- Auteur : MonoGame Team.
-- Projet : https://www.monogame.net/
-- Usage : application graphique `src/Kotor2Ja.App`, backend Vulkan (mêmes paquets que le projet TFU).
+- License: MS-PL.
+- Author: MonoGame Team.
+- Project: https://www.monogame.net/
+- Usage: graphical application `src/Kotor2Ja.App`, Vulkan backend (same packages as the TFU project).
 
 ## ImGui.NET 1.91.6.1 (interface)
 
-- Licence : MIT.
-- Auteur : Eric Mellino et contributeurs.
-- Projet : https://github.com/ImGuiNET/ImGui.NET
-- `src/Kotor2Ja.App/ImGuiRenderer.cs` est copié du projet TFU (`Tfu2Ja.App`), lui-même adapté de l'exemple MonoGame/XNA de ce dépôt (licence MIT). L'en-tête d'origine est conservé.
+- License: MIT.
+- Author: Eric Mellino and contributors.
+- Project: https://github.com/ImGuiNET/ImGui.NET
+- `src/Kotor2Ja.App/ImGuiRenderer.cs` is copied from the TFU project (`Tfu2Ja.App`), itself adapted from the MonoGame/XNA example of this repository (MIT license). The original header is kept.

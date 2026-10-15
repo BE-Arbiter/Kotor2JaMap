@@ -377,7 +377,7 @@ public sealed class PreviewRenderer : IDisposable
             if (++drawn >= 300) break;
         }
         if (_model.Spawn is { } sp)
-            Label(dl, vp, ToXna(sp) + new XnaVector3(0, 0, MarkerSize * 2), maxSq * 4, new XnaColor(255, 230, 40), "Apparition");
+            Label(dl, vp, ToXna(sp) + new XnaVector3(0, 0, MarkerSize * 2), maxSq * 4, new XnaColor(255, 230, 40), "Spawn");
     }
 
     private bool Label(ImDrawListPtr dl, Matrix vp, XnaVector3 p, float maxSq, XnaColor c, string text)

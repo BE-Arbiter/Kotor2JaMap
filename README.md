@@ -88,7 +88,7 @@ Options of `export-ja`:
 - `--bsp-limits swgl|vanilla` BSP limits profile.
 - `--config <file>` JSON configuration file.
 
-Exit code 0 means success, 1 invalid arguments or a failed export, 2 game folder or module not found.
+Exit code 0 means success, 1 invalid arguments or a failed export, 2 game folder or module not found. For `export-obj`, exit code 1 also means that the module produced no triangle.
 
 Examples:
 
@@ -99,7 +99,7 @@ dotnet run --project src/Kotor2Ja.Cli -- export-ja tar_m02aa --name taris_demo
 
 ## Configuration
 
-Settings are read from `kotor2ja.config.json`, next to the executable (the application and the command line tool use the same file, `--config` overrides it for the command line). Missing keys use the defaults.
+Settings are read from `kotor2ja.config.json`, next to the executable. The application and the command line tool use the same file. Only `export-ja` accepts `--config` to read another file; `list-modules` and `export-obj` always read the file next to the executable. Missing keys use the defaults.
 
 ```json
 {

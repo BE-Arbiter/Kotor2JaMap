@@ -42,3 +42,19 @@ Résultat : `MainScreen.cs:181` (le glyphe `…` du bouton occupé, signe de pon
 - Les commentaires de code, `docs/**` et les noms de zones du TLK restent en français, comme prévu.
 - Le glyphe `…` du bouton occupé n'a pas été changé en `...` : à voir si la police ImGui l'affiche (comportement antérieur inchangé).
 - Pas d'essai visuel (consigne : l'orchestrateur le fait) ; les libellés ImGui ne sont vérifiés que par compilation.
+
+## 6. Correction 1 (relecture de l'étape 06)
+
+Points relevés par `step-06-review.md`, corrigés :
+
+- `src/Kotor2Ja.App/Rendering/PreviewRenderer.cs:380` : étiquette du point d'apparition `"Apparition"` devenue `"Spawn"`. C'était le seul libellé français visible restant (non détecté par la recherche d'accents).
+- `src/Kotor2Ja.App/Ui/MainScreen.cs:181` : glyphe `…` du bouton occupé remplacé par `"..."` (police ImGui par défaut).
+- `README.md`, section Configuration : `--config` précisé comme valant uniquement pour `export-ja` (vérifié dans `src/Kotor2Ja.Cli` : `ExportJaCommand` lit `--config`, `ListModulesCommand` et `ExportObjCommand` passent par `GameOption.ResolveDir` avec `GameOption.DefaultConfigPath`, soit `kotor2ja.config.json` à côté de l'exécutable). Précision ajoutée que `export-obj` renvoie le code 1 s'il n'y a aucun triangle (`ExportObjCommand.Run`).
+- `THIRD-PARTY-NOTICES.md` traduit en anglais. Licences (GPL-2.0, MS-PL, MIT), noms et URL inchangés.
+
+Commandes lancées et résultats :
+
+- `dotnet build Kotor2Ja.sln` : génération réussie, 0 avertissement, 0 erreur.
+- `dotnet test Kotor2Ja.sln` : vert. Cli 20/20, Compiler 80/80, Core 152/152, Pipeline 74/74 (326 au total, 0 échec, 0 ignoré).
+
+Non fait : pas d'essai visuel en jeu (libellés ImGui vérifiés par compilation seulement). Aucun commit.

@@ -178,7 +178,7 @@ public sealed class MainScreen
         {
             bool busy = _workflow.IsBusy;
             ImGui.BeginDisabled(!_workflow.CanNext);
-            if (ImGui.Button((busy ? "…" : label) + "###next", new Vector2(180, 40))) _ = _workflow.NextAsync();
+            if (ImGui.Button((busy ? "..." : label) + "###next", new Vector2(180, 40))) _ = _workflow.NextAsync();
             ImGui.EndDisabled();
         }
         ImGui.End();
