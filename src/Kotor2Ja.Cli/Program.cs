@@ -8,9 +8,15 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        var root = BuildRoot();
+        return root.Parse(args).Invoke();
+    }
+
+    public static RootCommand BuildRoot()
+    {
         var kotorOption = new Option<string?>("--kotor")
         {
-            Description = "Dossier d'installation de KOTOR (defaut : variable KOTOR_PATH, puis le chemin Steam par defaut).",
+            Description = "Install folder of the chosen game (default: KOTOR_PATH / KOTOR2_PATH, then the config file, then the Steam path).",
         };
         var gameOption = new Option<string>("--game")
         {
@@ -21,6 +27,6 @@ public static class Program
         root.Subcommands.Add(ListModulesCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportObjCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportJaCommand.Create(kotorOption, gameOption));
-        return root.Parse(args).Invoke();
+        return root;
     }
 }

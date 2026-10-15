@@ -16,6 +16,7 @@ public sealed class WorkflowControllerTests
     {
         public Func<PreviewModel> OnPreview = Model;
         public Action<KotorGame>? OnPreviewGame;
+        public int Calls;
         public Func<PreviewModel> OnImport = Model;
         public Func<PreviewModel> OnExport = Model;
         public Func<string> OnPack = () => "x.pk3";
@@ -188,6 +189,57 @@ public sealed class WorkflowControllerTests
         Assert.Equal(WorkflowStage.None, c.Stage);
     }
 
+
+    [Fact]
+    public async Task Same_module_name_in_both_games_gives_distinct_selections()
+    {
+        var seen = new List<KotorGame>();
+        var c = new WorkflowController(new FakeSteps { OnPreviewGame = g => seen.Add(g) });
+        Assert.NotEqual(new ModuleListItem(KotorGame.Kotor1, "m1", "A"), new ModuleListItem(KotorGame.Kotor2, "m1", "A"));
+
+        Assert.True(c.SelectModule(KotorGame.Kotor1, "m1"));
+        (KotorGame, string?) first = (c.SelectedGame, c.SelectedModule);
+        await c.PreviewAsync();
+        Assert.True(c.SelectModule(KotorGame.Kotor2, "m1"));
+        (KotorGame, string?) second = (c.SelectedGame, c.SelectedModule);
+        await c.PreviewAsync();
+
+        Assert.NotEqual(first, second);
+        Assert.Equal("m1", c.SelectedModule);
+        Assert.Equal(KotorGame.Kotor2, c.SelectedGame);
+        Assert.Equal([KotorGame.Kotor1, KotorGame.Kotor2], seen);
+    }
+
+    [Fact]
+    public async Task Late_result_of_the_first_game_is_ignored_after_switching_game()
+    {
+        var gate = new TaskCompletionSource();
+        var started = new TaskCompletionSource();
+        PreviewModel lateK1 = Model(), k2 = Model();
+        var f = new FakeSteps();
+        f.OnPreviewGame = g =>
+        {
+            if (g != KotorGame.Kotor1) return;
+            started.SetResult();
+            gate.Task.Wait();
+        };
+        f.OnPreview = () => f.Calls++ == 0 ? lateK1 : k2;
+        var c = new WorkflowController(f);
+        c.SelectModule(KotorGame.Kotor1, "m1");
+        Task late = c.PreviewAsync();
+        await started.Task;
+        c.Reset(); // new generation: the K1 result must be dropped
+        gate.SetResult();
+        await late;
+        Assert.Null(c.Preview);
+        Assert.Equal(WorkflowStage.None, c.Stage);
+
+        Assert.True(c.SelectModule(KotorGame.Kotor2, "m1"));
+        await c.PreviewAsync();
+        Assert.Same(k2, c.Preview);
+        Assert.Equal(KotorGame.Kotor2, c.SelectedGame);
+        Assert.Equal(WorkflowStage.Previewed, c.Stage);
+    }
     [Fact]
     public void Missing_game_folder_is_reported_not_installed()
     {

@@ -43,3 +43,27 @@ Statut : FAIT (réserves mineures en fin de rapport).
 - Messages existants (`Echelle invalide`, etc.) laissés en français : leur traduction relève de l'étape anglais. Les nouveaux textes (CLI `--game`, `GAME_NOT_FOUND`, `NotSupportedException` du MDL, UI) sont en anglais.
 - `kotor2Dir` du `kotor2ja.config.json` livré écrase `KOTOR2_PATH` (contrairement à `kotorDir`, volontairement absent du fichier livré).
 - Références : xoreos `https://github.com/xoreos/xoreos/blob/master/src/graphics/aurora/model_kotor.cpp` ; KotorBlender `types.py`.
+
+## Correction 1
+
+### Important 1 : une seule règle de résolution des dossiers de jeu
+- Fait : règle unique dans `ConfigLoader` : variable d'environnement (`KOTOR_PATH`, `KOTOR2_PATH`) > fichier de config (`kotorDir`, `kotor2Dir`) > défaut Steam. `ConfigLoader.Load` / `Defaults` prennent un `getEnv` optionnel (tests sans toucher à l'environnement du processus). La config livrée ne masque donc plus la variable, ni pour K1 ni pour K2.
+- `GameOption.ResolveDir(--kotor, jeu, configPath?, getEnv?)` passe par `ConfigLoader.Load` (config à côté de l'exe, repli sur `Defaults` si illisible) : `list-modules`, `export-obj` et `export-ja` (via `ConfigLoader.Load` + `ForGame`) et l'application utilisent la même fonction. `--kotor` reste prioritaire. Code mort supprimé : `ListModulesCommand.ResolveKotorDir` / `DefaultKotorDir`.
+- Tests : `ConfigLoaderTests.Game_folders_priority_is_environment_then_config_then_default`, `Shipped_config_does_not_override_the_environment` (remplace l'ancien test, maintenant sans variable réelle), `GameOptionTests.ResolveDir_priority_is_option_then_environment_then_config_then_default`, `ResolveDir_falls_back_to_defaults_on_a_broken_config`.
+
+### Important 2 : tests ajoutés
+- CLI : nouveau `tests/Kotor2Ja.Cli.Tests/GameOptionTests.cs` (+ `TestEnv.cs`, paquet `Xunit.SkippableFact`). `Program.BuildRoot()` extrait pour tester l'analyse. Tests : `TryParse_accepts_known_values`, `TryParse_rejects_invalid_values`, `Arguments_of_list_modules_carry_the_game`, `Invalid_game_value_returns_1_for_the_three_commands` (valeur `bogus`, message `Unknown game: bogus`), `[SkippableFact] Real_list_modules_kotor2_lists_modules` (plus de 50 lignes, `001ebo`, exécuté, non ignoré).
+- Priorité environnement / config / défaut : voir Important 1.
+- Contrôleur : `Same_module_name_in_both_games_gives_distinct_selections` (même nom `m1` dans K1 et K2 : sélections distinctes, jeu transmis à `Preview`) et `Late_result_of_the_first_game_is_ignored_after_switching_game` (résultat tardif de K1 écarté, l'aperçu de K2 est celui retenu).
+
+### Minor
+- Messages CLI : `GameOption.NotFound(jeu, dossier)` en anglais (`KOTOR installation not found: ...` / `KOTOR 2 installation not found: ...`), utilisé par `ListModulesCommand`, `ExportObjCommand`, `ExportJaCommand`. Aide de `--kotor` mise à jour (anglais, jeu choisi). Test : `GameOptionTests.Missing_install_message_is_english_and_names_the_game`.
+- `WorkflowController.Run` lit maintenant `(jeu, module)` sous le même verrou que le jeton de génération ; `PreviewAsync` n'a plus de verrou séparé. Couvert par les tests du contrôleur ci-dessus et les tests existants.
+
+### Commandes
+- `dotnet build Kotor2Ja.sln` : 0 avertissement, 0 erreur.
+- `dotnet test Kotor2Ja.sln` : tout vert (Core 140, Compiler 76, Pipeline 39, Cli 20 ; aucun ignoré). Rien écrit dans le dossier Jedi Academy, jeu non lancé, aucun commit.
+
+### Réserves
+- Le fichier livré garde `kotor2Dir` (défaut Steam) : sans variable d'environnement il s'applique ; avec la variable, elle prime.
+- Les autres messages CLI en français (`Module inconnu`, etc.) sont laissés pour l'étape anglais.

@@ -25,10 +25,24 @@ public static class GameOption
 
     public static string BadValue(string? text) => $"Unknown game: {text} (expected kotor or kotor2).";
 
-    /// <summary>Install folder of a game: the --kotor value, else KOTOR_PATH / KOTOR2_PATH, else the default Steam path.</summary>
-    public static string? ResolveDir(string? fromOption, KotorGame game)
+    /// <summary>
+    /// Install folder of a game: the --kotor value, else the shared rule of <see cref="ConfigLoader"/>
+    /// (KOTOR_PATH / KOTOR2_PATH, then the config file, then the default Steam path).
+    /// </summary>
+    public static string? ResolveDir(string? fromOption, KotorGame game, string? configPath = null, Func<string, string?>? getEnv = null)
     {
         if (!string.IsNullOrWhiteSpace(fromOption)) return fromOption;
-        return ConfigLoader.Defaults().ForGame(game).KotorDir;
+        ExportOptions options;
+        try { options = ConfigLoader.Load(configPath ?? DefaultConfigPath, getEnv); }
+        catch (Exception e) when (e is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException)
+        {
+            options = ConfigLoader.Defaults(getEnv);
+        }
+        return options.ForGame(game).KotorDir;
     }
+
+    public static string DefaultConfigPath => Path.Combine(AppContext.BaseDirectory, "kotor2ja.config.json");
+
+    public static string NotFound(KotorGame game, string? dir) =>
+        $"{KotorGames.DisplayName(game)} installation not found: {dir ?? "(no path)"}";
 }

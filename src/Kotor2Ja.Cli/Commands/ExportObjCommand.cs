@@ -39,7 +39,7 @@ public static class ExportObjCommand
     {
         if (kotorDir is null || !Directory.Exists(kotorDir))
         {
-            error.WriteLine($"Installation KOTOR introuvable : {kotorDir ?? "(aucun chemin)"}");
+            error.WriteLine(GameOption.NotFound(game, kotorDir));
             return 2;
         }
         module = module.ToLowerInvariant();

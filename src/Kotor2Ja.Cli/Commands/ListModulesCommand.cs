@@ -8,14 +8,6 @@ namespace Kotor2Ja.Cli.Commands;
 
 public static class ListModulesCommand
 {
-    public const string DefaultKotorDir = @"C:\Program Files (x86)\Steam\steamapps\common\swkotor";
-
-    public static string? ResolveKotorDir(string? fromOption)
-    {
-        if (!string.IsNullOrWhiteSpace(fromOption)) return fromOption;
-        string? env = Environment.GetEnvironmentVariable("KOTOR_PATH");
-        return !string.IsNullOrWhiteSpace(env) ? env : DefaultKotorDir;
-    }
 
     public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
@@ -39,7 +31,7 @@ public static class ListModulesCommand
     {
         if (kotorDir is null || !Directory.Exists(kotorDir))
         {
-            error.WriteLine($"Installation KOTOR introuvable : {kotorDir ?? "(aucun chemin)"}");
+            error.WriteLine(GameOption.NotFound(game, kotorDir));
             return 2;
         }
         string tlkPath = Path.Combine(kotorDir, "dialog.tlk");

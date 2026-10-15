@@ -24,7 +24,7 @@ public static class ExportJaCommand
         foreach (Option o in new Option[] { nameOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption, gameOption }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
         {
-            string? cfgPath = pr.GetValue(cfgOpt) ?? Path.Combine(AppContext.BaseDirectory, "kotor2ja.config.json");
+            string? cfgPath = pr.GetValue(cfgOpt) ?? GameOption.DefaultConfigPath;
             ExportOptions opt = ConfigLoader.Load(cfgPath);
             if (!GameOption.TryParse(pr.GetValue(gameOption), out KotorGame game))
             {
@@ -57,7 +57,7 @@ public static class ExportJaCommand
         }
         if (!Directory.Exists(opt.KotorDir))
         {
-            error.WriteLine($"Installation {KotorGames.DisplayName(opt.Game)} introuvable : {opt.KotorDir}");
+            error.WriteLine(GameOption.NotFound(opt.Game, opt.KotorDir));
             return 2;
         }
         module = module.ToLowerInvariant();

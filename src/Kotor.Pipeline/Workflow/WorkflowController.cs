@@ -90,10 +90,8 @@ public sealed class WorkflowController
 
     public Task PreviewAsync()
     {
-        KotorGame game;
-        lock (_gate) game = _game;
         return Run(canRun: () => _module is not null,
-        run: (module, progress) => (WorkflowStage.Previewed, _steps.Preview(game, module!, progress)));
+        run: (game, module, progress) => (WorkflowStage.Previewed, _steps.Preview(game, module!, progress)));
     }
 
     public Task NextAsync()
@@ -103,10 +101,10 @@ public sealed class WorkflowController
         return stage switch
         {
             WorkflowStage.Previewed => Run(() => _stage == WorkflowStage.Previewed,
-                (_, p) => (WorkflowStage.Imported, _steps.Import(p))),
+                (_, _, p) => (WorkflowStage.Imported, _steps.Import(p))),
             WorkflowStage.Imported => Run(() => _stage == WorkflowStage.Imported,
-                (_, p) => (WorkflowStage.Exported, _steps.Export(p))),
-            WorkflowStage.Exported => Run(() => _stage == WorkflowStage.Exported, (_, p) =>
+                (_, _, p) => (WorkflowStage.Exported, _steps.Export(p))),
+            WorkflowStage.Exported => Run(() => _stage == WorkflowStage.Exported, (_, _, p) =>
             {
                 string pk3 = _steps.CreatePk3(p);
                 p.Report("PK3 : " + pk3);
@@ -116,9 +114,10 @@ public sealed class WorkflowController
         };
     }
 
-    private Task Run(Func<bool> canRun, Func<string?, IProgress<string>, (WorkflowStage Stage, PreviewModel? Model)> run)
+    private Task Run(Func<bool> canRun, Func<KotorGame, string?, IProgress<string>, (WorkflowStage Stage, PreviewModel? Model)> run)
     {
         string? module;
+        KotorGame game;
         int gen;
         lock (_gate)
         {
@@ -126,6 +125,7 @@ public sealed class WorkflowController
             _busy = true;
             gen = _generation;
             module = _module;
+            game = _game;
         }
 
         var progress = new SyncProgress(l => { if (IsCurrent(gen)) _log.Enqueue(l); });
@@ -135,7 +135,7 @@ public sealed class WorkflowController
             string? error = null;
             try
             {
-                result = run(module, progress);
+                result = run(game, module, progress);
             }
             catch (PipelineStepException e)
             {
