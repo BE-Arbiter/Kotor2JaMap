@@ -52,7 +52,7 @@
 
 ---
 
-### Tâche 1 : Fondations (transformation, champ LinkedTo, scène transformée)
+### Task 1 : Fondations (transformation, champ LinkedTo, scène transformée)
 
 **Files:**
 - Create: `src/Kotor.Core/Scene/RigidTransform.cs`
@@ -74,7 +74,7 @@
 
 ---
 
-### Tâche 2 : Découverte des transitions et placement automatique
+### Task 2 : Découverte des transitions et placement automatique
 
 **Files:**
 - Create: `src/Kotor.Pipeline/Assembly/AssemblyPart.cs`, `TransitionLinks.cs`, `AutoPlacer.cs`
@@ -97,7 +97,7 @@
 
 ---
 
-### Tâche 3 : Cadre de porte et couloir de raccord
+### Task 3 : Cadre de porte et couloir de raccord
 
 **Files:**
 - Create: `src/Kotor.Pipeline/Assembly/DoorFrame.cs`, `JunctionBuilder.cs`
@@ -118,7 +118,7 @@
 
 ---
 
-### Tâche 4 : Assembleur de scènes, filtre d'entités, chevauchements
+### Task 4 : Assembleur de scènes, filtre d'entités, chevauchements
 
 **Files:**
 - Create: `src/Kotor.Pipeline/Assembly/ModuleAssembler.cs`, `OverlapChecker.cs`
@@ -141,7 +141,7 @@
 
 ---
 
-### Tâche 5 : Flux de travail multi-modules (sans interface)
+### Task 5 : Flux de travail multi-modules (sans interface)
 
 **Files:**
 - Modify: `src/Kotor.Pipeline/Workflow/IWorkflowSteps.cs`, `KotorWorkflowSteps.cs`, `WorkflowController.cs`
@@ -163,7 +163,7 @@
 
 ---
 
-### Tâche 6 : Interface — sélection multiple et éditeur de placement
+### Task 6 : Interface — sélection multiple et éditeur de placement
 
 **Files:**
 - Modify: `src/Kotor2Ja.App/Ui/MainScreen.cs` (arbre : Ctrl+clic ou cases pour sélection multiple, bouton « Link modules » quand `NeedsLinking`, choix du module de référence)
@@ -181,7 +181,7 @@
 
 ---
 
-### Tâche 7 : CLI, essai visuel, documentation
+### Task 7 : CLI, essai visuel, documentation
 
 **Files:**
 - Modify: `src/Kotor2Ja.Cli/Commands/ExportJaCommand.cs`, `README.md`, `src/Kotor2Ja.App/AppGame.cs` / `Workflow/AutomationOptions.cs` (option `--module a,b` pour les essais visuels)
