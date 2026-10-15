@@ -14,7 +14,20 @@ namespace Kotor2Ja.App.Ui;
 /// </summary>
 public sealed class MainScreen
 {
-    public const float LeftWidth = 330f;
+    private const float BaseLeftWidth = 330f;
+
+    /// <summary>UI scale factor (1 at 900 px high), recomputed each frame from the back buffer size.</summary>
+    public static float UiScale { get; private set; } = 1f;
+
+    /// <summary>Left column width in pixels: scaled with the UI, never more than 45% of the window.</summary>
+    public static float LeftWidth { get; private set; } = BaseLeftWidth;
+
+    /// <summary>Recomputes <see cref="UiScale"/> and <see cref="LeftWidth"/> for a back buffer size.</summary>
+    public static void Fit(int width, int height)
+    {
+        UiScale = Math.Clamp(MathF.Round(height / 900f * 20f) / 20f, 0.8f, 3f);
+        LeftWidth = Math.Min(BaseLeftWidth * UiScale, width * 0.45f);
+    }
     private const int MaxLogLines = 5000;
 
     private static readonly Vector4 Red = new(1f, 0.35f, 0.35f, 1f);
@@ -240,7 +253,7 @@ public sealed class MainScreen
 
     private void DrawViewOptions(Vector2 displaySize, PreviewRenderer renderer)
     {
-        ImGui.SetNextWindowPos(new Vector2(displaySize.X - 10, 10), ImGuiCond.Always, new Vector2(1, 0));
+        ImGui.SetNextWindowPos(new Vector2(displaySize.X - 10 * UiScale, 10 * UiScale), ImGuiCond.Always, new Vector2(1, 0));
         ImGui.SetNextWindowBgAlpha(0.35f);
         const ImGuiWindowFlags flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse
             | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings
@@ -270,7 +283,7 @@ public sealed class MainScreen
     {
         string? label = _workflow.NextLabel;
         if (label is null) return;
-        ImGui.SetNextWindowPos(new Vector2(displaySize.X - 16, displaySize.Y - 16), ImGuiCond.Always, new Vector2(1, 1));
+        ImGui.SetNextWindowPos(new Vector2(displaySize.X - 16 * UiScale, displaySize.Y - 16 * UiScale), ImGuiCond.Always, new Vector2(1, 1));
         ImGui.SetNextWindowBgAlpha(0f);
         const ImGuiWindowFlags flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse
             | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings
@@ -279,7 +292,7 @@ public sealed class MainScreen
         {
             bool busy = _workflow.IsBusy;
             ImGui.BeginDisabled(!_workflow.CanNext);
-            if (ImGui.Button((busy ? "..." : label) + "###next", new Vector2(180, 40))) _ = _workflow.NextAsync();
+            if (ImGui.Button((busy ? "..." : label) + "###next", new Vector2(180, 40) * UiScale)) _ = _workflow.NextAsync();
             ImGui.EndDisabled();
         }
         ImGui.End();

@@ -37,18 +37,39 @@ public sealed class AppGame : Game
     public AppGame(AutomationOptions? automation = null)
     {
         _auto = automation;
+        // Initial size: 85% of the desktop so it fits any screen.
+        DisplayMode desktop = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
         _graphics = new GraphicsDeviceManager(this)
         {
-            PreferredBackBufferWidth = 1600,
-            PreferredBackBufferHeight = 900,
+            PreferredBackBufferWidth = Math.Clamp((int)(desktop.Width * 0.85), 800, 2560),
+            PreferredBackBufferHeight = Math.Clamp((int)(desktop.Height * 0.85), 600, 1440),
             GraphicsProfile = GraphicsProfile.HiDef,
         };
         Window.AllowUserResizing = true;
+        Window.ClientSizeChanged += OnClientSizeChanged;
         Window.Title = "KOTOR → Jedi Academy";
         IsMouseVisible = true;
     }
 
     private PreviewModel? _failedPreview;
+
+    // The back buffer follows the window when it is resized, maximized or the screen resolution changes.
+    private void OnClientSizeChanged(object? sender, EventArgs e)
+    {
+        Rectangle b = Window.ClientBounds;
+        if (b.Width < 1 || b.Height < 1) return;   // minimized
+        if (b.Width == _graphics.PreferredBackBufferWidth && b.Height == _graphics.PreferredBackBufferHeight) return;
+        _graphics.PreferredBackBufferWidth = b.Width;
+        _graphics.PreferredBackBufferHeight = b.Height;
+        _graphics.ApplyChanges();
+    }
+
+    private void FitUi(ImGuiIOPtr io)
+    {
+        PresentationParameters pp = GraphicsDevice.PresentationParameters;
+        MainScreen.Fit(pp.BackBufferWidth, pp.BackBufferHeight);
+        io.FontGlobalScale = MainScreen.UiScale;
+    }
 
     protected override void Initialize()
     {
@@ -133,6 +154,7 @@ public sealed class AppGame : Game
     protected override void Update(GameTime gameTime)
     {
         var io = ImGui.GetIO();
+        FitUi(io);
         MouseState mouse = Mouse.GetState();
         KeyboardState kb = Keyboard.GetState();
 
