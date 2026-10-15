@@ -40,13 +40,50 @@ public static class ModuleSceneBuilder
         var walks = new List<SceneWalkmesh>();
         var surfaceMat = LoadSurfaceMat(res, log);
 
+        var lights = new List<SceneLight>();
+        var stats = new RepairStats();
         foreach (var room in layout.Rooms)
         {
-            AddRoomMeshes(res, room, textures, meshes, log);
+            AddRoomMeshes(res, room, textures, meshes, lights, stats, log);
             AddRoomWalkmesh(res, room, surfaceMat, walks, log);
         }
-        return new ModuleScene(info, meshes, walks, textures);
+        if (stats.Lightmaps > 0)
+            log.Warn("LIGHTMAP_REPAIRED", $"{module}: {stats.Lightmaps} lightmap(s) repaired, {stats.Texels} invalid texel(s) replaced by the nearest valid one.");
+        return new ModuleScene(info, meshes, walks, textures)
+        {
+            Lights = lights,
+            AmbientColor = ReadAmbient(res, info.AreaResRef, log),
+        };
     }
+
+    /// <summary>Counts for the LIGHTMAP_REPAIRED summary line.</summary>
+    internal sealed class RepairStats { public int Lightmaps; public long Texels; }
+
+    /// <summary>
+    /// Zone ambient colour: ARE <c>DynAmbientColor</c>, else <c>SunAmbientColor</c> (DWORD 0x00BBGGRR, PyKotor Color.from_bgr_integer),
+    /// else (0.2, 0.2, 0.2).
+    /// </summary>
+    internal static Vector3 ReadAmbient(ResourceResolver res, string area, ImportLog log)
+    {
+        byte[]? data = res.Find(area, ResourceType.Are);
+        if (data is null) { log.Warn("AMBIENT_DEFAULT", $"{area}.are not found: default ambient colour used."); return ModuleScene.DefaultAmbient; }
+        try
+        {
+            var are = Gff.GffReader.Read(data, out _);
+            foreach (string label in new[] { "DynAmbientColor", "SunAmbientColor" })
+                if (are.Get<uint?>(label) is { } v) return FromBgr(v);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException
+            or EndOfStreamException or IndexOutOfRangeException)
+        {
+            log.Warn("AMBIENT_DEFAULT", $"{area}.are unreadable ({ex.Message}): default ambient colour used.");
+            return ModuleScene.DefaultAmbient;
+        }
+        log.Warn("AMBIENT_DEFAULT", $"{area}.are has no DynAmbientColor or SunAmbientColor: default ambient colour used.");
+        return ModuleScene.DefaultAmbient;
+    }
+
+    internal static Vector3 FromBgr(uint v) => new((v & 0xFF) / 255f, ((v >> 8) & 0xFF) / 255f, ((v >> 16) & 0xFF) / 255f);
 
     private static TwoDaFile? LoadSurfaceMat(ResourceResolver res, ImportLog log)
     {
@@ -61,7 +98,7 @@ public static class ModuleSceneBuilder
     }
 
     private static void AddRoomMeshes(ResourceResolver res, LayoutRoom room, Dictionary<string, KotorTexture?> textures,
-        List<SceneMesh> meshes, ImportLog log)
+        List<SceneMesh> meshes, List<SceneLight> lights, RepairStats stats, ImportLog log)
     {
         byte[]? mdl = res.Find(room.Model, ResourceType.Mdl);
         byte[]? mdx = res.Find(room.Model, ResourceType.Mdx);
@@ -78,18 +115,28 @@ public static class ModuleSceneBuilder
             return;
         }
 
-        AddModel(res, room, model, textures, meshes, log);
+        AddModel(res, room, model, textures, meshes, log, lights, stats);
     }
 
     /// <summary>Assemble les maillages d'un modele deja lu (separe de la lecture pour etre testable sans MDL binaire).</summary>
     internal static void AddModel(ResourceResolver res, LayoutRoom room, KotorModel model,
-        Dictionary<string, KotorTexture?> textures, List<SceneMesh> meshes, ImportLog log)
+        Dictionary<string, KotorTexture?> textures, List<SceneMesh> meshes, ImportLog log,
+        List<SceneLight>? sceneLights = null, RepairStats? stats = null)
     {
-        int notRendered = 0, lights = 0, emitters = 0, refs = 0, cams = 0, animated = 0, empty = 0;
+        int defaulted = 0, notRendered = 0, lights = 0, emitters = 0, refs = 0, cams = 0, animated = 0, empty = 0;
         var offset = Matrix4x4.CreateTranslation(room.Position);
         foreach (var (node, modelTransform) in model.Walk())
         {
-            if (node.Kind.HasFlag(NodeKind.Light)) lights++;
+            if (node.Kind.HasFlag(NodeKind.Light))
+            {
+                lights++;
+                if (node.Light is { } kl)
+                {
+                    if (kl.Defaulted) defaulted++;
+                    sceneLights?.Add(new SceneLight(node.Name, Vector3.Transform(Vector3.Zero, modelTransform) + room.Position,
+                        Vector3.Clamp(kl.Color, Vector3.Zero, Vector3.One), kl.Radius, kl.Multiplier));
+                }
+            }
             if (node.Kind.HasFlag(NodeKind.Emitter)) emitters++;
             if (node.Kind.HasFlag(NodeKind.Reference)) refs++;
             if (node.Kind.HasFlag(NodeKind.Camera)) cams++;
@@ -98,7 +145,7 @@ public static class ModuleSceneBuilder
             if (!m.Render || node.Kind.HasFlag(NodeKind.Aabb)) { notRendered++; continue; }
             if (m.Triangles.Length == 0 || m.Positions.Length == 0) { empty++; continue; }
             if ((node.Kind & (NodeKind.Skin | NodeKind.Dangly | NodeKind.Anim | NodeKind.Saber)) != 0) animated++;
-            var mesh = BuildMesh(res, room, node, m, modelTransform, offset, textures, log);
+            var mesh = BuildMesh(res, room, node, m, modelTransform, offset, textures, log, stats);
             if (mesh is not null) meshes.Add(mesh);
         }
         string r = room.Model;
@@ -106,14 +153,16 @@ public static class ModuleSceneBuilder
         if (empty > 0) log.Warn("MESH_EMPTY", $"{r} : {empty} maillage(s) vide(s) (0 triangle ou 0 sommet) ignore(s).");
         if (animated > 0)
             log.Warn("MESH_STATIC_FROM_ANIMATED", $"{r} : {animated} maillage(s) skin/dangly/anim/saber exporte(s) en statique (deformation et animation perdues).");
-        if (lights > 0) log.Warn("NODE_LIGHT", $"{r} : {lights} noeud(s) lumiere non converti(s).");
+        if (lights > 0) log.Warn("NODE_LIGHT", $"{r}: {lights} light node(s) used for the vertex lighting.");
+        if (defaulted > 0) log.Warn("LIGHT_DEFAULTS", $"{r}: {defaulted} light node(s) without colour, radius or multiplier controller: defaults used (white, {MdlReader.DefaultLightRadius:0} m, x1).");
         if (emitters > 0) log.Warn("NODE_EMITTER", $"{r} : {emitters} emetteur(s) non converti(s).");
         if (refs > 0) log.Warn("NODE_REFERENCE", $"{r} : {refs} noeud(s) reference non converti(s).");
         if (cams > 0) log.Warn("NODE_CAMERA", $"{r} : {cams} camera(s) non convertie(s).");
     }
 
     private static SceneMesh? BuildMesh(ResourceResolver res, LayoutRoom room, KotorNode node, KotorMesh m,
-        Matrix4x4 modelTransform, Matrix4x4 offset, Dictionary<string, KotorTexture?> textures, ImportLog log)
+        Matrix4x4 modelTransform, Matrix4x4 offset, Dictionary<string, KotorTexture?> textures, ImportLog log,
+        RepairStats? stats)
     {
         string where = $"{room.Model}/{node.Name}";
         if (m.Triangles.Any(i => i < 0 || i >= m.Positions.Length))
@@ -143,7 +192,7 @@ public static class ModuleSceneBuilder
             textures.TryAdd(NoTextureKey, null);
             log.Warn("MESH_NO_TEXTURE", $"{where} : maillage rendu sans texture.");
         }
-        else Resolve(res, tex, TextureKind.Diffuse, textures, log);
+        else Resolve(res, tex, TextureKind.Diffuse, textures, log, stats);
 
         string? lm = m.Texture1?.ToLowerInvariant();
         if (lm is not null && uv1 is null)
@@ -151,19 +200,26 @@ public static class ModuleSceneBuilder
             log.Warn("MDL_NO_UV1", $"{where} : lightmap '{lm}' presente mais UV1 absent ou incoherent, lightmap ignoree.");
             lm = null;
         }
-        if (lm is not null) Resolve(res, lm, TextureKind.Lightmap, textures, log);
+        if (lm is not null) Resolve(res, lm, TextureKind.Lightmap, textures, log, stats);
 
         var txi = textures.TryGetValue(tex, out var t) && t is not null ? t.Txi : TxiInfo.Empty;
         return new SceneMesh(room.Model, node.Name, tex, lm, txi, m.TransparencyHint, pos, normals, uv0, uv1, m.Triangles);
     }
 
     private static void Resolve(ResourceResolver res, string name, TextureKind kind,
-        Dictionary<string, KotorTexture?> textures, ImportLog log)
+        Dictionary<string, KotorTexture?> textures, ImportLog log, RepairStats? stats)
     {
         name = name.ToLowerInvariant();
         if (textures.ContainsKey(name)) return;
         KotorTexture? tex;
-        try { tex = TextureLookup.Find(res, name, kind); }
+        try
+        {
+            tex = TextureLookup.Find(res, name, kind, (repaired, none) =>
+            {
+                if (stats is not null) { stats.Lightmaps++; stats.Texels += repaired; }
+                if (none) log.Warn("LIGHTMAP_NO_VALID_TEXEL", $"{name}: lightmap has no valid texel (alpha = 255), replaced by neutral gray.");
+            });
+        }
         catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
         {
             log.Warn("TEXTURE_UNSUPPORTED", $"{name} : {ex.Message}");

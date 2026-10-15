@@ -82,4 +82,41 @@ public class VertexLightingTests
         Assert.Equal(255, b[vo + 67]);
         Assert.Equal(255, b[vo + 3 * 80 + 64]); // premier sommet du ciel
     }
+
+    [Fact]
+    public void Point_light_attenuates()
+    {
+        var lit = VertexLighting.ForKotor(Vector3.Zero, [new PointLight(Vector3.Zero, Vector3.One, 100f, 1f)], shift: 0);
+        // Normal facing the light (light at the origin, vertex above it: the normal points down).
+        byte[] at0 = lit.Evaluate(Vector3.Zero, Vector3.UnitZ);
+        byte[] at50 = lit.Evaluate(new Vector3(0, 0, 50), -Vector3.UnitZ);
+        byte[] at100 = lit.Evaluate(new Vector3(0, 0, 100), -Vector3.UnitZ);
+        byte[] at150 = lit.Evaluate(new Vector3(0, 0, 150), -Vector3.UnitZ);
+        Assert.Equal(255, at0[0]);
+        Assert.Equal((byte)Math.Round(0.5 * 255), at50[0]);
+        Assert.Equal(0, at100[0]);
+        Assert.Equal(0, at150[0]);
+    }
+
+    [Fact]
+    public void Point_light_respects_facing_and_double_sided()
+    {
+        var lit = VertexLighting.ForKotor(new Vector3(0.1f), [new PointLight(Vector3.Zero, Vector3.One, 100f, 1f)], shift: 0);
+        var p = new Vector3(0, 0, 50);
+        byte ambient = (byte)Math.Round(0.1 * 255);
+        Assert.Equal(ambient, lit.Evaluate(p, Vector3.UnitZ)[0]);                 // facing away: ambient only
+        Assert.True(lit.Evaluate(p, Vector3.UnitZ, true)[0] > ambient);          // double sided: |n.l|
+        Assert.Equal(lit.Evaluate(p, Vector3.UnitZ, true), lit.Evaluate(p, -Vector3.UnitZ, true));
+    }
+
+    [Fact]
+    public void Compile_input_lights_switch_to_kotor_mode()
+    {
+        var input = TestScenes.Input();
+        Assert.Equal(VertexLighting.Default, Compiler.EffectiveLighting(input));
+        var withLights = input with { Lights = [new PointLight(Vector3.Zero, Vector3.One, 10f, 1f)] };
+        var eff = Compiler.EffectiveLighting(withLights);
+        Assert.Equal(Vector3.Zero, eff.Sun);
+        Assert.Single(eff.Lights);
+    }
 }

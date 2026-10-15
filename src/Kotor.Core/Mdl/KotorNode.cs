@@ -14,11 +14,13 @@ public sealed class KotorNode
     public Quaternion Orientation { get; }
     /// <summary>Non nul si Kind contient Mesh (y compris Skin, Dangly, Aabb).</summary>
     public KotorMesh? Mesh { get; }
+    /// <summary>Non nul si Kind contient Light.</summary>
+    public KotorLight? Light { get; }
     public IReadOnlyList<KotorNode> Children => _children;
 
-    public KotorNode(string name, NodeKind kind, Vector3 position, Quaternion orientation, KotorMesh? mesh)
+    public KotorNode(string name, NodeKind kind, Vector3 position, Quaternion orientation, KotorMesh? mesh, KotorLight? light = null)
     {
-        Name = name; Kind = kind; Position = position; Orientation = orientation; Mesh = mesh;
+        Name = name; Kind = kind; Position = position; Orientation = orientation; Mesh = mesh; Light = light;
     }
 
     internal void AddChild(KotorNode child) => _children.Add(child);

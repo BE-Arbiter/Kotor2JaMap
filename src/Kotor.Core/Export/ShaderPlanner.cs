@@ -20,8 +20,10 @@ public static class ShaderPlanner
         ArgumentNullException.ThrowIfNull(mesh);
         string tex = mesh.Texture;
         string? lm = mesh.Lightmap;
-        bool alpha = texture?.HasAlpha == true;
+        // With an environment map (envmaptexture / bumpyshinytexture) the alpha channel is the reflection mask, not transparency,
+        // unless the TXI explicitly asks for punchthrough or a decal.
         bool punch = mesh.Txi.Blending == "punchthrough";
+        bool alpha = texture?.HasAlpha == true && (mesh.Txi.EnvMapTexture is null || punch || mesh.Txi.Decal);
         string plain = ShaderNames.Prefix + tex;
         string lit = lm is null ? plain : plain + "__" + lm;
 
@@ -40,6 +42,8 @@ public static class ShaderPlanner
         string lmMap = s.Lightmap is null ? "" : "map " + ShaderNames.LightmapPrefix + s.Lightmap + ".tga";
         var b = new StringBuilder();
         b.Append(s.Name).Append("\n{\n");
+        // The lightmap atlases are tiny: no reduction and no mipmaps (rd-vulkan tr_shader.cpp ParseShader: nomipmaps / nopicmip).
+        if (s.Kind is ShaderKind.Lightmapped or ShaderKind.LightmappedCutout) b.Append("\tnopicmip\n\tnomipmaps\n");
         switch (s.Kind)
         {
             case ShaderKind.Lightmapped:

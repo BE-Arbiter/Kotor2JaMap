@@ -173,9 +173,18 @@ public static class ModuleExporter
         // Un point de depart deathmatch pour que devmap fonctionne aussi en mode FFA.
         entities.Add(new Dictionary<string, string> { ["classname"] = "info_player_deathmatch", ["origin"] = originText, ["angle"] = angle });
 
+        // KOTOR lighting for the surfaces without lightmap: zone ambient + room light nodes, in JA units. No light = faux sun as before.
+        var lights = scene.Lights
+            .Where(l => l.Radius > 0f)
+            .Select(l => new PointLight(l.Position * scale, l.Color, l.Radius * scale, l.Multiplier))
+            .ToList();
+        VertexLighting lighting = lights.Count > 0
+            ? VertexLighting.Default with { Ambient = scene.AmbientColor }
+            : VertexLighting.Default;
+
         var input = new CompileInput(name, entities, surfaces,
             new ModelMesh { Name = "solid", SubMeshes = solid }, new ModelMesh { Name = "walkable", SubMeshes = walkable },
-            JaDefaults.SkyShader, VertexLighting.Default);
+            JaDefaults.SkyShader, lighting, lights);
         return new ExportPlan(input, [.. shaders.Values], [.. textures.Values], meshCount, (int)triangles, missing.Count);
     }
 

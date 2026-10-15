@@ -100,7 +100,7 @@ public static class Compiler
 
                     // Tout est construit en memoire : en cas de depassement, aucun fichier n'est ecrit.
                     ms.SetLength(0);
-                    BspWriter.Write(tree, ms, entityLump, limits, surfaces, input.Lighting, GlobalFog.FromWorldspawn(world, input.MapName));
+                    BspWriter.Write(tree, ms, entityLump, limits, surfaces, EffectiveLighting(input), GlobalFog.FromWorldspawn(world, input.MapName));
                     break;
                 }
                 catch (BspLimitException bx) when (bx.CollisionRelated && attempt < MaxShrinkAttempts && (solidKeep > 0 || walkKeep > 0))
@@ -136,6 +136,10 @@ public static class Compiler
         if (error is not null) log.Warn("BSP_ERROR", error);
         return new CompileResult(error is null, warnings, error);
     }
+
+    /// <summary>With point lights the lighting is the KOTOR mode (ambient of <c>Lighting</c> plus the lights, no sun); otherwise unchanged.</summary>
+    public static VertexLighting EffectiveLighting(CompileInput input) =>
+        input.Lights is { Count: > 0 } l ? VertexLighting.ForKotor(input.Lighting.Ambient, l, input.Lighting.OverbrightShift) : input.Lighting;
 
     /// <summary>
     /// Plafonne la collision solide selon le budget restant (brushes, cotes de brush, plans) : les polygones de plus petite

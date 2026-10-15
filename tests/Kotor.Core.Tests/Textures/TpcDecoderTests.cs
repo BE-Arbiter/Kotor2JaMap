@@ -61,4 +61,18 @@ public class TpcDecoderTests
         Assert.Equal((4, 4), (tex.Width, tex.Height));
         Assert.True(tex.Txi.Raw.ContainsKey("cube"));
     }
+
+    [Fact]
+    public void Dxt5_opaque_has_no_alpha()
+    {
+        // One 4x4 DXT5 block: alpha0 = alpha1 = 255, indices 0 (all alpha 255), colour block c0 = c1 = 0.
+        byte[] block = new byte[16];
+        block[0] = 255; block[1] = 255;
+        var tex = TpcDecoder.Decode(Tpc(16, 4, 4, 4, 1, block));
+        Assert.False(tex.HasAlpha);
+        Assert.All(Enumerable.Range(0, 16), i => Assert.Equal(255, tex.Rgba[i * 4 + 3]));
+
+        block[0] = 100; block[1] = 100; // alpha 100 everywhere
+        Assert.True(TpcDecoder.Decode(Tpc(16, 4, 4, 4, 1, block)).HasAlpha);
+    }
 }

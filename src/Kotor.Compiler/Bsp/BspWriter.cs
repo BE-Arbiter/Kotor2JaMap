@@ -259,7 +259,7 @@ public static class BspWriter
                     for (int k = 2; k < 8; k++) w.Write(0f);
                     Vec(w, sf.Normals[i]);
                     // couleurs[4][4] : style 0. Lightmap : blanc (l'eclairage vient de la lightmap via le shader) ; ciel : blanc ; sinon eclairage cuit.
-                    byte[] rgba = sf.Sky || sf.LightmapUvs is not null ? [255, 255, 255, 255] : lighting.Evaluate(sf.Normals[i], sf.DoubleSided);
+                    byte[] rgba = sf.Sky || sf.LightmapUvs is not null ? [255, 255, 255, 255] : lighting.Evaluate(sf.Positions[i], sf.Normals[i], sf.DoubleSided);
                     w.Write(rgba);
                     for (int k = 4; k < 16; k++) w.Write((byte)255);
                 }

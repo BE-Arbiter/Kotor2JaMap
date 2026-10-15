@@ -64,7 +64,7 @@ public static class TpcDecoder
         byte[] rgba;
         bool hasAlpha;
         if (blockBytes == 8) { rgba = DxtDecoder.DecodeDxt1(data, w, faceH); hasAlpha = AnyTransparent(rgba); }
-        else if (blockBytes == 16) { rgba = DxtDecoder.DecodeDxt5(data, w, faceH); hasAlpha = true; }
+        else if (blockBytes == 16) { rgba = DxtDecoder.DecodeDxt5(data, w, faceH); hasAlpha = AnyTransparent(rgba); }
         else
         {
             rgba = new byte[checked(w * faceH * 4)];
@@ -77,7 +77,7 @@ public static class TpcDecoder
                     default: Buffer.BlockCopy(tpc, HeaderSize + i * 4, rgba, i * 4, 4); break;
                 }
             }
-            hasAlpha = bpp == 4;
+            hasAlpha = bpp == 4 && AnyTransparent(rgba);
         }
 
         if (StoredBottomUp) FlipRows(rgba, w, faceH);

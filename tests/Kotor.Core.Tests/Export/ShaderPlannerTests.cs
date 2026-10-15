@@ -51,7 +51,7 @@ public class ShaderPlannerTests
     public void Lightmapped_shader_text_is_exact()
     {
         string expected =
-            "textures/kotor/a__b\n{\n\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\trgbGen identity\n\t}\n" +
+            "textures/kotor/a__b\n{\n\tnopicmip\n\tnomipmaps\n\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\trgbGen identity\n\t}\n" +
             "\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\trgbGen identity\n\t}\n}\n";
         Assert.Equal(expected, ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", ShaderKind.Lightmapped, "a", "b")));
     }
@@ -60,7 +60,7 @@ public class ShaderPlannerTests
     public void Other_shader_texts_are_exact()
     {
         Assert.Equal(
-            "textures/kotor/a__b\n{\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\talphaFunc GE128\n\t\tdepthWrite\n\t\trgbGen identity\n\t}\n" +
+            "textures/kotor/a__b\n{\n\tnopicmip\n\tnomipmaps\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\talphaFunc GE128\n\t\tdepthWrite\n\t\trgbGen identity\n\t}\n" +
             "\t{\n\t\tmap textures/kotor/lm/b.tga\n\t\ttcGen lightmap\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\tdepthFunc equal\n\t\trgbGen identity\n\t}\n}\n",
             ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", ShaderKind.LightmappedCutout, "a", "b")));
         Assert.Equal(
@@ -72,5 +72,39 @@ public class ShaderPlannerTests
         Assert.Equal(
             "textures/kotor/a\n{\n\t{\n\t\tmap textures/kotor/a.tga\n\t\trgbGen vertex\n\t}\n}\n",
             ShaderPlanner.Write(new PlannedShader("textures/kotor/a", ShaderKind.Unlit, "a", null)));
+    }
+
+    private static SceneMesh EnvMesh(string blending = "default", string extra = "") =>
+        new("r", "n", "a", "b", TxiInfo.Parse($"envmaptexture cm_x\nblending {blending}\n{extra}"), 0, [Vector3.Zero], [Vector3.UnitZ],
+            [Vector2.Zero], [Vector2.Zero], [0, 0, 0]);
+
+    [Fact]
+    public void Envmap_alpha_is_not_cutout()
+    {
+        Assert.Equal(ShaderKind.Lightmapped, ShaderPlanner.Plan(EnvMesh(), Tex(true)).Kind);
+    }
+
+    [Fact]
+    public void Punchthrough_still_cutout()
+    {
+        Assert.Equal(ShaderKind.LightmappedCutout, ShaderPlanner.Plan(EnvMesh("punchthrough"), Tex(true)).Kind);
+    }
+
+    [Fact]
+    public void Envmap_with_decal_keeps_alpha()
+    {
+        Assert.Equal(ShaderKind.LightmappedCutout, ShaderPlanner.Plan(EnvMesh(extra: "decal 1"), Tex(true)).Kind);
+    }
+
+    [Fact]
+    public void Lightmapped_shader_has_nopicmip()
+    {
+        foreach (var kind in new[] { ShaderKind.Lightmapped, ShaderKind.LightmappedCutout })
+        {
+            string text = ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", kind, "a", "b"));
+            Assert.Contains("\tnopicmip\n", text);
+            Assert.Contains("\tnomipmaps\n", text);
+        }
+        Assert.DoesNotContain("nopicmip", ShaderPlanner.Write(new PlannedShader("textures/kotor/a", ShaderKind.Unlit, "a", null)));
     }
 }

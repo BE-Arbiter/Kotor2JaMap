@@ -96,7 +96,8 @@ public static class MdlReader
         int dataOff = c.Off(b + NodeCtrlData, "donnees de controleurs");
         int dataCount = c.Count(b + NodeCtrlData + 4, "nombre de donnees de controleurs");
 
-        ReadControllers(c, keyOff, keyCount, dataOff, dataCount, ref pos, ref rot);
+        var lv = (kind & NodeKind.Light) != 0 ? new LightValues() : null;
+        ReadControllers(c, keyOff, keyCount, dataOff, dataCount, ref pos, ref rot, lv);
 
         KotorMesh? mesh = null;
         if ((kind & NodeKind.Mesh) != 0)
@@ -108,7 +109,10 @@ public static class MdlReader
             mesh = ReadMesh(c, b + NodeHeaderSize);
         }
 
-        var node = new KotorNode(name, kind, pos, rot, mesh);
+        KotorLight? light = lv is null ? null : new KotorLight(
+            lv.Color ?? Vector3.One, lv.Radius ?? DefaultLightRadius, lv.Multiplier ?? 1f,
+            lv.Color is null || lv.Radius is null || lv.Multiplier is null);
+        var node = new KotorNode(name, kind, pos, rot, mesh, light);
         c.Need(FileHeader + childOff, childCount * 4L, "enfants de " + name);
         for (int i = 0; i < childCount; i++)
         {
@@ -118,8 +122,15 @@ public static class MdlReader
         return node;
     }
 
+    /// <summary>Default radius (metres) of a light node without a radius controller.</summary>
+    public const float DefaultLightRadius = 5f;
+    // Light controllers (xoreos kControllerTypeColor/Radius/Multiplier). Only meaningful on Light nodes (88 and 140 collide with emitter controllers).
+    private const uint CtrlLightColor = 76, CtrlLightRadius = 88, CtrlLightMultiplier = 140;
+
+    private sealed class LightValues { public Vector3? Color; public float? Radius; public float? Multiplier; }
+
     private static void ReadControllers(Ctx c, int keyOff, int keyCount, int dataOff, int dataCount,
-        ref Vector3 pos, ref Quaternion rot)
+        ref Vector3 pos, ref Quaternion rot, LightValues? light)
     {
         if (keyCount == 0) return;
         c.Need(FileHeader + keyOff, keyCount * 16L, "controleurs");
@@ -131,8 +142,19 @@ public static class MdlReader
             uint type = c.U32(k);
             int rows = c.U16(k + 6), timeIdx = c.U16(k + 8), valIdx = c.U16(k + 10);
             int cols = c.Bytes[k + 12];
-            if (type != 8 && type != 20) continue;
             if (rows == 0) continue;
+            if (light is not null && type is CtrlLightColor or CtrlLightRadius or CtrlLightMultiplier)
+            {
+                int n = type == CtrlLightColor ? 3 : 1;
+                if ((cols & 0xF) < n) continue;
+                if (valIdx + (long)n > dataCount) throw c.Bad($"controleur de lumiere {type} hors limites");
+                int o = d0 + valIdx * 4;
+                if (type == CtrlLightColor) light.Color = new Vector3(c.F32(o), c.F32(o + 4), c.F32(o + 8));
+                else if (type == CtrlLightRadius) light.Radius = c.F32(o);
+                else light.Multiplier = c.F32(o);
+                continue;
+            }
+            if (type != 8 && type != 20) continue;
             // Premiere image cle uniquement.
             int nVals = type == 20 && cols == 2 ? 1 : (cols & 0xF);
             if (valIdx + (long)nVals > dataCount || timeIdx + 1L > dataCount)

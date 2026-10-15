@@ -207,7 +207,7 @@ public class ModuleEntitiesReaderTests
         Assert.True(ents.Count(e => e.Kind == EntityKind.Waypoint) >= 1);
 
         int expectedLights = sceneLog.Warnings.Where(w => w.Code == "NODE_LIGHT")
-            .Sum(w => int.Parse(Regex.Match(w.Message, @": (\d+) noeud").Groups[1].Value));
+            .Sum(w => int.Parse(Regex.Match(w.Message, @": (\d+) light node").Groups[1].Value));
         Assert.Equal(71, expectedLights); // somme du journal de la phase 1
         Assert.Equal(expectedLights, ents.Count(e => e.Kind == EntityKind.Light));
 

@@ -225,4 +225,47 @@ public class ModuleSceneBuilderTests
         var w = Assert.Single(log.Warnings, w => w.Code == "SURFACEMAT_UNKNOWN");
         Assert.Contains("1 triangle", w.Message);
     }
+
+    [Fact]
+    public void Ambient_colour_is_read_as_bgr()
+    {
+        var c = ModuleSceneBuilder.FromBgr(0x00FF8040u); // B = 0xFF, G = 0x80, R = 0x40
+        Assert.Equal(0x40 / 255f, c.X);
+        Assert.Equal(0x80 / 255f, c.Y);
+        Assert.Equal(1f, c.Z);
+    }
+
+    [SkippableFact]
+    public void Real_ebo_m41aa_no_invalid_lightmap_texel()
+    {
+        Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
+        using var res = ResourceResolver.ForModule(TestEnv.KotorDir!, "ebo_m41aa");
+        var log = new ImportLog();
+        var scene = ModuleSceneBuilder.Build(res, "ebo_m41aa", null, log);
+        var lightmaps = scene.Meshes.Where(m => m.Lightmap is not null).Select(m => m.Lightmap!).Distinct().ToList();
+        Assert.NotEmpty(lightmaps);
+        foreach (string name in lightmaps)
+        {
+            var lm = scene.Textures[name];
+            Assert.NotNull(lm);
+            for (int i = 3; i < lm!.Rgba.Length; i += 4) Assert.Equal(255, lm.Rgba[i]);
+        }
+        Assert.Contains(log.Warnings, w => w.Code == "LIGHTMAP_REPAIRED");
+    }
+
+    [SkippableFact]
+    public void Real_tar_m02aa_lights_read()
+    {
+        Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
+        var (scene, log, _) = LoadReal();
+        Assert.Equal(71, scene.Lights.Count);
+        Assert.All(scene.Lights, l =>
+        {
+            Assert.True(l.Radius > 0f);
+            Assert.InRange(l.Color.X, 0f, 1f); Assert.InRange(l.Color.Y, 0f, 1f); Assert.InRange(l.Color.Z, 0f, 1f);
+            Assert.True(float.IsFinite(l.Position.X + l.Position.Y + l.Position.Z));
+            Assert.True(l.Multiplier > 0f);
+        });
+        Assert.InRange(scene.AmbientColor.X, 0f, 1f);
+    }
 }

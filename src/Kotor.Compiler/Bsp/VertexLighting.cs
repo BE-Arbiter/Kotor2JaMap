@@ -47,13 +47,42 @@ public sealed record VertexLighting(Vector3 SunDir, Vector3 Sun, Vector3 Ambient
     /// Double face (<c>cull disable</c>, feuillage decoupe) : <c>abs(n . -dir)</c>, car la face vue peut etre l'envers de la normale ;
     /// sans cela une feuille serait noire (ambiante seule) d'un cote et claire de l'autre selon l'orientation du maillage.
     /// </summary>
-    public byte[] Evaluate(Vector3 normal, bool doubleSided = false)
+    public byte[] Evaluate(Vector3 normal, bool doubleSided = false) => Evaluate(Vector3.Zero, normal, doubleSided);
+
+    /// <summary>
+    /// Same as <see cref="Evaluate(Vector3, bool)"/> for a vertex at <paramref name="position"/>: the point lights are added
+    /// (linear attenuation <c>1 - d/radius</c>, no shadow; <c>n . l</c> clamped for single-sided faces, <c>|n . l|</c> for double-sided ones).
+    /// </summary>
+    public byte[] Evaluate(Vector3 position, Vector3 normal, bool doubleSided = false)
     {
-        float ndl = normal.LengthSquared() > 0 ? Vector3.Dot(Vector3.Normalize(normal), -SunDir) : 0f;
+        Vector3 n = normal.LengthSquared() > 0 ? Vector3.Normalize(normal) : Vector3.Zero;
+        float ndl = Vector3.Dot(n, -SunDir);
         float k = doubleSided ? MathF.Abs(ndl) : MathF.Max(0f, ndl);
-        Vector3 c = Vector3.Clamp(Ambient + Sun * k, Vector3.Zero, Vector3.One) / (1 << OverbrightShift);
+        Vector3 total = Ambient + Sun * k;
+        foreach (PointLight l in Lights)
+        {
+            if (l.Radius <= 0f) continue;
+            Vector3 toLight = l.Position - position;
+            float d = toLight.Length();
+            if (d >= l.Radius) continue;
+            float att = 1f - d / l.Radius;
+            float facing = d < 1e-4f ? 1f : Vector3.Dot(n, toLight / d);
+            facing = doubleSided ? MathF.Abs(facing) : MathF.Max(0f, facing);
+            total += l.Color * (l.Multiplier * att * facing);
+        }
+        Vector3 c = Vector3.Clamp(total, Vector3.Zero, Vector3.One) / (1 << OverbrightShift);
         return [ToByte(c.X), ToByte(c.Y), ToByte(c.Z), 255];
     }
+
+    /// <summary>Point lights added to the ambient term (empty = sun and ambient only).</summary>
+    public IReadOnlyList<PointLight> Lights { get; init; } = Array.Empty<PointLight>();
+
+    /// <summary>
+    /// KOTOR mode: the zone ambient plus the point lights of the rooms, no sun. The sky-less faux sun of the JA defaults is
+    /// replaced by the lights of the original module.
+    /// </summary>
+    public static VertexLighting ForKotor(Vector3 ambient, IReadOnlyList<PointLight> lights, int shift = DefaultOverbrightShift) =>
+        new(Vector3.Normalize(JaDefaults.SunDir), Vector3.Zero, ambient, shift) { Lights = lights };
 
     private static byte ToByte(float f) => (byte)Math.Clamp((int)MathF.Round(f * 255f), 0, 255);
 

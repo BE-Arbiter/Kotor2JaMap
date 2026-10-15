@@ -11,4 +11,5 @@ public sealed record SurfaceInput(string Shader, Vector3[] Positions, Vector3[] 
 
 /// <summary>Scène complète en mémoire, en unités JA. <c>Entities</c>[0] est le worldspawn.</summary>
 public sealed record CompileInput(string MapName, IReadOnlyList<IReadOnlyDictionary<string, string>> Entities,
-    IReadOnlyList<SurfaceInput> Surfaces, ModelMesh Solid, ModelMesh Walkable, string SkyShader, VertexLighting Lighting);
+    IReadOnlyList<SurfaceInput> Surfaces, ModelMesh Solid, ModelMesh Walkable, string SkyShader, VertexLighting Lighting,
+    IReadOnlyList<PointLight>? Lights = null);
