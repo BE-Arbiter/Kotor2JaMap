@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text;
 using Kotor.Core;
 using Kotor.Core.Archives;
@@ -8,6 +9,7 @@ using Kotor.Core.Layout;
 using Kotor.Core.Modules;
 using Kotor.Core.Scene;
 using Kotor.Core.Tlk;
+using Kotor.Pipeline.Assembly;
 using Kotor.Pipeline.Preview;
 
 namespace Kotor.Pipeline.Workflow;
@@ -68,7 +70,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             IReadOnlyList<ModuleEntity> entities = ReadEntities(opt, scene, module, log);
             PreviewModel model = PreviewBuilder.FromScene(scene, opt.Scale);
             _opt = opt;
-            _scene = scene; _imported = null; _exported = null; _importModel = null;
+            _scene = scene; Assembly = null; _imported = null; _exported = null; _importModel = null;
             _entities = entities;
             progress.Report($"Preview: {scene.Meshes.Count} mesh(es), {model.TriangleCount} triangle(s), {entities.Count} entity(ies).");
             return model;
@@ -76,9 +78,103 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         finally { Flush(log, progress); }
     }
 
+    public AssemblySession? Assembly { get; private set; }
+    private ImportLog _frameLog = new();   // journal recevant les avertissements des cadres de porte pendant Build
+    private readonly Dictionary<(string Module, string Door, Vector3 Pos), DoorFrame?> _frames = [];
+
+    public PreviewModel Preview(KotorGame game, IReadOnlyList<string> modules, IProgress<string> progress)
+    {
+        ArgumentNullException.ThrowIfNull(modules);
+        if (modules.Count == 0) throw new ArgumentException("At least one module is required.", nameof(modules));
+        if (modules.Count == 1) return Preview(game, modules[0], progress);
+        _frames.Clear();
+        var log = new ImportLog();
+        try
+        {
+            ExportOptions opt = _base.ForGame(game);
+            if (!IsInstalled(game))
+                throw new PipelineStepException("GAME_NOT_FOUND", $"{KotorGames.DisplayName(game)} folder not found: {opt.KotorDir}");
+            var known = ModuleCatalog.ListModuleNames(opt.KotorDir).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (string m in modules)
+                if (!known.Contains(m))
+                    throw new PipelineStepException("ASSEMBLY_MIXED_GAMES",
+                        $"Module '{m}' does not belong to {KotorGames.DisplayName(game)}: modules of different games cannot be assembled.");
+            if (modules.Select(m => m.ToLowerInvariant()).Distinct().Count() != modules.Count)
+                throw new PipelineStepException("ASSEMBLY_DUPLICATE_MODULE", "The same module cannot be selected twice.");
+
+            var parts = new List<AssemblyPart>(modules.Count);
+            foreach (string m in modules)
+            {
+                ModuleScene scene = PipelineSteps.Preview(m, opt, log);
+                parts.Add(new AssemblyPart(scene, ReadEntities(opt, scene, m, log)));
+            }
+            IReadOnlyList<DoorLink> links = TransitionLinks.Find(parts, log);
+            var session = new AssemblySession([.. modules], parts, links, (part, door) => FrameOf(opt, part, door));
+            PreviewModel model = BuildAssembled(session, opt, log);
+            _opt = opt;
+            Assembly = session;
+            _imported = null; _exported = null; _importModel = null;
+            progress.Report($"Preview: {modules.Count} modules, {session.AutoLinks.Count} link(s), {session.UnlinkedGroups.Count} unlinked group(s), {model.TriangleCount} triangle(s).");
+            return model;
+        }
+        finally { Flush(log, progress); }
+    }
+
+    public PreviewModel ApplyAssembly(IProgress<string> progress)
+    {
+        AssemblySession session = Assembly ?? throw new InvalidOperationException("Preview an assembly first.");
+        var log = new ImportLog();
+        try
+        {
+            PreviewModel model = BuildAssembled(session, _opt, log);
+            _imported = null; _exported = null; _importModel = null;
+            progress.Report($"Assembly: {session.Modules.Count} modules, {session.UnlinkedGroups.Count} unlinked group(s), {model.TriangleCount} triangle(s).");
+            return model;
+        }
+        finally { Flush(log, progress); }
+    }
+
+    /// <summary>Assemble, retient la scene et les entites (repere assemble) et fabrique l'apercu avec les reperes de toutes les parties.</summary>
+    private PreviewModel BuildAssembled(AssemblySession session, ExportOptions opt, ImportLog log)
+    {
+        _frameLog = log;
+        AssemblyResult result = session.Build(log);
+        var entities = result.EntitiesByPart.OrderBy(kv => kv.Key).SelectMany(kv => kv.Value).ToList();
+        PreviewModel model = PreviewBuilder.FromScene(result.Scene, opt.Scale);
+        model = model with
+        {
+            Markers = [.. entities.Select(e => new PreviewMarker(e.Kind, e.Name, e.Position * opt.Scale, e.Yaw, e.Polygon?.Select(p => p * opt.Scale).ToArray()))],
+        };
+        _scene = result.Scene;
+        _entities = entities;
+        return model;
+    }
+
+    /// <summary>Cadre d'une porte (modele de porte du jeu), mis en cache ; null (cadre par defaut) si le modele est introuvable.</summary>
+    private DoorFrame? FrameOf(ExportOptions opt, AssemblyPart part, ModuleEntity door)
+    {
+        string module = part.Scene.Info.Module;
+        var key = (module.ToLowerInvariant(), door.Name, door.Position);
+        if (_frames.TryGetValue(key, out DoorFrame? cached)) return cached;
+        DoorFrame? frame = null;
+        try
+        {
+            using var res = ResourceResolver.ForModule(opt.KotorDir, module.ToLowerInvariant(), opt.Game);
+            frame = DoorFrames.Of(res, opt.Game, door, _frameLog);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            _frameLog.Warn("LINK_DOOR_MODEL_MISSING", $"Door '{door.Name}': {ex.Message}; the default door size is used.");
+        }
+        _frames[key] = frame;
+        return frame;
+    }
+
     public PreviewModel Import(IProgress<string> progress)
     {
         ModuleScene scene = _scene ?? throw new InvalidOperationException("Preview first.");
+        if (Assembly is { IsComplete: false })
+            throw new PipelineStepException("ASSEMBLY_NOT_LINKED", "The modules are not all linked: link every group before importing.");
         var log = new ImportLog();
         try
         {

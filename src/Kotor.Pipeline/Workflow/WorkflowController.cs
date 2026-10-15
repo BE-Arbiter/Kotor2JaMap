@@ -14,6 +14,7 @@ public sealed class WorkflowController
     private readonly ConcurrentQueue<string> _log = new();
     private readonly IWorkflowSteps _steps;
     private string? _module;
+    private IReadOnlyList<string> _modules = [];
     private KotorGame _game;
     private WorkflowStage _stage;
     private bool _busy;
@@ -52,16 +53,40 @@ public sealed class WorkflowController
         }
     }
 
-    public bool CanNext { get { lock (_gate) return !_busy && _stage is WorkflowStage.Previewed or WorkflowStage.Imported or WorkflowStage.Exported; } }
+    /// <summary>Modules selectionnes (un seul hors assemblage) ; le premier est aussi <see cref="SelectedModule"/>.</summary>
+    public IReadOnlyList<string> SelectedModules { get { lock (_gate) return _modules; } }
+
+    /// <summary>Vrai tant que l'assemblage a des groupes de modules non relies : <see cref="CanNext"/> reste faux.</summary>
+    public bool NeedsLinking { get { lock (_gate) return NeedsLinkingLocked(); } }
+
+    private bool NeedsLinkingLocked() =>
+        _modules.Count > 1 && _stage != WorkflowStage.None && _steps.Assembly is { IsComplete: false };
+
+    public bool CanNext { get { lock (_gate) return !_busy && !NeedsLinkingLocked() && _stage is WorkflowStage.Previewed or WorkflowStage.Imported or WorkflowStage.Exported; } }
 
     /// <summary>Refuse (false) pendant une etape ; sinon retient le jeu et le module et remet le deroule a <see cref="WorkflowStage.None"/>.</summary>
-    public bool SelectModule(KotorGame game, string module)
+    public bool SelectModule(KotorGame game, string module) => SelectModules(game, [module]);
+
+    /// <summary>Comme <see cref="SelectModule"/> pour plusieurs modules assembles ; un seul jeu (<c>ASSEMBLY_MIXED_GAMES</c> sinon).</summary>
+    public bool SelectModules(IReadOnlyList<ModuleListItem> items)
     {
+        ArgumentNullException.ThrowIfNull(items);
+        if (items.Count == 0) return false;
+        if (items.Any(i => i.Game != items[0].Game))
+            throw new PipelineStepException("ASSEMBLY_MIXED_GAMES", "Modules of different games cannot be assembled: select modules of a single game.");
+        return SelectModules(items[0].Game, items.Select(i => i.Module).ToList());
+    }
+
+    public bool SelectModules(KotorGame game, IReadOnlyList<string> modules)
+    {
+        ArgumentNullException.ThrowIfNull(modules);
+        if (modules.Count == 0) return false;
         lock (_gate)
         {
             if (_busy) return false;
             _game = game;
-            _module = module;
+            _modules = [.. modules];
+            _module = modules[0];
             ResetLocked();
             return true;
         }
@@ -90,8 +115,18 @@ public sealed class WorkflowController
 
     public Task PreviewAsync()
     {
+        IReadOnlyList<string> modules;
+        lock (_gate) modules = _modules;
         return Run(canRun: () => _module is not null,
-        run: (game, module, progress) => (WorkflowStage.Previewed, _steps.Preview(game, module!, progress)));
+        run: (game, module, progress) => (WorkflowStage.Previewed,
+            modules.Count > 1 ? _steps.Preview(game, modules, progress) : _steps.Preview(game, module!, progress)));
+    }
+
+    /// <summary>Reconstruit l'apercu apres l'edition de l'assemblage ; les etapes suivantes sont a refaire.</summary>
+    public Task ApplyAssemblyAsync()
+    {
+        return Run(canRun: () => _modules.Count > 1 && _stage != WorkflowStage.None,
+            run: (_, _, progress) => (WorkflowStage.Previewed, _steps.ApplyAssembly(progress)));
     }
 
     public Task NextAsync()
@@ -100,7 +135,7 @@ public sealed class WorkflowController
         lock (_gate) stage = _stage;
         return stage switch
         {
-            WorkflowStage.Previewed => Run(() => _stage == WorkflowStage.Previewed,
+            WorkflowStage.Previewed => Run(() => _stage == WorkflowStage.Previewed && !NeedsLinkingLocked(),
                 (_, _, p) => (WorkflowStage.Imported, _steps.Import(p))),
             WorkflowStage.Imported => Run(() => _stage == WorkflowStage.Imported,
                 (_, _, p) => (WorkflowStage.Exported, _steps.Export(p))),

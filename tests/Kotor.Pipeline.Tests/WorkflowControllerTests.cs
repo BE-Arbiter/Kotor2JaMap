@@ -1,7 +1,11 @@
 using System.Numerics;
 using Kotor.Core;
 using Kotor.Core.Export;
+using Kotor.Core.Entities;
+using Kotor.Core.Modules;
+using Kotor.Core.Scene;
 using Kotor.Pipeline;
+using Kotor.Pipeline.Assembly;
 using Kotor.Pipeline.Preview;
 using Kotor.Pipeline.Workflow;
 
@@ -20,11 +24,148 @@ public sealed class WorkflowControllerTests
         public Func<PreviewModel> OnImport = Model;
         public Func<PreviewModel> OnExport = Model;
         public Func<string> OnPack = () => "x.pk3";
+        public List<IReadOnlyList<string>> PreviewedModules = [];
+        public AssemblySession? Session;
+        public Func<PreviewModel> OnApply = Model;
+        public AssemblySession? Assembly => Session;
+        public PreviewModel Preview(KotorGame game, IReadOnlyList<string> modules, IProgress<string> log)
+        {
+            PreviewedModules.Add(modules);
+            return Preview(game, modules[0], log);
+        }
+        public PreviewModel ApplyAssembly(IProgress<string> log) => OnApply();
         public IReadOnlyList<ModuleListItem> Modules() => [new(KotorGame.Kotor1, "m1", "One"), new(KotorGame.Kotor1, "m2", "Two")];
         public PreviewModel Preview(KotorGame game, string module, IProgress<string> log) { OnPreviewGame?.Invoke(game); return OnPreview(); }
         public PreviewModel Import(IProgress<string> log) => OnImport();
         public PreviewModel Export(IProgress<string> log) => OnExport();
         public string CreatePk3(IProgress<string> log) => OnPack();
+    }
+
+    private static AssemblySession TwoUnlinkedParts(out ModuleEntity d1, out ModuleEntity d2)
+    {
+        d1 = new ModuleEntity(EntityKind.Door, "d1", "", new Vector3(10, 0, 0), 0f, null);
+        d2 = new ModuleEntity(EntityKind.Door, "d2", "", new Vector3(0, 5, 0), 0f, null);
+        AssemblyPart P(string m, ModuleEntity d) => new(new ModuleScene(new ModuleInfo(m, m, m, new ModuleEntry(Vector3.Zero, Vector2.UnitY)), [], [],
+            new Dictionary<string, Kotor.Core.Textures.KotorTexture?>()), [d]);
+        return new AssemblySession(["m1", "m2"], [P("m1", d1), P("m2", d2)], [], (_, d) => DoorFrames.DefaultFrame(d));
+    }
+
+    [Fact]
+    public async Task SelectModules_keeps_the_list_and_resets()
+    {
+        var f = new FakeSteps();
+        var c = await ToStage(f, 1);
+        Assert.True(c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]));
+        Assert.Equal(["m1", "m2"], c.SelectedModules);
+        Assert.Equal("m1", c.SelectedModule);
+        Assert.Equal(WorkflowStage.None, c.Stage);
+        f.PreviewedModules.Clear();
+        await c.PreviewAsync();
+        Assert.Equal(["m1", "m2"], Assert.Single(f.PreviewedModules));
+    }
+
+    [Fact]
+    public void SelectModule_is_the_single_module_case()
+    {
+        var c = new WorkflowController(new FakeSteps());
+        c.SelectModule(KotorGame.Kotor1, "m2");
+        Assert.Equal(["m2"], c.SelectedModules);
+        Assert.False(c.NeedsLinking);
+    }
+
+    [Fact]
+    public async Task SelectModules_refused_while_busy_and_when_empty()
+    {
+        var gate = new TaskCompletionSource();
+        var started = new TaskCompletionSource();
+        var f = new FakeSteps();
+        var c = await ToStage(f, 1);
+        Assert.False(c.SelectModules(KotorGame.Kotor1, []));
+        f.OnImport = () => { started.SetResult(); gate.Task.Wait(); return Model(); };
+        Task t = c.NextAsync();
+        await started.Task;
+        Assert.False(c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]));
+        gate.SetResult();
+        await t;
+    }
+
+    [Fact]
+    public void SelectModules_of_different_games_is_refused()
+    {
+        var c = new WorkflowController(new FakeSteps());
+        var ex = Assert.Throws<PipelineStepException>(() => c.SelectModules(
+            [new(KotorGame.Kotor1, "m1", "One"), new(KotorGame.Kotor2, "m2", "Two")]));
+        Assert.Equal("ASSEMBLY_MIXED_GAMES", ex.Code);
+        Assert.True(c.SelectModules([new(KotorGame.Kotor2, "m1", "One"), new(KotorGame.Kotor2, "m2", "Two")]));
+        Assert.Equal(KotorGame.Kotor2, c.SelectedGame);
+        Assert.Equal(["m1", "m2"], c.SelectedModules);
+    }
+
+    [Fact]
+    public async Task NeedsLinking_blocks_Next_until_the_assembly_is_applied()
+    {
+        var f = new FakeSteps { Session = TwoUnlinkedParts(out var d1, out var d2) };
+        var applied = 0;
+        f.OnApply = () => { applied++; f.Session!.SetManualJunction(0, d1, 1, d2); return Model(); };
+        var c = new WorkflowController(f);
+        c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]);
+        await c.PreviewAsync();
+        Assert.Equal(WorkflowStage.Previewed, c.Stage);
+        Assert.True(c.NeedsLinking);
+        Assert.False(c.CanNext);
+        await c.NextAsync();
+        Assert.Equal(WorkflowStage.Previewed, c.Stage); // Next refuse
+
+        await c.ApplyAssemblyAsync();
+        Assert.Equal(1, applied);
+        Assert.False(c.NeedsLinking);
+        Assert.True(c.CanNext);
+        await c.NextAsync();
+        Assert.Equal(WorkflowStage.Imported, c.Stage);
+    }
+
+    [Fact]
+    public async Task ApplyAssembly_failure_is_logged_and_keeps_the_stage()
+    {
+        var f = new FakeSteps { Session = TwoUnlinkedParts(out _, out _), OnApply = () => throw new PipelineStepException("ASSEMBLY_X", "boum") };
+        var c = new WorkflowController(f);
+        c.SelectModules(KotorGame.Kotor1, ["m1", "m2"]);
+        await c.PreviewAsync();
+        await c.ApplyAssemblyAsync();
+        Assert.Equal(WorkflowStage.Previewed, c.Stage);
+        Assert.Contains("ASSEMBLY_X", c.LastError);
+    }
+
+    [SkippableFact]
+    public void Real_two_modules_preview_gives_an_assembly()
+    {
+        Skip.If(TestEnv.KotorDir is null, "KOTOR introuvable");
+        var steps = new KotorWorkflowSteps(new ExportOptions(TestEnv.KotorDir!, "b", "w"));
+        var names = steps.Modules().Where(m => m.Game == KotorGame.Kotor1).Select(m => m.Module).ToHashSet();
+        Skip.If(!names.Contains("tar_m02aa") || !names.Contains("tar_m02ab"), "modules absents");
+        PreviewModel model = steps.Preview(KotorGame.Kotor1, ["tar_m02aa", "tar_m02ab"], new Progress<string>());
+        Assert.NotNull(steps.Assembly);
+        Assert.Equal(2, steps.Assembly!.Modules.Count);
+        Assert.NotEmpty(model.Batches);
+        Assert.NotEmpty(model.Markers);
+        // Un seul module : pas d'assemblage.
+        steps.Preview(KotorGame.Kotor1, ["tar_m02aa"], new Progress<string>());
+        Assert.Null(steps.Assembly);
+    }
+
+    [Fact]
+    public void Steps_reject_a_module_of_another_game()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "k2j_wf4_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var steps = new KotorWorkflowSteps(new ExportOptions(root, "b", "w", Kotor2Dir: null));
+            var ex = Assert.Throws<PipelineStepException>(() => steps.Preview(KotorGame.Kotor1, ["aaa", "bbb"], new Progress<string>()));
+            Assert.Equal("ASSEMBLY_MIXED_GAMES", ex.Code);
+            Assert.Null(steps.Assembly);
+        }
+        finally { try { Directory.Delete(root, true); } catch (IOException) { } }
     }
 
     private static async Task<WorkflowController> ToStage(FakeSteps f, int steps)
