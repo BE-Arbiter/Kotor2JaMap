@@ -27,16 +27,16 @@ public static class GameOption
 
     /// <summary>
     /// Install folder of a game: the --kotor value, else the shared rule of <see cref="ConfigLoader"/>
-    /// (KOTOR_PATH / KOTOR2_PATH, then the config file, then the default Steam path).
+    /// (KOTOR_PATH / KOTOR2_PATH, then the config file, then the folders detected through Steam, then the default Steam path).
     /// </summary>
-    public static string? ResolveDir(string? fromOption, KotorGame game, string? configPath = null, Func<string, string?>? getEnv = null)
+    public static string? ResolveDir(string? fromOption, KotorGame game, string? configPath = null, Func<string, string?>? getEnv = null, Func<GamePaths>? detect = null)
     {
         if (!string.IsNullOrWhiteSpace(fromOption)) return fromOption;
         ExportOptions options;
-        try { options = ConfigLoader.Load(configPath ?? DefaultConfigPath, getEnv); }
+        try { options = ConfigLoader.Load(configPath ?? DefaultConfigPath, getEnv, detect); }
         catch (Exception e) when (e is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException)
         {
-            options = ConfigLoader.Defaults(getEnv);
+            options = ConfigLoader.Defaults(getEnv, detect);
         }
         return options.ForGame(game).KotorDir;
     }

@@ -2,6 +2,7 @@ using System.Numerics;
 using ImGuiNET;
 using Kotor.Core;
 using Kotor.Core.Entities;
+using Kotor.Core.Export;
 using Kotor.Pipeline.Workflow;
 using Kotor2Ja.App.Rendering;
 
@@ -19,7 +20,7 @@ public sealed class MainScreen
     private static readonly Vector4 Red = new(1f, 0.35f, 0.35f, 1f);
     private static readonly Vector4 Orange = new(1f, 0.65f, 0.15f, 1f);
 
-    private readonly WorkflowController _workflow;
+    private WorkflowController _workflow;
     private readonly ViewOptions _view;
     private readonly List<string> _log = [];
     private volatile ModuleListItem[]? _modules;
@@ -78,6 +79,7 @@ public sealed class MainScreen
         if (ImGui.Button("Preview", new Vector2(-1, 0))) _ = _workflow.PreviewAsync();
         ImGui.EndDisabled();
 
+        DrawSettings();
         ImGui.Separator();
         string? error = _workflow.LastError;
         float errorHeight = error is null ? 0f : ImGui.GetTextLineHeightWithSpacing() * 4f;
@@ -103,6 +105,103 @@ public sealed class MainScreen
             ImGui.TextWrapped(error);
             ImGui.PopStyleColor();
         }
+    }
+
+    // ---- Settings panel -------------------------------------------------------------------------------------------------------------
+
+    private ExportOptions _settings = new("", "", "");
+    private string _kotorText = "", _kotor2Text = "", _jaText = "", _workText = "";
+    private string? _settingsMessage;
+    private bool _settingsMessageIsError;
+    private long _checkedAt;
+    private bool _kotorOk = true, _kotor2Ok = true, _jaOk = true, _workOk = true;
+
+    /// <summary>Called by Save with the edited options; returns an error message, or null when saved.</summary>
+    public Func<ExportOptions, string?>? SaveSettings { get; set; }
+
+    /// <summary>Called by Detect: the folders found through Steam.</summary>
+    public Func<ExportOptions>? DetectSettings { get; set; }
+
+    /// <summary>Replaces the workflow (after Settings were saved).</summary>
+    public void SetWorkflow(WorkflowController workflow) => _workflow = workflow;
+
+    /// <summary>Fills the Settings fields from the options in use.</summary>
+    public void SetSettings(ExportOptions o)
+    {
+        _settings = o;
+        _kotorText = o.KotorDir ?? "";
+        _kotor2Text = o.Kotor2Dir ?? "";
+        _jaText = o.JaBaseDir ?? "";
+        _workText = o.WorkDir ?? "";
+        _checkedAt = 0;
+    }
+
+    private void DrawSettings()
+    {
+        if (!ImGui.CollapsingHeader("Settings")) return;
+        long now = Environment.TickCount64;
+        if (now - _checkedAt > 500)
+        {
+            _checkedAt = now;
+            _kotorOk = FolderOk(_kotorText, needChitin: true);
+            _kotor2Ok = _kotor2Text.Length == 0 || FolderOk(_kotor2Text, needChitin: true);
+            _jaOk = FolderOk(_jaText, needChitin: false);
+            _workOk = _workText.Length > 0 && !File.Exists(_workText);   // created on demand
+        }
+        PathField("KOTOR", ref _kotorText, _kotorOk);
+        PathField("KOTOR 2", ref _kotor2Text, _kotor2Ok);
+        PathField("JA base", ref _jaText, _jaOk);
+        PathField("Work dir", ref _workText, _workOk);
+        bool busy = _workflow.IsBusy;
+        if (ImGui.Button("Detect") && DetectSettings is { } detect)
+        {
+            ExportOptions d = detect();
+            _kotorText = d.KotorDir ?? ""; _kotor2Text = d.Kotor2Dir ?? ""; _jaText = d.JaBaseDir ?? ""; _workText = d.WorkDir ?? "";
+            _checkedAt = 0;
+            _settingsMessage = "Folders detected through Steam. Click Save to keep them.";
+            _settingsMessageIsError = false;
+        }
+        ImGui.SameLine();
+        ImGui.BeginDisabled(busy);
+        if (ImGui.Button("Save") && SaveSettings is { } save)
+        {
+            string? error = save(_settings with
+            {
+                KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim(),
+            });
+            _settingsMessageIsError = error is not null;
+            _settingsMessage = error ?? "Saved.";
+            if (error is null)
+                _settings = _settings with { KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim() };
+        }
+        ImGui.EndDisabled();
+        if (_settingsMessage is not null)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, _settingsMessageIsError ? Red : new Vector4(0.6f, 0.9f, 0.6f, 1f));
+            ImGui.TextWrapped(_settingsMessage);
+            ImGui.PopStyleColor();
+        }
+    }
+
+    private static bool FolderOk(string path, bool needChitin)
+    {
+        try
+        {
+            string p = path.Trim();
+            if (p.Length == 0 || !Directory.Exists(p)) return false;
+            return !needChitin || File.Exists(Path.Combine(p, "chitin.key"));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return false; }
+    }
+
+    private static void PathField(string label, ref string text, bool ok)
+    {
+        ImGui.TextUnformatted(label);
+        ImGui.SetNextItemWidth(-1);
+        if (!ok) ImGui.PushStyleColor(ImGuiCol.Text, Red);
+        ImGui.InputText("##set" + label, ref text, 520);
+        if (!ok) ImGui.PopStyleColor();
+        if (!ok && ImGui.IsItemHovered()) ImGui.SetTooltip("Folder not found");
     }
 
     /// <summary>One tree node per game; a game whose folder is missing is greyed out and labelled "(not found)".</summary>

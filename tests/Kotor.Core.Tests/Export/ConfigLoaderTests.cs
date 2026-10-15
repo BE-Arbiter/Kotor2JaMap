@@ -38,6 +38,25 @@ public class ConfigLoaderTests
     }
 
     private static string? NoEnv(string name) => null;
+    private static GamePaths NoDetect() => new(null, null, null, @"W:\work");
+    private static GamePaths Detected() => new(@"F:\steam\k1", @"F:\steam\k2", @"F:\steam\ja", @"W:\work");
+
+    [Fact]
+    public void Config_save_roundtrip()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "cfgsave_" + Guid.NewGuid().ToString("N"));
+        string p = Path.Combine(dir, "sub", ConfigLoader.ConfigFileName);
+        try
+        {
+            var o = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", 12f, 1.25f, "vanilla", Kotor2Dir: @"D:\k2");
+            ConfigLoader.Save(p, o);
+            Assert.Equal(o, ConfigLoader.Load(p, NoEnv, Detected));
+            Assert.Equal(o, ConfigLoader.LoadOrDetect(Path.GetDirectoryName(p)!, NoEnv, Detected));
+            // without a file next to the executable: detection
+            Assert.Equal(@"F:\steam\k1", ConfigLoader.LoadOrDetect(dir, NoEnv, Detected).KotorDir);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
 
     private static string WriteConfig(string json)
     {
@@ -72,9 +91,16 @@ public class ConfigLoaderTests
             Assert.Equal(@"C:\cfg\k1", cfg.KotorDir);
             Assert.Equal(@"C:\cfg\k2", cfg.Kotor2Dir);
             // default when neither is given
-            var def = ConfigLoader.Load(empty, NoEnv);
+            var def = ConfigLoader.Load(empty, NoEnv, NoDetect);
             Assert.Equal(ConfigLoader.DefaultKotorDir, def.KotorDir);
             Assert.Equal(ConfigLoader.DefaultKotor2Dir, def.Kotor2Dir);
+            // detection wins over the default, loses to the config and to the environment
+            var det = ConfigLoader.Load(empty, NoEnv, Detected);
+            Assert.Equal(@"F:\steam\k1", det.KotorDir);
+            Assert.Equal(@"F:\steam\k2", det.Kotor2Dir);
+            Assert.Equal(@"F:\steam\ja", det.JaBaseDir);
+            Assert.Equal(@"C:\cfg\k1", ConfigLoader.Load(p, NoEnv, Detected).KotorDir);
+            Assert.Equal(@"E:\k1", ConfigLoader.Load(p, n => n == "KOTOR_PATH" ? @"E:\k1" : null, Detected).KotorDir);
             // per-game selection follows the same values
             Assert.Equal(@"E:\k2", env.ForGame(KotorGame.Kotor2).KotorDir);
             Assert.Equal(@"E:\k1", env.ForGame(KotorGame.Kotor1).KotorDir);

@@ -4,9 +4,22 @@ Converts modules (maps) from *Star Wars: Knights of the Old Republic* and *Knigh
 
 For each module it produces a `.pk3` containing the BSP (render geometry, lightmaps, collisions, sky), the shaders, the textures, and the entities (spawn points, placed objects as `misc_model_static` MD3 models, doors as `func_door`).
 
-## Download
+## Portable build / Download
 
-Prebuilt portable builds (Windows x64) are published on the GitHub releases page of this repository. Use them if you do not want to build the project yourself.
+A prebuilt Windows x64 package (no .NET installation needed) is attached to the `latest` pre-release on the GitHub releases page of this repository. It is rebuilt automatically by the `build-latest` workflow on every push to `master`.
+
+Unzip `Kotor2Ja-win-x64.zip` anywhere. It contains:
+
+| File | Purpose |
+| --- | --- |
+| `Kotor2Ja.App.exe` | The desktop application. |
+| `Kotor2Ja.Cli.exe` | The command line tool (`list-modules`, `export-obj`, `export-ja`). |
+| `kotor2ja.config.example.json` | Example configuration. Copy it to `kotor2ja.config.json` to use it. |
+| `README.md`, `THIRD-PARTY-NOTICES.md` | Documentation and notices. |
+
+No configuration is needed in most cases: without a `kotor2ja.config.json` next to the executables, the KOTOR, KOTOR 2 and Jedi Academy folders are detected through Steam (the Steam path from the registry, then every library listed in `steamapps\libraryfolders.vdf`). The work folder defaults to `%LOCALAPPDATA%\Kotor2Ja\work`. In the application, the `Settings` panel (left column) shows the folders in use (invalid ones are in red), has a `Detect` button and a `Save` button that writes `kotor2ja.config.json` next to the executable and reloads the module list.
+
+To build the same package locally: `powershell -File scripts/publish.ps1` (output: `artifacts/Kotor2Ja-win-x64.zip`). The executables are self-contained single files; the first start unpacks the native libraries to a temporary folder, so it can take a moment.
 
 ## Requirements
 
@@ -14,7 +27,7 @@ Prebuilt portable builds (Windows x64) are published on the GitHub releases page
 - KOTOR and/or KOTOR 2 installed (Steam). Both are only read, never modified.
 - A Jedi Academy SWGL installation, where the generated `.pk3` files are written.
 
-Default paths (Steam):
+Folders are detected through Steam. Fallback paths when detection finds nothing:
 
 | Game | Default folder |
 | --- | --- |
@@ -99,14 +112,14 @@ dotnet run --project src/Kotor2Ja.Cli -- export-ja tar_m02aa --name taris_demo
 
 ## Configuration
 
-Settings are read from `kotor2ja.config.json`, next to the executable. The application and the command line tool use the same file. Only `export-ja` accepts `--config` to read another file; `list-modules` and `export-obj` always read the file next to the executable. Missing keys use the defaults.
+Settings are read from `kotor2ja.config.json`, next to the executable (see also Portable build above). The application and the command line tool use the same file. Only `export-ja` accepts `--config` to read another file; `list-modules` and `export-obj` always read the file next to the executable. Missing keys use the defaults.
 
 ```json
 {
   "kotorDir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\swkotor",
   "kotor2Dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Knights of the Old Republic II",
   "jaBaseDir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Jedi Academy - SWGL_DEV\\GameData\\base",
-  "workDir": "C:\\jka_maps\\kotor_work",
+  "workDir": "C:\\Users\\you\\AppData\\Local\\Kotor2Ja\\work",
   "scale": 40,
   "lightmapBrightness": 1.0,
   "bspLimits": "swgl"
@@ -118,12 +131,12 @@ Settings are read from `kotor2ja.config.json`, next to the executable. The appli
 | `kotorDir` | KOTOR installation folder. |
 | `kotor2Dir` | KOTOR 2 installation folder. |
 | `jaBaseDir` | The Jedi Academy `base` folder where the `.pk3` files are written. |
-| `workDir` | Work folder: staging files, journals and caches, one sub-folder per map. |
+| `workDir` | Work folder: staging files, journals and caches, one sub-folder per map (default `%LOCALAPPDATA%\Kotor2Ja\work`). |
 | `scale` | Scale from KOTOR metres to Jedi Academy units (default 40). Must be a finite number greater than 0. |
 | `lightmapBrightness` | Multiplier applied to the lightmaps (default 1.0). Must be a finite number greater than 0. |
 | `bspLimits` | `swgl` (default) uses the larger limits of the SWGL engine; `vanilla` uses the original Jedi Academy limits. |
 
-Environment variables take priority over the configuration file for the game folders:
+For the game folders the order is: environment variable, then configuration file, then the folders detected through Steam, then the fallback paths. Environment variables:
 
 - `KOTOR_PATH` overrides `kotorDir`.
 - `KOTOR2_PATH` overrides `kotor2Dir`.

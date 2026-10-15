@@ -8,26 +8,46 @@ public static class ConfigLoader
     public const string DefaultKotorDir = @"C:\Program Files (x86)\Steam\steamapps\common\swkotor";
     public const string DefaultKotor2Dir = @"C:\Program Files (x86)\Steam\steamapps\common\Knights of the Old Republic II";
     public const string DefaultJaBaseDir = @"C:\Program Files (x86)\Steam\steamapps\common\Jedi Academy - SWGL_DEV\GameData\base";
-    public const string DefaultWorkDir = @"C:\jka_maps\kotor_work";
+    public static string DefaultWorkDir => GameLocator.DefaultWorkDir();
+    public const string ConfigFileName = "kotor2ja.config.json";
 
     /// <summary>
     /// Single resolution rule for the game folders: the environment variable (KOTOR_PATH / KOTOR2_PATH) wins over the config file,
-    /// which wins over the default Steam path. <paramref name="getEnv"/> lets tests supply a fake environment.
+    /// which wins over the folders detected through Steam, which win over the default Steam paths.
+    /// <paramref name="getEnv"/> and <paramref name="detect"/> let tests supply a fake environment and a fake detection.
     /// </summary>
-    public static ExportOptions Defaults(Func<string, string?>? getEnv = null)
+    public static ExportOptions Defaults(Func<string, string?>? getEnv = null, Func<GamePaths>? detect = null)
     {
         getEnv ??= Environment.GetEnvironmentVariable;
-        return new ExportOptions(EnvOr(getEnv, "KOTOR_PATH", DefaultKotorDir), DefaultJaBaseDir, DefaultWorkDir,
-            Kotor2Dir: EnvOr(getEnv, "KOTOR2_PATH", DefaultKotor2Dir));
+        GamePaths found = (detect ?? (() => GameLocator.Detect()))();
+        return new ExportOptions(EnvOr(getEnv, "KOTOR_PATH", found.KotorDir ?? DefaultKotorDir), found.JaBaseDir ?? DefaultJaBaseDir,
+            found.WorkDir, Kotor2Dir: EnvOr(getEnv, "KOTOR2_PATH", found.Kotor2Dir ?? DefaultKotor2Dir));
+    }
+
+    /// <summary>The config file next to the executable if it exists, else the detected/default values.</summary>
+    public static ExportOptions LoadOrDetect(string exeDir, Func<string, string?>? getEnv = null, Func<GamePaths>? detect = null) =>
+        Load(Path.Combine(exeDir, ConfigFileName), getEnv, detect);
+
+    /// <summary>Writes the options as JSON (same keys as the config file, including kotor2Dir).</summary>
+    public static void Save(string path, ExportOptions o)
+    {
+        var data = new Dictionary<string, object?>
+        {
+            ["kotorDir"] = o.KotorDir, ["kotor2Dir"] = o.Kotor2Dir ?? "", ["jaBaseDir"] = o.JaBaseDir, ["workDir"] = o.WorkDir,
+            ["scale"] = o.Scale, ["lightmapBrightness"] = o.LightmapBrightness, ["bspLimits"] = o.BspLimits,
+        };
+        string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static string EnvOr(Func<string, string?> getEnv, string name, string def) =>
         getEnv(name) is { } v && !string.IsNullOrWhiteSpace(v) ? v : def;
 
-    public static ExportOptions Load(string? configPath, Func<string, string?>? getEnv = null)
+    public static ExportOptions Load(string? configPath, Func<string, string?>? getEnv = null, Func<GamePaths>? detect = null)
     {
         getEnv ??= Environment.GetEnvironmentVariable;
-        var o = Defaults(getEnv);
+        var o = Defaults(getEnv, detect);
         if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)) return o;
         using var doc = JsonDocument.Parse(File.ReadAllText(configPath), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip });
         JsonElement root = doc.RootElement;

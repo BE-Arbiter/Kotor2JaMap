@@ -64,6 +64,8 @@ public class GameOptionTests
         finally { Console.SetError(oldErr); }
     }
 
+    private static Kotor.Core.Export.GamePaths NoDetect() => new(null, null, null, "w");
+
     [Fact]
     public void ResolveDir_priority_is_option_then_environment_then_config_then_default()
     {
@@ -76,7 +78,7 @@ public class GameOptionTests
             Assert.Equal(@"C:\cfg\k1", GameOption.ResolveDir(null, KotorGame.Kotor1, cfg, env));
             Assert.Equal(@"C:\cfg\k2", GameOption.ResolveDir(null, KotorGame.Kotor2, cfg, _ => null));
             Assert.Equal(Kotor.Core.Export.ConfigLoader.DefaultKotor2Dir,
-                GameOption.ResolveDir(null, KotorGame.Kotor2, Path.Combine(Path.GetTempPath(), "absent_" + Guid.NewGuid().ToString("N")), _ => null));
+                GameOption.ResolveDir(null, KotorGame.Kotor2, Path.Combine(Path.GetTempPath(), "absent_" + Guid.NewGuid().ToString("N")), _ => null, NoDetect));
         }
         finally { File.Delete(cfg); }
     }
@@ -85,7 +87,7 @@ public class GameOptionTests
     public void ResolveDir_falls_back_to_defaults_on_a_broken_config()
     {
         string cfg = Config("{ not json");
-        try { Assert.Equal(Kotor.Core.Export.ConfigLoader.DefaultKotor2Dir, GameOption.ResolveDir(null, KotorGame.Kotor2, cfg, _ => null)); }
+        try { Assert.Equal(Kotor.Core.Export.ConfigLoader.DefaultKotor2Dir, GameOption.ResolveDir(null, KotorGame.Kotor2, cfg, _ => null, NoDetect)); }
         finally { File.Delete(cfg); }
     }
 
