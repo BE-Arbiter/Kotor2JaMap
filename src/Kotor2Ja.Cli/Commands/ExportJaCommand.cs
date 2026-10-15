@@ -25,7 +25,7 @@ public static class ExportJaCommand
         cmd.SetAction(pr =>
         {
             string? cfgPath = pr.GetValue(cfgOpt) ?? GameOption.DefaultConfigPath;
-            ExportOptions opt = ConfigLoader.Load(cfgPath);
+            if (!TryLoadConfig(cfgPath, Console.Error, out ExportOptions opt)) return 1;
             if (!GameOption.TryParse(pr.GetValue(gameOption), out KotorGame game))
             {
                 Console.Error.WriteLine(GameOption.BadValue(pr.GetValue(gameOption)));
@@ -40,6 +40,22 @@ public static class ExportJaCommand
             return Run(opt, pr.GetValue(module)!, pr.GetValue(nameOpt), Console.Out, Console.Error);
         });
         return cmd;
+    }
+
+    /// <summary>Loads the configuration file; an unreadable file gives a one-line English message (file and reason) instead of a stack trace.</summary>
+    public static bool TryLoadConfig(string? path, TextWriter error, out ExportOptions options)
+    {
+        try
+        {
+            options = ConfigLoader.Load(path);
+            return true;
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException)
+        {
+            error.WriteLine($"Cannot read the configuration file '{path}': {e.Message}");
+            options = null!;
+            return false;
+        }
     }
 
     /// <summary>Code de sortie : 0 si OK, 1 si echec de compilation ou de limite, 2 si le module ou l'installation est inconnu.</summary>

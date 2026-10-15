@@ -23,6 +23,46 @@ public class ExportJaCommandTests
     }
 
     [Fact]
+    public void Truncated_config_gives_a_clear_message_and_code_1()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "k2j_cfg_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string cfg = Path.Combine(dir, "bad.json");
+            File.WriteAllText(cfg, "{ \"workDir\": \"x\", ");
+
+            var err = new StringWriter();
+            Assert.False(ExportJaCommand.TryLoadConfig(cfg, err, out _));
+            string text = err.ToString();
+            Assert.Contains("Cannot read the configuration file", text);
+            Assert.Contains(cfg, text);
+            Assert.DoesNotContain("   at ", text);
+
+            // Through the real command: exit code 1, no exception (the module is never reached).
+            string temp = Path.Combine(dir, "w");
+            Assert.Equal(1, Program.BuildRoot().Parse(["export-ja", "tar_m02aa", "--config", cfg]).Invoke());
+            Assert.False(Directory.Exists(temp));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Valid_config_loads()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "k2j_cfg_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string cfg = Path.Combine(dir, "ok.json");
+            File.WriteAllText(cfg, "{ \"workDir\": \"" + Path.Combine(dir, "w").Replace("\\", "\\\\") + "\" }");
+            Assert.True(ExportJaCommand.TryLoadConfig(cfg, new StringWriter(), out var o));
+            Assert.Equal(Path.Combine(dir, "w"), o.WorkDir);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
     public void Missing_install_returns_2()
     {
         string absent = Path.Combine(Path.GetTempPath(), "absent_" + Guid.NewGuid().ToString("N"));

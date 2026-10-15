@@ -37,6 +37,13 @@ public static class Pk3Builder
 
     private static void Add(ZipArchive zip, string file, string entryName)
     {
-        zip.CreateEntryFromFile(file, entryName.Replace((char)92, '/').ToLowerInvariant(), CompressionLevel.Optimal);
+        // Fixed date (the zip format cannot go below 1980-01-01): the pk3 is byte-for-byte reproducible.
+        ZipArchiveEntry entry = zip.CreateEntry(entryName.Replace((char)92, '/').ToLowerInvariant(), CompressionLevel.Optimal);
+        entry.LastWriteTime = FixedTime;
+        using Stream dst = entry.Open();
+        using FileStream src = File.OpenRead(file);
+        src.CopyTo(dst);
     }
+
+    private static readonly DateTimeOffset FixedTime = new(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
 }

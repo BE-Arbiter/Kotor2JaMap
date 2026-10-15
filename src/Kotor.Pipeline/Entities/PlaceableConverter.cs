@@ -149,11 +149,17 @@ public static class PlaceableConverter
         Walkmesh? pwk = loadPwk ? assets.LoadPwk(model, out pwkReason) : null;
         if (loadPwk && pwk is null) log.Warn("PLACEABLE_NO_PWK", $"Model '{model}': {pwkReason ?? "no PWK"}; the placeable has no collision.");
         // Un fichier : models/<dossier>/<modele>.md3 ; plusieurs : <modele>_p0.md3, <modele>_p1.md3...
-        var list = files.Select((f, i) => new Md3Asset(files.Count == 1 ? $"{prefix}{model}.md3" : $"{prefix}{model}_p{i}.md3", f.Data, f.Textures)).ToList();
+        // Hors echelle par defaut : models/<dossier>/s<echelle>/..., pour que deux cartes a des echelles differentes ne se masquent pas.
+        string dir = ModelDirectory(prefix, scale);
+        var list = files.Select((f, i) => new Md3Asset(files.Count == 1 ? $"{dir}{model}.md3" : $"{dir}{model}_p{i}.md3", f.Data, f.Textures)).ToList();
         return new ModelInfo(list, k, pwk, null, bmin, bmax);
 
         ModelInfo Fail(string why) => new([], 1, null, why);
     }
+
+    /// <summary>Folder of the MD3 files: <paramref name="prefix"/> at the default scale, else <c>&lt;prefix&gt;s&lt;scale&gt;/</c> (invariant, no trailing zeros: <c>s36</c>, <c>s37.5</c>).</summary>
+    internal static string ModelDirectory(string prefix, float scale) =>
+        scale == ExportOptions.DefaultScale ? prefix : $"{prefix}s{scale.ToString("0.######", CultureInfo.InvariantCulture)}/";
 
     private static float NormalizeDegrees(float deg)
     {

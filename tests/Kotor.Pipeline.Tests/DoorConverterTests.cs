@@ -127,6 +127,26 @@ public sealed class DoorConverterTests : IDisposable
         CheckBounds(sub[1].Brushes[0], new Vector3(-1, -40, 0), new Vector3(1, 40, 120));
     }
 
+    [Fact]
+    public void Two_doors_of_one_model_give_one_md3_and_two_distinct_submodels()
+    {
+        var (r, sub) = DoorConverter.Convert(new FakeDoorAssets(), KotorGame.Kotor1, [Door(yaw: 0), Door(yaw: 90)], 40f, 3, new ImportLog());
+        Assert.Equal("models/kotor/dor_a.md3", Assert.Single(r.Models).Path);
+        Assert.Equal(2, r.Entities.Count);
+        Assert.All(r.Entities, e => Assert.Equal("func_door", e["classname"]));
+        Assert.Equal(["*3", "*4"], r.Entities.Select(e => e["model"]));
+        Assert.Equal(2, sub.Count);
+        Assert.Single(r.Entities.Select(e => e["model2"]).Distinct());
+    }
+
+    [Fact]
+    public void Door_md3_path_depends_on_a_non_default_scale()
+    {
+        var (r, _) = DoorConverter.Convert(new FakeDoorAssets(), KotorGame.Kotor1, [Door()], 37.5f, 1, new ImportLog());
+        Assert.Equal("models/kotor/s37.5/dor_a.md3", Assert.Single(r.Entities)["model2"]);
+        Assert.Equal("models/kotor/s37.5/dor_a.md3", Assert.Single(r.Models).Path);
+    }
+
     private static void CheckBounds(IReadOnlyList<BspPlane> planes, Vector3 min, Vector3 max)
     {
         Assert.Equal(6, planes.Count);

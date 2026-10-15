@@ -73,6 +73,23 @@ public sealed class Pk3BuilderTests : IDisposable
     }
 
     [Fact]
+    public void Same_staging_built_twice_gives_identical_bytes()
+    {
+        Seed();
+        Directory.CreateDirectory(_base);
+        string a = Path.Combine(_base, "a.pk3"), b = Path.Combine(_base, "b.pk3");
+        Pk3Builder.Build(_stage, a);
+        // Different modification times (staging recreated by a later export) must not change the pk3.
+        foreach (string f in Directory.GetFiles(_stage, "*", SearchOption.AllDirectories))
+            File.SetLastWriteTimeUtc(f, new DateTime(2031, 5, 6, 7, 8, 10, DateTimeKind.Utc));
+        Pk3Builder.Build(_stage, b);
+
+        Assert.Equal(File.ReadAllBytes(a), File.ReadAllBytes(b));
+        using var z = ZipFile.OpenRead(a);
+        Assert.All(z.Entries, e => Assert.Equal(new DateTime(1980, 1, 1), e.LastWriteTime.DateTime));
+    }
+
+    [Fact]
     public void Missing_bsp_fails_without_output()
     {
         Seed(bsp: false);

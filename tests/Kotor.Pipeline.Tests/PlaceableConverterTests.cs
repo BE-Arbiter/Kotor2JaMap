@@ -135,6 +135,27 @@ public sealed class PlaceableConverterTests : IDisposable
         Assert.Contains("map textures/kotor/tex_small.tga", r.ModelShaders[0]);
     }
 
+    [Theory]
+    [InlineData(40f, "models/kotor/small.md3")]
+    [InlineData(36f, "models/kotor/s36/small.md3")]
+    [InlineData(37.5f, "models/kotor/s37.5/small.md3")]
+    public void Md3_path_depends_on_a_non_default_scale(float scale, string expected)
+    {
+        ConvertedEntities r = PlaceableConverter.Convert(new FakeAssets(new() { ["small"] = 1f }), KotorGame.Kotor1, [Plc("plc_small")], scale, new ImportLog());
+        Assert.Equal(expected, Assert.Single(r.Entities)["model"]);
+        Assert.Equal(expected, Assert.Single(r.Models).Path);
+        Assert.StartsWith("models/kotor/tex_small\n", Assert.Single(r.ModelShaders)); // shaders are shared: no scale folder
+    }
+
+    [Fact]
+    public void Md3_path_scale_folder_applies_to_kotor2_and_split_models()
+    {
+        ConvertedEntities r = PlaceableConverter.Convert(new FakeAssets(new() { ["small"] = 1f }), KotorGame.Kotor2, [Plc("plc_small")], 36f, new ImportLog());
+        Assert.Equal("models/kotor2/s36/small.md3", Assert.Single(r.Entities)["model"]);
+        ConvertedEntities h = PlaceableConverter.Convert(new FakeAssets(new()), KotorGame.Kotor1, [Plc("plc_huge")], 36f, new ImportLog());
+        Assert.Equal(["models/kotor/s36/huge_p0.md3", "models/kotor/s36/huge_p1.md3"], h.Models.Select(m => m.Path).ToArray());
+    }
+
     [Fact]
     public void Kotor2_uses_its_own_folders()
     {
@@ -175,7 +196,7 @@ public sealed class PlaceableConverterTests : IDisposable
             [Plc("plc_huge", 1, 2, 30), Plc("plc_huge", 5, 6, 90)], 1f, log);
 
         // 65 surfaces -> deux fichiers (64 + 1), nommes _p0 et _p1.
-        Assert.Equal(["models/kotor/huge_p0.md3", "models/kotor/huge_p1.md3"], r.Models.Select(m => m.Path).ToArray());
+        Assert.Equal(["models/kotor/s1/huge_p0.md3", "models/kotor/s1/huge_p1.md3"], r.Models.Select(m => m.Path).ToArray());
         Assert.Equal(64, BitConverter.ToInt32(r.Models[0].Data, 84));
         Assert.Equal(1, BitConverter.ToInt32(r.Models[1].Data, 84));
         Assert.All(r.Models, m => Assert.Equal("huge_p" + m.Path[^5], Encoding.ASCII.GetString(m.Data, 8, 64).TrimEnd('\0')));
@@ -185,7 +206,7 @@ public sealed class PlaceableConverterTests : IDisposable
         foreach (string origin in new[] { "1 2 0.5", "5 6 0.5" })
         {
             var group = r.Entities.Where(e => e["origin"] == origin).ToList();
-            Assert.Equal(["models/kotor/huge_p0.md3", "models/kotor/huge_p1.md3"], group.Select(e => e["model"]).ToArray());
+            Assert.Equal(["models/kotor/s1/huge_p0.md3", "models/kotor/s1/huge_p1.md3"], group.Select(e => e["model"]).ToArray());
             Assert.Single(group.Select(e => e["angles"]).Distinct());
         }
         Assert.Equal(2, r.ExtraSolid.Count);
