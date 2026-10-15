@@ -4,6 +4,7 @@ namespace Kotor.Core.Archives;
 public enum ResourceType : ushort
 {
     Tga = 3,
+    Wav = 4,
     TwoDa = 2017,
     Mdl = 2002,
     Are = 2012,
@@ -11,6 +12,9 @@ public enum ResourceType : ushort
     Wok = 2016,
     Txi = 2022,
     Git = 2023,
+    Nss = 2009,
+    Ncs = 2010,
+    Uts = 2035,
     Utd = 2042,
     Utp = 2044,
     Dwk = 2052,

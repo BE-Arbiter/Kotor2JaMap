@@ -12,6 +12,9 @@ public sealed class TwoDaFile
 
     public int RowCount { get; }
 
+    /// <summary>Noms des colonnes, dans l'ordre du fichier.</summary>
+    public IReadOnlyCollection<string> Columns => _columns.Keys;
+
     private TwoDaFile(string[] columns, int rows, string[] cells)
     {
         for (int i = 0; i < columns.Length; i++) _columns.TryAdd(columns[i], i);

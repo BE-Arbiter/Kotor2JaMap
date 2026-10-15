@@ -28,6 +28,8 @@ public static class DoorConverter
     public const string ClipShader = "textures/system/clip";
     /// <summary>MOVER_LOCKED (OpenJK-SWGL code/game/g_local.h:521).</summary>
     public const int SpawnflagLocked = 16;
+    /// <summary>MOVER_PLAYER_USE (g_local.h) : la porte s'ouvre au bouton +use et n'a plus de declencheur de proximite (g_mover.cpp:1122, 1525).</summary>
+    public const int SpawnflagPlayerUse = 64;
     /// <summary>Epaisseur minimale (unites JA) de la boite sur chaque axe : une porte plate ne doit pas donner un brush degenere.</summary>
     public const float MinThickness = 2f;
 
@@ -35,11 +37,11 @@ public static class DoorConverter
         IReadOnlyList<ModuleEntity> doors, float scale, int firstSubModelIndex, ImportLog log)
     {
         ArgumentNullException.ThrowIfNull(res);
-        return Convert(new PlaceableConverter.ResolverAssets(res), game, doors, scale, firstSubModelIndex, log);
+        return Convert(new PlaceableConverter.ResolverAssets(res), game, doors, scale, firstSubModelIndex, log, new AudioSources(res, game));
     }
 
     internal static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) Convert(IObjectAssets assets, KotorGame game,
-        IReadOnlyList<ModuleEntity> doors, float scale, int firstSubModelIndex, ImportLog log)
+        IReadOnlyList<ModuleEntity> doors, float scale, int firstSubModelIndex, ImportLog log, AudioSources? audio = null)
     {
         ArgumentNullException.ThrowIfNull(assets);
         ArgumentNullException.ThrowIfNull(doors);
@@ -48,6 +50,7 @@ public static class DoorConverter
         var models = new Dictionary<string, PlaceableConverter.ModelInfo>(StringComparer.Ordinal);
         var entities = new List<IReadOnlyDictionary<string, string>>();
         var subModels = new List<SubModelInput>();
+        var sounds = new Dictionary<string, SoundAsset>(StringComparer.Ordinal);
         int converted = 0, locked = 0, unlocked = 0, skipped = 0, total = 0;
 
         foreach (ModuleEntity e in doors)
@@ -80,14 +83,26 @@ public static class DoorConverter
                 ["speed"] = "200",
                 ["wait"] = "3",
             };
-            // Seules les portes Static (decoratives : sans cela elles s'ouvrent sur le vide) restent verrouillees. Les portes UTD
-            // Locked et de transition (LinkedToModule) s'ouvrent a l'usage : le verrou KOTOR (cle, crochetage) n'existe pas dans JA.
+            // Static (decorative : sans cela elle s'ouvre sur le vide) : verrouillee. Locked UTD et transition (LinkedToModule) : le verrou KOTOR
+            // (cle, crochetage) n'existe pas dans JA, elles s'ouvrent au bouton +use seulement (PLAYER_USE supprime le declencheur de proximite).
             if (e.Static)
             {
                 ent["spawnflags"] = SpawnflagLocked.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 locked++;
             }
-            else if (e.Locked || e.LinkedToModule.Length > 0) unlocked++;
+            else if (e.Locked || e.LinkedToModule.Length > 0)
+            {
+                ent["spawnflags"] = SpawnflagPlayerUse.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                unlocked++;
+            }
+            // Sons d'ouverture et de fermeture (haut-parleurs tires par target / closetarget). Les portes Static ne bougent pas : sans son.
+            if (audio is not null && !e.Static
+                && AudioConverter.DoorSpeakers(audio, e, $"kd{index}", scale) is var (speakers, doorKeys, doorAssets))
+            {
+                foreach (var kv in doorKeys) ent[kv.Key] = kv.Value;
+                entities.AddRange(speakers);
+                foreach (SoundAsset a in doorAssets) sounds[a.Path] = a;
+            }
             entities.Add(ent);
             converted++;
         }
@@ -99,11 +114,12 @@ public static class DoorConverter
         var shaders = textureData.Select(kv => Md3ShaderWriter.Write(game, kv.Key, kv.Value)).ToList();
 
         if (total > 0)
-            log.Warn("DOORS", $"{converted} door(s) converted ({locked} static kept closed, {unlocked} locked/transition opened), {skipped} skipped.");
+            log.Warn("DOORS", $"{converted} door(s) converted ({locked} static kept closed, {unlocked} locked/transition opened with +use), {skipped} skipped.");
         var result = new ConvertedEntities(entities, assetsOut, [])
         {
             TextureData = textureData,
             ModelShaders = shaders,
+            Sounds = [.. sounds.Values.OrderBy(a => a.Path, StringComparer.Ordinal)],
         };
         return (result, subModels);
     }

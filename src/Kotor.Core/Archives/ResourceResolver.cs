@@ -18,10 +18,13 @@ public sealed class ResourceResolver : IDisposable
         [ResourceType.Txi] = "txi", [ResourceType.Git] = "git", [ResourceType.Utd] = "utd",
         [ResourceType.Utp] = "utp", [ResourceType.Dwk] = "dwk", [ResourceType.Pwk] = "pwk",
         [ResourceType.Lyt] = "lyt", [ResourceType.Vis] = "vis", [ResourceType.Tpc] = "tpc",
-        [ResourceType.Mdx] = "mdx",
+        [ResourceType.Mdx] = "mdx", [ResourceType.Wav] = "wav", [ResourceType.Nss] = "nss", [ResourceType.Ncs] = "ncs", [ResourceType.Uts] = "uts",
     };
 
     private ResourceResolver(string overrideDir) => _overrideDir = overrideDir;
+
+    /// <summary>Dossier d'installation du jeu (parent de <c>Override</c>) ; contient aussi <c>streammusic</c>, <c>streamsounds</c> et <c>streamwaves</c>.</summary>
+    public string KotorDir => Path.GetDirectoryName(_overrideDir) ?? "";
 
     /// <summary>
     /// Archives of a module, in game order. A <c>.mod</c> (ERF) replaces the .rim files when it exists.

@@ -98,21 +98,22 @@ public sealed class DoorConverterTests : IDisposable
     }
 
     [Fact]
-    public void Transition_door_opens_on_use()
+    public void Transition_door_is_player_use()
     {
         var (r, _) = Run(new ImportLog(), Door(linked: "tar_m02ab"));
-        Assert.False(Assert.Single(r.Entities).ContainsKey("spawnflags"));
+        Assert.Equal("64", Assert.Single(r.Entities)["spawnflags"]);
     }
 
     [Fact]
-    public void Locked_utd_door_opens_and_summary_is_logged()
+    public void Locked_utd_door_is_player_use_and_summary_is_logged()
     {
         var log = new ImportLog();
         var (r, _) = Run(log, Door(locked: true), Door(), Door("door_none"));
         Assert.Equal(2, r.Entities.Count);
-        Assert.False(r.Entities[0].ContainsKey("spawnflags"));
+        Assert.Equal("64", r.Entities[0]["spawnflags"]);
+        Assert.False(r.Entities[1].ContainsKey("spawnflags"));
         Assert.Contains(log.Warnings, w => w.Code == "DOOR_SKIPPED" && w.Message.Contains("door_none"));
-        Assert.Contains(log.Warnings, w => w.Code == "DOORS" && w.Message.Contains("2 door(s) converted (0 static kept closed, 1 locked/transition opened), 1 skipped"));
+        Assert.Contains(log.Warnings, w => w.Code == "DOORS" && w.Message.Contains("2 door(s) converted (0 static kept closed, 1 locked/transition opened with +use), 1 skipped"));
     }
 
     [Fact]
@@ -122,9 +123,9 @@ public sealed class DoorConverterTests : IDisposable
         var (r, _) = Run(log, Door(isStatic: true), Door(locked: true, isStatic: true), Door(linked: "tar_m02ab"), Door());
         Assert.Equal("16", r.Entities[0]["spawnflags"]);
         Assert.Equal("16", r.Entities[1]["spawnflags"]);
-        Assert.False(r.Entities[2].ContainsKey("spawnflags"));
+        Assert.Equal("64", r.Entities[2]["spawnflags"]);
         Assert.False(r.Entities[3].ContainsKey("spawnflags"));
-        Assert.Contains(log.Warnings, w => w.Code == "DOORS" && w.Message.Contains("4 door(s) converted (2 static kept closed, 1 locked/transition opened), 0 skipped"));
+        Assert.Contains(log.Warnings, w => w.Code == "DOORS" && w.Message.Contains("4 door(s) converted (2 static kept closed, 1 locked/transition opened with +use), 0 skipped"));
     }
 
     [Fact]
@@ -254,7 +255,8 @@ public sealed class DoorConverterTests : IDisposable
             Assert.Contains(model2, names);
         }
         Assert.Equal(8, doors.Count);
-        Assert.All(doors, d => Assert.DoesNotContain("\"spawnflags\" \"16\"", d)); // aucune porte Static dans tar_m02aa
+        Assert.Equal(2, doors.Count(d => d.Contains("\"spawnflags\" \"16\""))); // les 2 portes Static de tar_m02aa
+        Assert.Equal(6, doors.Count(d => d.Contains("\"spawnflags\" \"64\""))); // les 6 autres : Locked ou transition, +use seulement
         Assert.Equal(doors.Count + 1, bsp.Models.Count);
         Assert.DoesNotContain(bsp.LeafBrushes, b => b >= bsp.Models[0].BrushCount);
 

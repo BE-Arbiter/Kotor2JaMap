@@ -76,14 +76,15 @@ public static class PipelineSteps
             log.Warn("PLACEABLES_NO_GAME_DIR", "No game folder available: placeable conversion skipped, the map has no placed objects.");
             return (ConvertedEntities.Empty, []);
         }
-        if (scene.Parts is not null) return ConvertAssembledObjects(scene.Parts, opt, log);
+        if (scene.Parts is not null) return ConvertAssembledObjects(scene, scene.Parts, opt, log);
         try
         {
             using var res = ResourceResolver.ForModule(opt.KotorDir, scene.Info.Module.ToLowerInvariant(), opt.Game);
             IReadOnlyList<ModuleEntity> objects = ModuleEntitiesReader.ReadObjects(res, scene.Info, log);
             ConvertedEntities placeables = PlaceableConverter.Convert(res, opt.Game, objects, opt.Scale, log);
             var (doors, subModels) = DoorConverter.Convert(res, opt.Game, objects, opt.Scale, 1, log);
-            return (placeables.Merge(doors), subModels);
+            ConvertedEntities audio = ConvertAudio(res, scene, scene.Info, ModuleEntitiesReader.ReadSounds(res, scene.Info, log), includeMusic: true, opt, log);
+            return (placeables.Merge(doors).Merge(audio), subModels);
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
         {
@@ -97,11 +98,12 @@ public static class PipelineSteps
     /// (<see cref="ModuleAssembler.ApplyPart"/>), convertie puis fusionnee ; les sous-modeles des portes sont numerotes a la suite.
     /// Une partie illisible est journalisee et ignoree, les autres sont converties.
     /// </summary>
-    private static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) ConvertAssembledObjects(IReadOnlyList<AssemblyPartRef> parts,
+    private static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) ConvertAssembledObjects(ModuleScene scene, IReadOnlyList<AssemblyPartRef> parts,
         ExportOptions opt, ImportLog log)
     {
         ConvertedEntities all = ConvertedEntities.Empty;
         var subModels = new List<SubModelInput>();
+        bool first = true;
         foreach (AssemblyPartRef part in parts)
         {
             string module = part.Module.ToLowerInvariant();
@@ -112,7 +114,11 @@ public static class PipelineSteps
                 IReadOnlyList<ModuleEntity> objects = ModuleAssembler.ApplyPart(ModuleEntitiesReader.ReadObjects(res, info, log), part);
                 ConvertedEntities placeables = PlaceableConverter.Convert(res, opt.Game, objects, opt.Scale, log);
                 var (doors, doorModels) = DoorConverter.Convert(res, opt.Game, objects, opt.Scale, 1 + subModels.Count, log);
-                all = all.Merge(placeables).Merge(doors);
+                // Une seule musique pour la carte : celle du premier module. Ambiance et sons places : ceux de chaque module.
+                IReadOnlyList<ModuleEntity> sounds = ModuleAssembler.ApplyPart(ModuleEntitiesReader.ReadSounds(res, info, log), part);
+                ConvertedEntities audio = ConvertAudio(res, scene, info, sounds, includeMusic: first, opt, log);
+                first = false;
+                all = all.Merge(placeables).Merge(doors).Merge(audio);
                 subModels.AddRange(doorModels);
             }
             catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
@@ -123,13 +129,41 @@ public static class PipelineSteps
         return (all, subModels);
     }
 
+    /// <summary>Musique, ambiance et sons places d'un module (<see cref="AudioConverter"/>) ; l'ambiance de zone est posee au centre des pieces du module.</summary>
+    private static ConvertedEntities ConvertAudio(ResourceResolver res, ModuleScene scene, ModuleInfo info, IReadOnlyList<ModuleEntity> sounds,
+        bool includeMusic, ExportOptions opt, ImportLog log)
+    {
+        var rooms = scene.Walkmeshes.Where(w => w.Positions.Length > 0 && w.Room.StartsWith(info.AreaResRef + "_", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (rooms.Count == 0 && scene.Parts is null) rooms = scene.Walkmeshes.Where(w => w.Positions.Length > 0).ToList();
+        var centers = new List<Vector3>();
+        foreach (SceneWalkmesh w in rooms)
+        {
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            foreach (Vector3 p in w.Positions) { min = Vector3.Min(min, p); max = Vector3.Max(max, p); }
+            centers.Add((min + max) * 0.5f);
+        }
+        return AudioConverter.Convert(new AudioSources(res, opt.Game), info, sounds, centers, includeMusic, opt.Scale, log);
+    }
+
     /// <summary>Ajoute au plan les entites, la collision solide, et les textures des objets (les shaders MD3 sont ecrits par l'etape Exporter).</summary>
     private static ExportPlan ApplyObjects(ExportPlan plan, ConvertedEntities converted, IReadOnlyList<SubModelInput> subModels, KotorGame game)
     {
-        if (converted.Entities.Count == 0 && converted.ExtraSolid.Count == 0 && converted.TextureData.Count == 0 && subModels.Count == 0) return plan;
+        if (converted.Entities.Count == 0 && converted.ExtraSolid.Count == 0 && converted.TextureData.Count == 0 && subModels.Count == 0
+            && converted.WorldKeys.Count == 0) return plan;
         CompileInput input = plan.Input;
         var entities = new List<IReadOnlyDictionary<string, string>>(input.Entities);
         entities.AddRange(converted.Entities);
+        if (converted.WorldKeys.Count > 0)
+        {
+            // Cles du worldspawn (music) : la premiere entite de la carte.
+            int world = entities.FindIndex(e => e.TryGetValue("classname", out string? c) && c == "worldspawn");
+            if (world >= 0)
+            {
+                var keys = new Dictionary<string, string>(entities[world], StringComparer.Ordinal);
+                foreach (var kv in converted.WorldKeys) keys[kv.Key] = kv.Value;
+                entities[world] = keys;
+            }
+        }
         ModelMesh solid = input.Solid;
         if (converted.ExtraSolid.Count > 0)
         {
@@ -190,6 +224,13 @@ public static class PipelineSteps
                 string md3Path = Path.Combine(stage, md3.Path.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(md3Path)!);
                 File.WriteAllBytes(md3Path, md3.Data);
+            }
+
+            foreach (SoundAsset snd in imported.Converted?.Sounds ?? [])
+            {
+                string sndPath = Path.Combine(stage, snd.Path.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(sndPath)!);
+                File.WriteAllBytes(sndPath, snd.Data);
             }
 
             foreach (ExportTexture t in plan.Textures)

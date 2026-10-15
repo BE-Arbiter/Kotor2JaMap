@@ -60,6 +60,17 @@ public static class ModuleEntitiesReader
         return result;
     }
 
+    /// <summary>Sons places (<c>SoundList</c>) du GIT, repere du module : <c>Template</c> = resref de l'UTS. N'ecrit pas le bilan <c>ENTITIES</c>.</summary>
+    public static IReadOnlyList<ModuleEntity> ReadSounds(ResourceResolver res, ModuleInfo info, ImportLog log)
+    {
+        ArgumentNullException.ThrowIfNull(res);
+        ArgumentNullException.ThrowIfNull(info);
+        ArgumentNullException.ThrowIfNull(log);
+        var result = new List<ModuleEntity>();
+        ReadGit(res, info, result, log, [EntityKind.Sound]);
+        return result;
+    }
+
     /// <summary>
     /// Portes, waypoints et declencheurs du GIT (repere du module), pour la decouverte des transitions d'un assemblage.
     /// Ne lit ni les pieces ni les lumieres et n'ecrit pas le bilan <c>ENTITIES</c>.
