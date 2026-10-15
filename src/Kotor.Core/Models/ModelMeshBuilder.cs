@@ -9,9 +9,9 @@ public static class ModelMeshBuilder
 {
     /// <summary>
     /// Parcourt <see cref="KotorModel.Walk"/>, applique les transformations de noeud, garde les maillages rendus (ni AABB, ni vides)
-    /// et les regroupe par texture (minuscules). Les noeuds lumiere, emetteur et reference n'ont pas de maillage. Le resultat est trie par nom de texture.
+    /// et les regroupe par texture (minuscules) ; <paramref name="include"/> restreint le resultat a certains noeuds (pieces d'une porte). Les noeuds lumiere, emetteur et reference n'ont pas de maillage. Le resultat est trie par nom de texture.
     /// </summary>
-    public static IReadOnlyList<ModelPart> Build(KotorModel model, ImportLog log, string where)
+    public static IReadOnlyList<ModelPart> Build(KotorModel model, ImportLog log, string where, Func<KotorNode, bool>? include = null)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(log);
@@ -20,7 +20,7 @@ public static class ModelMeshBuilder
         foreach (var (node, transform) in model.Walk())
         {
             KotorMesh? m = node.Mesh;
-            if (m is null) continue;
+            if (m is null || (include is not null && !include(node))) continue;
             if (!m.Render || node.Kind.HasFlag(NodeKind.Aabb)) { notRendered++; continue; }
             if (m.Triangles.Length < 3 || m.Positions.Length == 0) { empty++; continue; }
             if (m.Triangles.Length % 3 != 0 || m.Triangles.Any(i => i < 0 || i >= m.Positions.Length))

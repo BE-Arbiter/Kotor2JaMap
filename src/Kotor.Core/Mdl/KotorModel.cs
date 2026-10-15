@@ -4,6 +4,9 @@ namespace Kotor.Core.Mdl;
 
 public sealed record KotorModel(string Name, string? SuperModel, KotorNode Root, Vector3 BBoxMin, Vector3 BBoxMax)
 {
+    /// <summary>Animations du MDL (vide si aucune).</summary>
+    public IReadOnlyList<KotorAnimation> Animations { get; init; } = [];
+
     /// <summary>Parcours en profondeur ; la transformation est cumulee de la racine au noeud (inclus).</summary>
     public IEnumerable<(KotorNode Node, Matrix4x4 ModelTransform)> Walk()
     {

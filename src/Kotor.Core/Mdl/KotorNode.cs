@@ -7,6 +7,8 @@ public sealed class KotorNode
     private readonly List<KotorNode> _children = new();
 
     public string Name { get; }
+    /// <summary>Numero du noeud dans le MDL (en-tete du noeud, +4) : les animations designent les noeuds par ce numero, les noms pouvant se repeter (portes).</summary>
+    public int Number { get; init; }
     public NodeKind Kind { get; }
     /// <summary>Relatif au parent (1re image cle du controleur position, sinon en-tete).</summary>
     public Vector3 Position { get; }
@@ -24,6 +26,9 @@ public sealed class KotorNode
     }
 
     internal void AddChild(KotorNode child) => _children.Add(child);
+
+    /// <summary>Pour les tests : construit une hierarchie sans lire de MDL.</summary>
+    public void AddChildForTest(KotorNode child) => _children.Add(child);
 
     /// <summary>Transformation locale (System.Numerics, vecteurs ligne : rotation puis translation).</summary>
     public Matrix4x4 LocalTransform => Matrix4x4.CreateFromQuaternion(Orientation) * Matrix4x4.CreateTranslation(Position);

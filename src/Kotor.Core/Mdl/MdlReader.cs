@@ -29,7 +29,7 @@ public static class MdlReader
     // Measured on 001ebo room models: with +8 the MDL positions equal the MDX positions for every mesh, with +0 for none.
     private const int K2MeshExtra = 8;
     // Noeud (relatifs au debut du noeud)
-    private const int NodeFlags = 0, NodeNameIndex = 6, NodePosition = 16, NodeOrientation = 28; // quaternion w,x,y,z
+    private const int NodeFlags = 0, NodeNumber = 4, NodeNameIndex = 6, NodePosition = 16, NodeOrientation = 28; // quaternion w,x,y,z
     private const int NodeChildren = 44, NodeCtrlKeys = 56, NodeCtrlData = 68, NodeHeaderSize = 80;
     // En-tete de maillage (relatifs au debut de l'en-tete de maillage = noeud + 80)
     private const int MeshFaces = 8;                // array def (offset, count, count) -> faces de 32 octets
@@ -73,7 +73,90 @@ public static class MdlReader
         var rootNode = ReadNode(ctx, root, 0);
         string? superName = string.IsNullOrEmpty(super) || super.Equals("null", StringComparison.OrdinalIgnoreCase)
             ? null : super.ToLowerInvariant();
-        return new KotorModel(ctx.ModelName, superName, rootNode, bmin, bmax);
+        return new KotorModel(ctx.ModelName, superName, rootNode, bmin, bmax) { Animations = ReadAnimations(ctx) };
+    }
+
+    // Animations : tableau (offset, nombre) a l'offset 88 de l'en-tete de modele ; chaque animation a un en-tete de geometrie de 80 octets
+    // (nom a +8, noeud racine a +40) puis duree (f32 a +80), temps de transition (+84) et nom de la racine (+88) ; ses noeuds ont la meme
+    // structure que ceux de la geometrie (xoreos model_kotor.cpp Model_KotOR::readAnimation).
+    private const int ModelAnimArray = 88, AnimLength = 80;
+
+    /// <summary>Animations du modele ; une animation illisible est ignoree (le modele reste utilisable sans animation).</summary>
+    private static IReadOnlyList<KotorAnimation> ReadAnimations(Ctx c)
+    {
+        var list = new List<KotorAnimation>();
+        try
+        {
+            int arrOff = c.Off(FileHeader + ModelAnimArray, "animation array");
+            int count = c.Count(FileHeader + ModelAnimArray + 4, "animation count");
+            if (count == 0) return list;
+            c.Need(FileHeader + arrOff, count * 4L, "animation offsets");
+            for (int i = 0; i < count; i++)
+            {
+                int a = FileHeader + c.Off(FileHeader + arrOff + i * 4, "animation");
+                string name = c.FixedString(a + GeoName, 32);
+                float length = c.F32(a + AnimLength);
+                int root = c.Off(a + GeoRootNode, "animation root");
+                var tracks = new List<AnimationTrack>();
+                ReadAnimNode(c, root, 0, tracks);
+                list.Add(new KotorAnimation(name.ToLowerInvariant(), length, tracks));
+            }
+        }
+        catch (Exception ex) when (ex is InvalidDataException or ArgumentException or OverflowException or IndexOutOfRangeException)
+        {
+            return [];
+        }
+        return list;
+    }
+
+    private static void ReadAnimNode(Ctx c, int nodeOff, int depth, List<AnimationTrack> tracks)
+    {
+        if (depth > MaxDepth) throw c.Bad("animation hierarchy too deep");
+        int b = FileHeader + nodeOff;
+        c.Need(b, NodeHeaderSize, "animation node @" + nodeOff);
+        int nameIdx = c.U16(b + NodeNameIndex);
+        if (nameIdx >= c.Names.Length) throw c.Bad($"animation node @{nodeOff}: name index {nameIdx} out of range");
+        string name = c.Names[nameIdx];
+        int childOff = c.Off(b + NodeChildren, "children");
+        int childCount = c.Count(b + NodeChildren + 4, "child count");
+        int keyOff = c.Off(b + NodeCtrlKeys, "controller keys");
+        int keyCount = c.Count(b + NodeCtrlKeys + 4, "controller count");
+        int dataOff = c.Off(b + NodeCtrlData, "controller data");
+        int dataCount = c.Count(b + NodeCtrlData + 4, "controller data count");
+
+        var positions = new List<PositionKey>();
+        var orientations = new List<OrientationKey>();
+        if (keyCount > 0)
+        {
+            c.Need(FileHeader + keyOff, keyCount * 16L, "controllers");
+            c.Need(FileHeader + dataOff, dataCount * 4L, "controller data");
+            int d0 = FileHeader + dataOff;
+            for (int i = 0; i < keyCount; i++)
+            {
+                int k = FileHeader + keyOff + i * 16;
+                uint type = c.U32(k);
+                int rows = c.U16(k + 6), timeIdx = c.U16(k + 8), valIdx = c.U16(k + 10);
+                int cols = c.Bytes[k + 12];
+                if (rows == 0 || (type != 8 && type != 20)) continue;
+                bool bezier = (cols & 0x10) != 0;
+                int n = type == 20 && cols == 2 ? 1 : (cols & 0xF);
+                int stride = bezier ? n * 3 : n;   // les cles bezier portent la valeur et deux tangentes
+                if (timeIdx + (long)rows > dataCount || valIdx + (long)rows * stride > dataCount)
+                    throw c.Bad($"animation controller {type} out of range");
+                for (int r = 0; r < rows; r++)
+                {
+                    float t = c.F32(d0 + (timeIdx + r) * 4);
+                    int o = d0 + (valIdx + r * stride) * 4;
+                    if (type == 8 && n == 3) positions.Add(new PositionKey(t, c.Vec3(o)));
+                    else if (type == 20 && n == 1) orientations.Add(new OrientationKey(t, DecodeCompressedQuaternion(c.U32(o))));
+                    else if (type == 20 && n == 4) orientations.Add(new OrientationKey(t, new Quaternion(c.F32(o), c.F32(o + 4), c.F32(o + 8), c.F32(o + 12))));
+                }
+            }
+        }
+        if (positions.Count > 0 || orientations.Count > 0) tracks.Add(new AnimationTrack(name, c.U16(b + NodeNumber), positions, orientations));
+        c.Need(FileHeader + childOff, childCount * 4L, "children of " + name);
+        for (int i = 0; i < childCount; i++)
+            ReadAnimNode(c, c.Off(FileHeader + childOff + i * 4, "child"), depth + 1, tracks);
     }
 
     private static KotorNode ReadNode(Ctx c, int nodeOff, int depth)
@@ -123,7 +206,7 @@ public static class MdlReader
             light = new KotorLight(lv.Color ?? Vector3.One, lv.Radius ?? DefaultLightRadius, lv.Multiplier ?? 1f,
                 lv.Color is null || lv.Radius is null || lv.Multiplier is null, ambientOnly, lv.Invalid);
         }
-        var node = new KotorNode(name, kind, pos, rot, mesh, light);
+        var node = new KotorNode(name, kind, pos, rot, mesh, light) { Number = c.U16(b + NodeNumber) };
         c.Need(FileHeader + childOff, childCount * 4L, "children of " + name);
         for (int i = 0; i < childCount; i++)
         {

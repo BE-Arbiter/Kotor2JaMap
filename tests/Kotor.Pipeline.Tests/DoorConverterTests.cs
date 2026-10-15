@@ -35,6 +35,7 @@ public sealed class DoorConverterTests : IDisposable
             reason = null;
             if (e.Template == "door_a") return "dor_a";
             if (e.Template == "door_wide") return "dor_wide";
+            if (e.Template == "door_slide") return "dor_slide";
             reason = $"UTD '{e.Template}' not found";
             return null;
         }
@@ -42,6 +43,7 @@ public sealed class DoorConverterTests : IDisposable
         public KotorModel? LoadModel(string model, out string? reason)
         {
             reason = null;
+            if (model == "dor_slide") return Slide(model);
             if (model == "dor_wide")
             {
                 // 65 surfaces de 399 triangles disjoints : au-dela de 64 surfaces MD3, donc plusieurs fichiers.
@@ -64,6 +66,23 @@ public sealed class DoorConverterTests : IDisposable
             return new KotorModel(model, null, root, Vector3.Zero, new Vector3(3));
         }
 
+        /// <summary>Porte a deux panneaux de 2 m qui coulissent de +-2 m en 0,5 s (X), plus un cadre fixe, comme dor_lts02.</summary>
+        private static KotorModel Slide(string model)
+        {
+            KotorMesh Panel() => new("tex_door", null, true, false, 0,
+                [new(-1, 0, 0), new(1, 0, 0), new(1, 0, 3), new(-1, 0, 3)], [-Vector3.UnitY, -Vector3.UnitY, -Vector3.UnitY, -Vector3.UnitY],
+                [new(0, 0), new(1, 0), new(1, 1), new(0, 1)], null, [0, 1, 2, 0, 2, 3]);
+            var root = new KotorNode(model, NodeKind.Header, Vector3.Zero, Quaternion.Identity, null) { Number = 0 };
+            root.AddChildForTest(new KotorNode("l", NodeKind.Header | NodeKind.Mesh, new Vector3(-1, 0, 0), Quaternion.Identity, Panel()) { Number = 1 });
+            root.AddChildForTest(new KotorNode("r", NodeKind.Header | NodeKind.Mesh, new Vector3(1, 0, 0), Quaternion.Identity, Panel()) { Number = 2 });
+            root.AddChildForTest(new KotorNode("f", NodeKind.Header | NodeKind.Mesh, Vector3.Zero, Quaternion.Identity, Panel()) { Number = 3 });
+            AnimationTrack Track(int n, float x) => new("n", n, [new PositionKey(0, Vector3.Zero), new PositionKey(0.5f, new(x, 0, 0))], []);
+            return new KotorModel(model, null, root, Vector3.Zero, new Vector3(3))
+            {
+                Animations = [new KotorAnimation("opening1", 0.5f, [Track(1, -2f), Track(2, 2f)])],
+            };
+        }
+
         public Walkmesh? LoadPwk(string model, out string? reason) { reason = "PWK not used by doors"; return null; }
 
         public KotorTexture? LoadTexture(string name, ImportLog log) => new(2, 2, new byte[16], false, TxiInfo.Empty);
@@ -74,6 +93,40 @@ public sealed class DoorConverterTests : IDisposable
 
     private static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) Run(ImportLog log, params ModuleEntity[] doors) =>
         DoorConverter.Convert(new FakeDoorAssets(), KotorGame.Kotor1, doors, 40f, 1, log);
+
+    [Fact]
+    public void Animated_door_becomes_one_func_door_per_panel_plus_a_static_frame()
+    {
+        var (r, sub) = Run(new ImportLog(), Door("door_slide", yaw: 0));
+
+        Assert.Equal(2, sub.Count);
+        var frame = Assert.Single(r.Entities, e => e["classname"] == "misc_model_static");
+        Assert.Equal("models/kotor/dor_slide_df.md3", frame["model"]);
+        Assert.Equal("80 120 10", frame["origin"]);
+        var panels = r.Entities.Where(e => e["classname"] == "func_door").ToList();
+        Assert.Equal(2, panels.Count);
+        Assert.Equal(["*1", "*2"], panels.Select(p => p["model"]));
+        Assert.Equal(["models/kotor/dor_slide_d0.md3", "models/kotor/dor_slide_d1.md3"], panels.Select(p => p["model2"]));
+        Assert.All(panels, p => Assert.Equal(panels[0]["team"], p["team"]));
+        Assert.Equal("0 180 0", panels[0]["angles"]);   // le panneau gauche part vers -X
+        Assert.Equal("0 0 0", panels[1]["angles"]);
+        Assert.All(panels, p => Assert.Equal("160", p["speed"])); // 80 unites en 0,5 s
+        Assert.All(panels, p => Assert.Equal("0", p["lip"]));      // etendue du panneau (80) - distance (80)
+        Assert.All(panels, p => Assert.False(p.ContainsKey("angle")));
+        Assert.Equal(3, r.Models.Count);
+    }
+
+    [Fact]
+    public void Animated_locked_door_is_player_use_on_every_panel_and_static_door_keeps_one_box()
+    {
+        var (r, _) = Run(new ImportLog(), Door("door_slide", yaw: 0, locked: true), Door("door_slide", isStatic: true));
+        var doors = r.Entities.Where(e => e["classname"] == "func_door").ToList();
+        Assert.Equal(3, doors.Count);
+        Assert.Equal("64", doors[0]["spawnflags"]);
+        Assert.Equal("64", doors[1]["spawnflags"]);
+        Assert.Equal("16", doors[2]["spawnflags"]);
+        Assert.Equal("-1", doors[2]["angle"]);
+    }
 
     [Fact]
     public void Door_entity_keys()
@@ -254,9 +307,9 @@ public sealed class DoorConverterTests : IDisposable
             string model2 = Regex.Match(d, "\"model2\" \"([^\"]+)\"").Groups[1].Value;
             Assert.Contains(model2, names);
         }
-        Assert.Equal(8, doors.Count);
+        Assert.Equal(14, doors.Count); // 2 portes Static (un brush chacune) + 6 portes animees a 2 panneaux
         Assert.Equal(2, doors.Count(d => d.Contains("\"spawnflags\" \"16\""))); // les 2 portes Static de tar_m02aa
-        Assert.Equal(6, doors.Count(d => d.Contains("\"spawnflags\" \"64\""))); // les 6 autres : Locked ou transition, +use seulement
+        Assert.Equal(12, doors.Count(d => d.Contains("\"spawnflags\" \"64\""))); // les 6 autres portes (Locked ou transition), 2 panneaux : +use seulement
         Assert.Equal(doors.Count + 1, bsp.Models.Count);
         Assert.DoesNotContain(bsp.LeafBrushes, b => b >= bsp.Models[0].BrushCount);
 

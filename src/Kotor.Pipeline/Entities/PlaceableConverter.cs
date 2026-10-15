@@ -90,8 +90,8 @@ public static class PlaceableConverter
             {
                 float rad = e.Yaw * MathF.PI / 180f, c = MathF.Cos(rad), s = MathF.Sin(rad);
                 Vector3 Place(Vector3 v) => (new Vector3(v.X * c - v.Y * s, v.X * s + v.Y * c, v.Z) + e.Position) * scale;
-                for (int t = 0; t + 2 < pwk.Triangles.Length; t += 3)
-                    solid.Add((Place(pwk.Vertices[pwk.Triangles[t]]), Place(pwk.Vertices[pwk.Triangles[t + 1]]), Place(pwk.Vertices[pwk.Triangles[t + 2]])));
+                foreach (var (p0, p1, p2) in CollisionTriangles(pwk, info.Max.Z))
+                    solid.Add((Place(p0), Place(p1), Place(p2)));
             }
         }
 
@@ -110,6 +110,47 @@ public static class PlaceableConverter
             TextureData = textureData,
             ModelShaders = shaders,
         };
+    }
+
+    /// <summary>Un PWK dont tous les sommets sont a cette hauteur (m) pres du meme Z est une empreinte plate.</summary>
+    private const float FlatFootprint = 0.05f;
+
+    /// <summary>
+    /// Triangles de collision d'un PWK (repere du modele, metres). Le PWK de KOTOR est l'empreinte au sol de l'objet (verifie sur
+    /// plc_metalbox, plc_plstccrt, plc_bench, plc_kiosk2... : tous les sommets a Z = 0) : telle quelle elle ne bloque personne dans JA.
+    /// Une empreinte plate est donc extrudee jusqu'a <paramref name="height"/> (hauteur du modele) : cotes sur les aretes de bord, couvercle en haut.
+    /// Un PWK en volume, ou un modele trop bas, est rendu inchange.
+    /// </summary>
+    internal static IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C)> CollisionTriangles(Walkmesh pwk, float height)
+    {
+        var tris = new List<(Vector3, Vector3, Vector3)>();
+        for (int t = 0; t + 2 < pwk.Triangles.Length; t += 3)
+            tris.Add((pwk.Vertices[pwk.Triangles[t]], pwk.Vertices[pwk.Triangles[t + 1]], pwk.Vertices[pwk.Triangles[t + 2]]));
+        if (tris.Count == 0 || !float.IsFinite(height)) return tris;
+        float zmin = float.MaxValue, zmax = float.MinValue;
+        foreach (Vector3 v in pwk.Vertices) { zmin = MathF.Min(zmin, v.Z); zmax = MathF.Max(zmax, v.Z); }
+        float top = height;
+        if (zmax - zmin > FlatFootprint || top - zmax < FlatFootprint) return tris;
+
+        // Aretes de bord : utilisees par un seul triangle (sommets soudes au millimetre).
+        static (int, int, int) Key(Vector3 v) => ((int)MathF.Round(v.X * 1000f), (int)MathF.Round(v.Y * 1000f), 0);
+        var edges = new Dictionary<((int, int, int), (int, int, int)), (Vector3 A, Vector3 B, int Count)>();
+        void Edge(Vector3 a, Vector3 b)
+        {
+            var ka = Key(a); var kb = Key(b);
+            var k = ka.CompareTo(kb) <= 0 ? (ka, kb) : (kb, ka);
+            edges[k] = edges.TryGetValue(k, out var e) ? (e.A, e.B, e.Count + 1) : (a, b, 1);
+        }
+        foreach (var (a, b, c) in tris) { Edge(a, b); Edge(b, c); Edge(c, a); }
+        var result = new List<(Vector3, Vector3, Vector3)>(tris);
+        foreach (var (a, b, _) in edges.Values.Where(e => e.Count == 1))
+        {
+            Vector3 a2 = new(a.X, a.Y, top), b2 = new(b.X, b.Y, top);
+            result.Add((a, b, b2));
+            result.Add((a, b2, a2));
+        }
+        foreach (var (a, b, c) in tris) result.Add((new Vector3(a.X, a.Y, top), new Vector3(b.X, b.Y, top), new Vector3(c.X, c.Y, top)));
+        return result;
     }
 
     private static string? Skip(ModuleEntity e, string reason, ImportLog log, ref int skipped)
