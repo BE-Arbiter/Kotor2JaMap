@@ -26,4 +26,8 @@
     <ProjectReference Include="..\..\src\Kotor2Ja.Cli\Kotor2Ja.Cli.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../Swtor.Core.Tests/SyntheticArea.cs" Link="SyntheticArea.cs" />
+  </ItemGroup>
+
 </Project>

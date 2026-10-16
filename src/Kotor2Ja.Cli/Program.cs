@@ -27,6 +27,7 @@ public static class Program
         root.Subcommands.Add(ListModulesCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportObjCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportJaCommand.Create(kotorOption, gameOption));
+        root.Subcommands.Add(SwtorDumpAreaCommand.Create());
         return root;
     }
 }
