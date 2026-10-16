@@ -48,7 +48,7 @@ public class SwtorPipelineTests
     }
 
     private static SwtorSceneResult Build(AreaLayout layout, ISwtorModelSource src, ImportLog log, SwtorBuildOptions? o = null) =>
-        SwtorSceneBuilder.Build(layout, src, "test_area", o, log);
+        SwtorSceneBuilder.Build(layout, src, "test_area", (o ?? new SwtorBuildOptions()) with { WorldScale = 1f / SwtorWorldScale.MetresPerGr2Unit }, log); // echelle 1 : les attendus sont en unites GR2
 
     // ---- axes et Euler ----
 
@@ -236,7 +236,7 @@ public class SwtorPipelineTests
                 total++;
             }
         Assert.True(bad < total / 100, $"{bad}/{total} triangles against their normals");
-        Assert.InRange(r.Scene.Info.Entry.Position.Z, -0.2f, 0.2f); // sol principal a Y = 0 (SWTOR)
+        Assert.InRange(r.Scene.Info.Entry.Position.Z, -0.2f * SwtorWorldScale.MetresPerGr2Unit, 0.2f * SwtorWorldScale.MetresPerGr2Unit); // sol principal a Y = 0 (SWTOR)
     }
 
     [SkippableFact]

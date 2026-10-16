@@ -223,3 +223,12 @@ Les rampes ne sont pas reproduites : le compilateur n'a que des lumieres ponctue
 
 ### Reglages d'area.dat utilises (cle `Area`)
 `is_outdoor`, `static_light_front/side/back` (+ `static_light_intensity`), `light_azimuth` / `light_polar` (direction du soleil ; polaire > 90 = la lumiere descend : orientation horizontale non verifiee), `static_fog_*` (decode, non exporte). Les valeurs par defaut (front blanc, side 0,5, back noir) sont presentes dans presque toutes les zones : elles servent peu d'information.
+
+## Echelle du monde (T7-echelle-2)
+**Unite GR2 SWTOR = 8,45 m JA (338 unites JA).** Un seul facteur global, derive du personnage humain (details et mesures : `plans/swtor/reports/T7-echelle-2.md`).
+- Humain masculin (bmn) debout : semelle -0,001, haut du crane 0,205, cou/cheveux ~0,213 unite GR2 (meme espace pour tete, corps, bottes ; maillages en pose de liaison).
+- SWTOR-Character-maker convertit les personnages en JKA avec un facteur uniforme (cou SWTOR -> joint `cervical`) de 338 : humain SWTOR = modele JKA de 72 unites. KOTOR : 40 u/m, humain 1,8 m = 72 u. Meme hauteur de reference.
+- Autres donnees SWTOR dans le meme ordre de grandeur (mediane de 120 zones) : chaise 0,157, table 0,10, rambarde 0,135, marche d'escalier 0,025 (21 cm), points de couvert espaces de 0,18 (~1,5 m), noms de modeles `h3m` = 0,3 unite = 3 m. Les anciennes affirmations "1 unite = 1 m pour l'architecture" (T1) et "x2" (T7) ne sont pas etayees ; "1 unite = 10 m" etait l'ordre de grandeur correct.
+- Pas de facteur d'echelle dans les .gr2 (en-tete, aucun noeud de transformation pour les modeles statiques) ; instances d'architecture a l'echelle 1.
+- Le kit `spc_space/arch` (war_planworking) est un kit de vaisseau capital : porte `doorframe_sm` 0,96 x 0,8 d'ouverture (8,1 x 6,8 m), plafond 1,4 (11,8 m). L'humain y fait 27 % de la hauteur de porte : ce ne sont pas des portes a taille humaine.
+- Code : `SwtorWorldScale.MetresPerGr2Unit` (= 338 / 40) ; `--world-scale <x>` est un multiplicateur manuel en plus (defaut 1).

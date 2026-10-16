@@ -40,7 +40,7 @@ public sealed record SwtorBuildOptions
     public float LightMinRadius { get; init; } = 1.5f;
     public float LightMaxRadius { get; init; } = 10f;
 
-    /// <summary>Echelle du monde (positions et sommets) pour des metres reels ; 0 = automatique selon le kit d architecture (<see cref="SwtorWorldScale"/>).</summary>
+    /// <summary>Multiplicateur manuel de l echelle du monde, applique en plus de la constante derivee (<see cref="SwtorWorldScale.MetresPerGr2Unit"/>) ; 0 ou 1 = aucun.</summary>
     public float WorldScale { get; init; } = 0f;
 
     /// <summary>Plafond du multiplicateur de luminosite d'une lumiere (le champ vaut jusqu'a 100).</summary>
@@ -78,8 +78,8 @@ public static class SwtorSceneBuilder
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(log);
         options ??= new SwtorBuildOptions();
-        float worldScale = options.WorldScale > 0f ? options.WorldScale : SwtorWorldScale.Detect(layout.AllInstances.Where(i => i.Kind == InstanceKind.Model).Select(i => i.AssetPath));
-        if (worldScale != 1f) log.Warn("SWTOR_WORLD_SCALE", $"World scale x{worldScale:0.##} applied to positions and vertices (models of this kit are about half of human scale; estimate, adjust with --world-scale).");
+        float worldScale = SwtorWorldScale.Resolve(options.WorldScale);
+        log.Warn("SWTOR_WORLD_SCALE", $"World scale {worldScale:0.###} m per GR2 unit ({worldScale * SwtorWorldScale.JaUnitsPerMetre:0.#} JA units, derived from the SWTOR human of {SwtorWorldScale.HumanHeightGr2} units = {SwtorWorldScale.JaHumanModelHeight} JA units; manual multiplier --world-scale = {(options.WorldScale > 0f ? options.WorldScale : 1f):0.###}). Not verified in game.");
         options = options with { WorldScale = worldScale };
         string skyRoom = layout.Area.AreaProperties.Get("skyscene_room") is { Length: > 0 } sr ? sr : "skyscene_room";
 

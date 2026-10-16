@@ -21,7 +21,7 @@ public static class ExportSwtorCommand
         var cfgOpt = new Option<string?>("--config") { Description = "JSON configuration file (default: kotor2ja.config.json next to the executable)." };
         var texOpt = new Option<int?>("--max-texture") { Description = "Largest exported texture side in pixels (default 512, 0 = no reduction)." };
         var spaceOpt = new Option<bool>("--include-space") { Description = "Keep the SPACE room (ship exterior hull, windows) when all rooms are exported; left out by default for interiors." };
-        var wsOpt = new Option<float?>("--world-scale") { Description = "Multiplier of the SWTOR world (positions and vertices) to reach real metres (default: automatic by architecture kit, 2 for space-station ships, else 1)." };
+        var wsOpt = new Option<float?>("--world-scale") { Description = "Manual multiplier on top of the derived SWTOR world scale (338 JA units per GR2 unit, from the SWTOR human height; default 1)." };
         var axesOpt = new Option<string?>("--axes") { Description = "Axis conversion: rotation (default, right-handed) or mirror (left-handed source)." };
         cmd.Arguments.Add(area);
         foreach (Option o in new Option[] { nameOpt, assetsOpt, scaleOpt, limOpt, cfgOpt, texOpt, spaceOpt, axesOpt, wsOpt }) cmd.Options.Add(o);

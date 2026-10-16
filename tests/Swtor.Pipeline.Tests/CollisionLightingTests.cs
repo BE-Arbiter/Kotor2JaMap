@@ -51,7 +51,7 @@ public class CollisionLightingTests
     }
 
     private static SwtorSceneResult Build(AreaLayout l, ISwtorModelSource s, SwtorBuildOptions? o = null, ImportLog? log = null) =>
-        SwtorSceneBuilder.Build(l, s, "t", o, log ?? new ImportLog());
+        SwtorSceneBuilder.Build(l, s, "t", (o ?? new SwtorBuildOptions()) with { WorldScale = 1f / SwtorWorldScale.MetresPerGr2Unit }, log ?? new ImportLog()); // echelle 1 : les attendus sont en unites GR2
 
     // ---- selection des meshes de collision ----
 
