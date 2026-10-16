@@ -151,7 +151,9 @@ public static class Compiler
 
     /// <summary>With point lights the lighting is the KOTOR mode (ambient of <c>Lighting</c> plus the lights, no sun); otherwise unchanged.</summary>
     public static VertexLighting EffectiveLighting(CompileInput input) =>
-        input.Lights is { Count: > 0 } l ? VertexLighting.ForKotor(input.Lighting.Ambient, l, input.Lighting.OverbrightShift) : input.Lighting;
+        input.Lights is { Count: > 0 } l
+            ? input.Lighting.SunWithLights ? input.Lighting with { Lights = l } : VertexLighting.ForKotor(input.Lighting.Ambient, l, input.Lighting.OverbrightShift)
+            : input.Lighting;
 
     /// <summary>
     /// Plafonne la collision solide selon le budget restant (brushes, cotes de brush, plans) : les polygones de plus petite

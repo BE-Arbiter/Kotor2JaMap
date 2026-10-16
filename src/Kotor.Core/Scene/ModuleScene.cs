@@ -24,6 +24,18 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
     /// <summary>True when the ARE was found and readable: the area ambient and sun colour then replace the faux sun of a module without light node.</summary>
     public bool AreaLightingKnown { get; init; }
 
+    /// <summary>Faux (SWTOR) : les maillages de rendu ne servent pas de collision, seuls les walkmeshes (marchables ou solides) en fournissent. Vrai (KOTOR, defaut) : la geometrie visible bloque aussi.</summary>
+    public bool RenderMeshesAreSolid { get; init; } = true;
+
+    /// <summary>Shader de ciel de la carte ; null = defaut (<c>JaDefaults.SkyShader</c>).</summary>
+    public string? SkyShader { get; init; }
+
+    /// <summary>Direction de propagation du soleil (repere de la scene, Z haut) ; null = direction par defaut de JA.</summary>
+    public Vector3? SunDirection { get; init; }
+
+    /// <summary>Vrai : le soleil (<see cref="SunDiffuseColor"/>) s'ajoute aux lumieres ponctuelles (zones exterieures SWTOR). Faux (KOTOR) : avec des lumieres, pas de soleil.</summary>
+    public bool SunWithLights { get; init; }
+
     /// <summary>Modules d'une carte assemblee avec leur transformation ; null pour la scene d'un seul module.</summary>
     public IReadOnlyList<AssemblyPartRef>? Parts { get; init; } = null;
 

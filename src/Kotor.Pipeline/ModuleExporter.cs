@@ -140,7 +140,7 @@ public static class ModuleExporter
             Vector3[] pos = Scaled(mesh.Positions, scale);
             surfaces.Add(new SurfaceInput(planned.Name, pos, mesh.Normals, FlipV(mesh.Uv0),
                 planned.Lightmap is null || mesh.Uv1 is null ? null : FlipV(mesh.Uv1), mesh.Triangles, planned.DoubleSided));
-            if (planned.Kind is not (ShaderKind.Additive or ShaderKind.Blend))
+            if (scene.RenderMeshesAreSolid && planned.Kind is not (ShaderKind.Additive or ShaderKind.Blend))
                 solid.Add(new SubMesh { MaterialName = planned.Name, Positions = pos, Triangles = mesh.Triangles });
             meshCount++;
             triangles += mesh.Triangles.Length / 3;
@@ -181,14 +181,17 @@ public static class ModuleExporter
             .Select(l => new PointLight(l.Position * scale, l.Color, l.Radius * scale, l.Multiplier, l.AmbientOnly))
             .ToList();
         VertexLighting lighting = lights.Count > 0
-            ? VertexLighting.Default with { Ambient = scene.AmbientColor }
+            ? scene.SunWithLights
+                ? VertexLighting.Default with { Ambient = scene.AmbientColor, Sun = scene.SunDiffuseColor, SunWithLights = true }
+                : VertexLighting.Default with { Ambient = scene.AmbientColor }
             : scene.AreaLightingKnown
                 ? VertexLighting.Default with { Ambient = scene.AmbientColor, Sun = scene.SunDiffuseColor }
                 : VertexLighting.Default;
+        if (scene.SunDirection is { } sunDir && sunDir.LengthSquared() > 1e-9f) lighting = lighting with { SunDir = Vector3.Normalize(sunDir) };
 
         var input = new CompileInput(name, entities, surfaces,
             new ModelMesh { Name = "solid", SubMeshes = solid }, new ModelMesh { Name = "walkable", SubMeshes = walkable },
-            JaDefaults.SkyShader, lighting, lights);
+            string.IsNullOrWhiteSpace(scene.SkyShader) ? JaDefaults.SkyShader : scene.SkyShader, lighting, lights);
         return new ExportPlan(input, [.. shaders.Values], [.. textures.Values], meshCount, (int)triangles, missing.Count);
     }
 

@@ -256,6 +256,9 @@ public class SwtorPipelineTests
             Assert.Equal("war_planworking", r.MapName);
             Assert.Equal(Path.Combine(opt.JaBaseDir, "swtor_war_planworking.pk3"), r.Export.Pk3Path);
             Assert.True(File.Exists(r.Export.Pk3Path));
+            Assert.DoesNotContain(log.Warnings, w => w.Code is "COLLISION_CAPPED" or "WALKABLE_CAPPED" or "BSP_ERROR"); // collision des .gr2 : sous les limites
+            Assert.True(r.Stats!.CollisionInstances > 300);
+            Assert.True(r.Bsp!.Collision.BrushCount < 60000);
         }
         finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
     }

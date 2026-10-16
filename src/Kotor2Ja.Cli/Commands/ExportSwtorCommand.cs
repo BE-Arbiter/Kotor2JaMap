@@ -20,23 +20,23 @@ public static class ExportSwtorCommand
         var limOpt = new Option<string?>("--bsp-limits") { Description = "BSP limits profile: swgl (default) or vanilla." };
         var cfgOpt = new Option<string?>("--config") { Description = "JSON configuration file (default: kotor2ja.config.json next to the executable)." };
         var texOpt = new Option<int?>("--max-texture") { Description = "Largest exported texture side in pixels (default 512, 0 = no reduction)." };
-        var noSpaceOpt = new Option<bool>("--no-space") { Description = "Leave out the SPACE room (ship exterior) when all rooms are exported." };
+        var spaceOpt = new Option<bool>("--include-space") { Description = "Keep the SPACE room (ship exterior hull, windows) when all rooms are exported; left out by default for interiors." };
         var axesOpt = new Option<string?>("--axes") { Description = "Axis conversion: rotation (default, right-handed) or mirror (left-handed source)." };
         cmd.Arguments.Add(area);
-        foreach (Option o in new Option[] { nameOpt, assetsOpt, scaleOpt, limOpt, cfgOpt, texOpt, noSpaceOpt, axesOpt }) cmd.Options.Add(o);
+        foreach (Option o in new Option[] { nameOpt, assetsOpt, scaleOpt, limOpt, cfgOpt, texOpt, spaceOpt, axesOpt }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
         {
             string? cfgPath = pr.GetValue(cfgOpt) ?? GameOption.DefaultConfigPath;
             if (!ExportJaCommand.TryLoadConfig(cfgPath, Console.Error, out ExportOptions opt)) return 1;
             return Run(opt, pr.GetValue(area)!, pr.GetValue(nameOpt), pr.GetValue(assetsOpt), pr.GetValue(scaleOpt), pr.GetValue(limOpt),
-                pr.GetValue(texOpt), pr.GetValue(noSpaceOpt), pr.GetValue(axesOpt), Console.Out, Console.Error);
+                pr.GetValue(texOpt), pr.GetValue(spaceOpt), pr.GetValue(axesOpt), Console.Out, Console.Error);
         });
         return cmd;
     }
 
     /// <summary>Code de sortie : 0 si OK, 1 si echec (options, compilation, limite), 2 si la zone ou les ressources sont introuvables.</summary>
     public static int Run(ExportOptions opt, string areaText, string? mapName, string? assetsRoot, float? scale, string? bspLimits, int? maxTexture,
-        bool noSpace, string? axes, TextWriter output, TextWriter error)
+        bool includeSpace, string? axes, TextWriter output, TextWriter error)
     {
         opt = opt.ForGame(Kotor.Core.KotorGame.Swtor);
         if (scale is { } s) opt = opt with { Scale = s };
@@ -72,7 +72,7 @@ public static class ExportSwtorCommand
             return 2;
         }
 
-        var build = new SwtorBuildOptions { IncludeSpaceRoom = !noSpace, Axes = convention };
+        var build = new SwtorBuildOptions { IncludeSpaceRoom = includeSpace, Axes = convention };
         if (maxTexture is { } mt) build = build with { MaxTextureSize = mt };
         var log = new ImportLog();
         SwtorExportResult r = SwtorExporter.Export(folder, spec, mapName, assets, opt, build, log);
@@ -87,6 +87,7 @@ public static class ExportSwtorCommand
             output.WriteLine($"Rooms: {st.Rooms}  model instances: {st.ModelInstances}  distinct models: {st.DistinctModels} (missing {st.MissingModels})");
             output.WriteLine($"Collision meshes skipped: {st.SkippedCollisionMeshes}  lights: {st.Lights}  textures: {st.Textures}");
             output.WriteLine($"Walkable triangles: {st.WalkableTriangles}  solid triangles: {st.SolidTriangles}");
+            output.WriteLine($"Collision: {st.CollisionInstances} instance(s) from collision meshes ({st.OverrideInstances} override), {st.FallbackInstances} from visible geometry");
         }
         ExportResult e = r.Export;
         output.WriteLine($"Meshes: {e.Meshes}");
@@ -100,6 +101,15 @@ public static class ExportSwtorCommand
         output.WriteLine("Log by code:");
         foreach (var g in log.Warnings.GroupBy(w => w.Code).OrderBy(g => g.Key, StringComparer.Ordinal))
             output.WriteLine($"  {g.Key}: {g.Count()}");
+        var limitCodes = new[] { "COLLISION_CAPPED", "WALKABLE_CAPPED", "BSP_ERROR" };
+        var limitHits = log.Warnings.Where(w => limitCodes.Contains(w.Code)).ToList();
+        if (limitHits.Count > 0 && r.Stats is { RoomTriangles.Count: > 0 } rs)
+            output.WriteLine("Render triangles per room: " + string.Join(", ", rs.RoomTriangles.OrderByDescending(k => k.Value).Select(k => $"{k.Key} {k.Value}")));
+        if (limitHits.Count > 0)
+        {
+            output.WriteLine("BSP LIMITS EXCEEDED (collision reduced or build failed); consider exporting a subset of rooms (area:room1,room2):");
+            foreach (var w in limitHits) output.WriteLine($"  {w.Code}: {w.Message}");
+        }
         if (e.JournalError is not null) error.WriteLine($"Warning: {e.JournalError}");
         if (!e.Ok)
         {

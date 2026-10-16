@@ -71,6 +71,9 @@ public sealed record VertexLighting(Vector3 SunDir, Vector3 Sun, Vector3 Ambient
         return [ToByte(c.X), ToByte(c.Y), ToByte(c.Z), 255];
     }
 
+    /// <summary>True: with point lights the sun is kept (SWTOR outdoor areas); false (KOTOR): lights replace the sun.</summary>
+    public bool SunWithLights { get; init; }
+
     /// <summary>Point lights added to the ambient term (empty = sun and ambient only).</summary>
     public IReadOnlyList<PointLight> Lights { get; init; } = Array.Empty<PointLight>();
 

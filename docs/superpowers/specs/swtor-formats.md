@@ -200,3 +200,26 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
   visible en jeu) ; indétectable sans géométrie asymétrique, donc non tranché par calcul.
 - **Grille 3,2 m** : toutes les dalles `spc_arch_ss_mod_floor_plain` de `war_planworking` ont (x, z) multiples de 3,2 après composition
   parent/enfant (test d'intégration).
+
+## Collision et lumieres (T5)
+
+### Meshes de collision d'un .gr2 (confiance haute)
+Sur les 9 563 modeles distincts de 60 zones : `generated_collision` seul 8 582, aucun mesh de collision 530, `collision_override*` seul 352, `generated_collision` + un mesh explicite (`collision`, `collision01`, `collision_hidden`, `xx_collision`...) environ 55.
+Les meshes de collision reprennent le materiau du mesh visible (parfois `util_collision*`) et ont en moyenne la moitie des triangles. Regle retenue : `collision_override*` seul s'il existe ; sinon les meshes explicites remplacent `generated_collision` ; sinon `generated_collision` ; sinon repli sur la geometrie visible.
+
+### Champs d'une lumiere `\engine\light.lit` (118 810 instances, 267 zones ; confiance indiquee par champ)
+| hash | type | sens retenu | confiance |
+|---|---|---|---|
+| `0xA67AE663` | 7 | couleur RGBA | haute |
+| `0xB181622A` | 6 | echelle = etendue du volume d'eclairage (mediane 1,2 m, p95 4 m, max 785) | moyenne |
+| `0x36A29A30` | 3 | type : 2 = volume ponctuel (92 %), 3 = projecteur (60 % ont `falloff_spotlight`), 1 = etendue (echelle p95 6,9 m) | moyenne |
+| `0xBC68CFF3` | 8 (texte decimal, point) | multiplicateur de luminosite (1 415 valeurs, mediane 0,9, 1 pour 34 %, max 100) | moyenne-basse |
+| `0xEA6E4F13` | 4 | gain secondaire (0,82 / 1 / 0,707 pour 87 %) | basse |
+| `0x3B92D7B4` | 8 | rampe d'attenuation `art/lights/falloff_*` (texture 64 x 2 le long de l'axe : `falloff_linear` monte de 0 a 1 puis tombe a 0) | haute (nom) |
+| `0x6C84A1CD` | 8 | profil de section `art/lights/lum_*` (64 x 64) | haute (nom) |
+| `0x429C878A` | 8 | rampe de couleur `fill_RRR_GGG_BBB` / `defaultLightRamp` | haute (nom) |
+Non interpretes : `0x6CB280CE` (0..1, nul pour 75 %), `0x1BE9D670` (0,01 pour 85 %, sans doute un biais), `0x16E929FD` (texte, 1 pour 89 %), `0x71A31565`, une vingtaine de booleens (`0xDBCFD77F`, `0x279A7732`, `0xC5B29609`...). Les noms de champs ne sont pas stockes ; le hash n'est pas un hashlittle2 d'un nom simple (testes : position, scale, color, rotation, parent, chaines de `client.gom`).
+Les rampes ne sont pas reproduites : le compilateur n'a que des lumieres ponctuelles a attenuation lineaire.
+
+### Reglages d'area.dat utilises (cle `Area`)
+`is_outdoor`, `static_light_front/side/back` (+ `static_light_intensity`), `light_azimuth` / `light_polar` (direction du soleil ; polaire > 90 = la lumiere descend : orientation horizontale non verifiee), `static_fog_*` (decode, non exporte). Les valeurs par defaut (front blanc, side 0,5, back noir) sont presentes dans presque toutes les zones : elles servent peu d'information.

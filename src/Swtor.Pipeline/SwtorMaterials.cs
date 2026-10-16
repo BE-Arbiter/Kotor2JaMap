@@ -34,6 +34,23 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
         return info;
     }
 
+    private readonly Dictionary<string, bool> _additive = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Le materiau est additif (ecran, champ de force) : lit seulement le .mat, sans charger de texture. Absent ou illisible : faux.</summary>
+    public bool IsAdditive(string materialName)
+    {
+        if (_cache.TryGetValue(materialName, out var cached)) return cached.Alpha == SurfaceAlpha.Additive;
+        if (_additive.TryGetValue(materialName, out bool known)) return known;
+        bool add = false;
+        if (!materialName.StartsWith("util_collision", StringComparison.OrdinalIgnoreCase))
+        {
+            try { add = source.LoadMaterial(materialName) is { } mat && AlphaOf(mat) == SurfaceAlpha.Additive; }
+            catch (GameFormatException) { add = false; }
+        }
+        _additive[materialName] = add;
+        return add;
+    }
+
     private SwtorMaterialInfo Load(string name)
     {
         string key = ShaderNames.Short(Sanitize(name), KotorGame.Swtor);
