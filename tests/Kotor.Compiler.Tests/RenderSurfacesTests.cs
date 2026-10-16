@@ -183,4 +183,36 @@ public sealed class RenderSurfacesTests
         });
         Assert.True(surfaces.Count <= 8, $"{surfaces.Count} surfaces");
     }
+
+    [Fact]
+    public void Compact_mode_regroups_distant_triangles_and_cuts_the_leaf_triangle_cost()
+    {
+        // Beaucoup de petits brushes alignes sur X (feuilles nombreuses) ; 100 quads du meme shader alternent entre deux extremites.
+        var brushes = Enumerable.Range(0, 30).Select(i => Box(new(i * 100, 0, -20), new(i * 100 + 10, 10, -10))).ToList();
+        var tree = BspTree.Build(brushes);
+        var inputs = Enumerable.Range(0, 100).Select(i => Quad("a", i % 2 == 0 ? 0 : 2800)).ToList();
+
+        var loose = RenderSurfaces.FromInputs(inputs, tree);
+        var compact = RenderSurfaces.FromInputs(inputs, tree, compact: true);
+
+        Assert.Equal(loose.Sum(s => s.Indices.Length), compact.Sum(s => s.Indices.Length)); // aucun triangle perdu
+        Assert.All(compact, s =>
+        {
+            Assert.True(s.Positions.Length <= RenderSurfaces.MaxSurfaceVerts);
+            Assert.True(s.Indices.Length <= RenderSurfaces.MaxSurfaceIndexes);
+            Assert.True((long)(s.Indices.Length / 3) * s.Leaves.Count <= RenderSurfaces.MaxLeafTriangleCost || s.Indices.Length == 3);
+        });
+        Assert.True(LimitCheck.EstimateRtxPrimitives(compact) < LimitCheck.EstimateRtxPrimitives(loose) / 4,
+            $"{LimitCheck.EstimateRtxPrimitives(compact)} vs {LimitCheck.EstimateRtxPrimitives(loose)}");
+    }
+
+    [Fact]
+    public void Default_mode_is_unchanged_by_the_compact_option_being_off()
+    {
+        var inputs = new List<SurfaceInput> { Grid(30, 30), Quad("b", 5), Grid(47, 37) };
+        var a = RenderSurfaces.FromInputs(inputs, BspTree.Build([]));
+        var b = RenderSurfaces.FromInputs(inputs, BspTree.Build([]), compact: false);
+        Assert.Equal(a.Count, b.Count);
+        for (int i = 0; i < a.Count; i++) { Assert.Equal(a[i].Positions, b[i].Positions); Assert.Equal(a[i].Indices, b[i].Indices); }
+    }
 }

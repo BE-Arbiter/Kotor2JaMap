@@ -99,7 +99,7 @@ public static class Compiler
 
                     // Surfaces de rendu.
                     var surfaces = new List<RenderSurface>();
-                    surfaces.AddRange(RenderSurfaces.FromInputs(input.Surfaces, tree, iterLog));
+                    surfaces.AddRange(RenderSurfaces.FromInputs(input.Surfaces, tree, iterLog, input.CompactSurfaces));
 
                     // Boite de ciel : 6 faces autour de toute la geometrie.
                     string sky = input.SkyShader;
@@ -109,6 +109,10 @@ public static class Compiler
                         surfaces.AddRange(SkyBox.Build(tree, sky.Trim(), skyMin, skyMax));
                     else
                         IterWarn("Warning: no geometry, no sky box.");
+
+                    long rtxPrims = LimitCheck.EstimateRtxPrimitives(surfaces);
+                    if (rtxPrims > Limits.RtxPrimitiveWarnThreshold)
+                        iterLog.Warn("RTX_ESTIMATE_HIGH", $"The engine's ray tracing estimate is {rtxPrims} primitives ({rtxPrims * Limits.RtxPrimitiveBytes >> 30} GiB allocated at load); surfaces span many leaves.");
 
                     // Tout est construit en memoire : en cas de depassement, aucun fichier n'est ecrit.
                     ms.SetLength(0);

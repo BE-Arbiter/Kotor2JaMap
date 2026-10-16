@@ -189,6 +189,7 @@ public static class BspWriter
         CheckMax("MAX_MAP_LEAFBRUSHES", leafBrushCount, limits.MaxLeafBrushes);
         LimitCheck.CheckRenderLimits(shaderNames.Count, surfaces.Count, totalVerts, totalIndexes, leafSurfaceCount, limits.MaxLeafSurfaces);
         foreach (RenderSurface sf in surfaces) LimitCheck.CheckSurface(sf.Shader, sf.Positions.Length, sf.Indices.Length);
+        LimitCheck.CheckRtxEstimate(LimitCheck.EstimateRtxPrimitives(surfaces), limits.MaxRtxPrimitives);
 
         // Bornes des nœuds : union des bornes des enfants.
         var nodeMin = new Vector3[nodes.Count];

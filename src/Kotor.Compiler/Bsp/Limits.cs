@@ -10,9 +10,22 @@ public sealed class BspLimitException(string message, bool collisionRelated = fa
 
 /// <summary>Limites BSP du moteur JA (RBSP v1).</summary>
 public sealed record Limits(int MaxBrushes, int MaxPlanes, int MaxNodes, int MaxLeaves,
-    int MaxBrushSides = 0x20000, int MaxLeafBrushes = 0x40000, int MaxLeafSurfaces = 0x20000)
+    int MaxBrushSides = 0x20000, int MaxLeafBrushes = 0x40000, int MaxLeafSurfaces = 0x20000, long MaxRtxPrimitives = long.MaxValue)
 {
     public const int MaxDrawIndexes = 0x80000;
+
+    /// <summary>
+    /// Estimation des primitives du lancer de rayons de rdsp-vulkan (rtx/vk_rtx_bsp.cpp, vk_rtx_estimate_geometry) : somme, sur chaque entree de leafsurface,
+    /// des triangles de la surface, soit environ (feuilles listant la surface) x (triangles). Le moteur en fait un calloc de 208 octets par primitive puis un memset ;
+    /// si l'allocation echoue (limite de commit, ~110 Gio ici) le memset ecrit en NULL et le jeu plante dans VCRUNTIME140 (war_planworking : 747 millions, 145 Gio).
+    /// </summary>
+    public const long RtxPrimitiveBytes = 208;
+
+    /// <summary>Seuil d'echec du profil swgl : 500 millions de primitives (~97 Gio), au-dela de la limite de commit d'un PC courant. Mesure : korr_m35aa (KOTOR, 460 millions) charge.</summary>
+    public const long RtxPrimitiveCrashThreshold = 500_000_000;
+
+    /// <summary>Seuil d'avertissement (RTX_ESTIMATE_HIGH) : 50 millions de primitives (~10 Gio de memoire commitee).</summary>
+    public const long RtxPrimitiveWarnThreshold = 50_000_000;
 
     /// <summary>Limites du moteur JA vanilla (qfiles.h).</summary>
     public static Limits Vanilla { get; } = new(0x8000, 0x20000, 0x20000, 0x20000, 0x20000, 0x40000, 0x20000);
@@ -22,7 +35,7 @@ public sealed record Limits(int MaxBrushes, int MaxPlanes, int MaxNodes, int Max
     /// (code/qcommon/cm_load.cpp) allouent count entrees d apres la taille du lump, sans borne ; MAX_MAP_LEAFFACES de qfiles.h n y est pas utilise.
     /// Necessaire a l assemblage end_m01aa + end_m01ab (1 242 104 leaf faces), essaye en jeu.
     /// Le reste (shaders, draw verts/indexes, surfaces, modeles) reste a la valeur vanilla.</summary>
-    public static Limits Swgl { get; } = new(0x100000, 0x100000, 0x100000, 0x100000, 0x100000, 0x100000, 0x200000);
+    public static Limits Swgl { get; } = new(0x100000, 0x100000, 0x100000, 0x100000, 0x100000, 0x100000, 0x200000, MaxRtxPrimitives: RtxPrimitiveCrashThreshold);
 
     /// <summary>"swgl" (defaut) ou "vanilla", insensible a la casse.</summary>
     public static Limits FromName(string? name) => (name ?? "swgl").Trim().ToLowerInvariant() switch

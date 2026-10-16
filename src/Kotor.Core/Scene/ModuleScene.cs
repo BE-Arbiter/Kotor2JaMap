@@ -27,6 +27,9 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
     /// <summary>Faux (SWTOR) : les maillages de rendu ne servent pas de collision, seuls les walkmeshes (marchables ou solides) en fournissent. Vrai (KOTOR, defaut) : la geometrie visible bloque aussi.</summary>
     public bool RenderMeshesAreSolid { get; init; } = true;
 
+    /// <summary>Vrai (SWTOR) : surfaces de rendu regroupees par proximite (tri de Morton) pour limiter les feuilles recoupees par surface. Faux (KOTOR, defaut) : ordre des entrees, sortie inchangee.</summary>
+    public bool CompactRenderSurfaces { get; init; }
+
     /// <summary>Shader de ciel de la carte ; null = defaut (<c>JaDefaults.SkyShader</c>).</summary>
     public string? SkyShader { get; init; }
 

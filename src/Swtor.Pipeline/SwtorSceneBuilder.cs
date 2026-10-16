@@ -208,6 +208,7 @@ public static class SwtorSceneBuilder
             Lights = lights,
             AreaLightingKnown = true,
             RenderMeshesAreSolid = !options.UseCollisionMeshes,
+            CompactRenderSurfaces = true,
             SkyShader = hasSpace ? SpaceSkyShader : null,
         }, areaLighting, options, lights.Count > 0);
         var stats = new SwtorSceneStats(roomsUsed, instances, models.Count, missing.Count, meshes.Count, triangles, skippedCollision, lights.Count,

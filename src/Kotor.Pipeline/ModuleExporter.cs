@@ -191,7 +191,7 @@ public static class ModuleExporter
 
         var input = new CompileInput(name, entities, surfaces,
             new ModelMesh { Name = "solid", SubMeshes = solid }, new ModelMesh { Name = "walkable", SubMeshes = walkable },
-            string.IsNullOrWhiteSpace(scene.SkyShader) ? JaDefaults.SkyShader : scene.SkyShader, lighting, lights);
+            string.IsNullOrWhiteSpace(scene.SkyShader) ? JaDefaults.SkyShader : scene.SkyShader, lighting, lights) { CompactSurfaces = scene.CompactRenderSurfaces };
         return new ExportPlan(input, [.. shaders.Values], [.. textures.Values], meshCount, (int)triangles, missing.Count);
     }
 

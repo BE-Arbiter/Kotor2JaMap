@@ -25,6 +25,17 @@ public static class LimitCheck
         Check("SURFACE_INDEXES(" + shader + ")", indexes, RenderSurfaces.MaxSurfaceIndexes);
     }
 
+    /// <summary>Estimation des primitives RTX du moteur (voir <see cref="Limits.RtxPrimitiveBytes"/>) : somme sur les surfaces de (feuilles x triangles).</summary>
+    public static long EstimateRtxPrimitives(IEnumerable<RenderSurface> surfaces) =>
+        surfaces.Sum(s => (long)s.Leaves.Count * (s.Indices.Length / 3));
+
+    public static void CheckRtxEstimate(long primitives, long max)
+    {
+        if (primitives > max)
+            throw new BspLimitException($"BSP limit exceeded: RTX_PRIMITIVE_ESTIMATE = {max}, {primitives} required ({primitives * Limits.RtxPrimitiveBytes >> 30} GiB allocated by the engine at load). "
+                + "Surfaces span too many leaves; the game would crash while loading the map. No partial BSP is written.");
+    }
+
     /// <summary>Lumps liés aux surfaces de rendu.</summary>
     public static void CheckRenderLimits(int shaders, int surfaces, int verts, int indexes, int leafSurfaces, int maxLeafSurfaces = 0x20000)
     {

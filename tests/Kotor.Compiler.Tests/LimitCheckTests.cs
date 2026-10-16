@@ -39,4 +39,15 @@ public class LimitCheckTests
         Assert.Throws<BspLimitException>(() =>
             LimitCheck.CheckRenderLimits(1, 1, 10, 30, 1_242_104, Limits.Vanilla.MaxLeafSurfaces));
     }
+
+    [Fact]
+    public void Rtx_primitive_estimate_is_checked_against_the_profile_limit()
+    {
+        // war_planworking avant correction : 747 millions de primitives (145 Gio), plantage du jeu au chargement.
+        LimitCheck.CheckRtxEstimate(Limits.RtxPrimitiveWarnThreshold, Limits.Swgl.MaxRtxPrimitives);
+        LimitCheck.CheckRtxEstimate(460_805_025, Limits.Swgl.MaxRtxPrimitives); // korr_m35aa (KOTOR) charge
+        var ex = Assert.Throws<BspLimitException>(() => LimitCheck.CheckRtxEstimate(747_013_167, Limits.Swgl.MaxRtxPrimitives));
+        Assert.Contains("RTX_PRIMITIVE_ESTIMATE", ex.Message);
+        LimitCheck.CheckRtxEstimate(747_013_167, Limits.Vanilla.MaxRtxPrimitives); // pas de lancer de rayons en JA vanilla
+    }
 }

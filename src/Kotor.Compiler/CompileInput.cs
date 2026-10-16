@@ -16,4 +16,7 @@ public sealed record CompileInput(string MapName, IReadOnlyList<IReadOnlyDiction
 {
     /// <summary>Sous-modeles BSP (portes) : le i-eme devient <c>*{i+1}</c>. Vide par defaut : le BSP est alors identique a celui d'avant.</summary>
     public IReadOnlyList<SubModelInput> SubModels { get; init; } = [];
+
+    /// <summary>Surfaces de rendu spatialement compactes (tri de Morton avant decoupage). Faux par defaut : sortie KOTOR inchangee.</summary>
+    public bool CompactSurfaces { get; init; }
 }

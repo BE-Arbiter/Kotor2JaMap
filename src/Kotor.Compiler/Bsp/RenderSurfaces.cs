@@ -19,6 +19,9 @@ public static class RenderSurfaces
     public const int MaxSurfaceVerts = 1199;
     public const int MaxSurfaceIndexes = 7197;
 
+    /// <summary>Mode compact : triangles x feuilles recoupees par la boite d'une surface au-dela desquels elle est scindee. Le moteur (estimation du lancer de rayons de rdsp-vulkan) alloue 208 octets par triangle et par feuille listant la surface.</summary>
+    public const int MaxLeafTriangleCost = 1000;
+
     /// <summary>Feuille contenant le point (descente de l'arbre ; front = côté positif du plan).</summary>
     public static int FindLeaf(BspTree tree, Vector3 p)
     {
@@ -45,14 +48,15 @@ public static class RenderSurfaces
     /// Construit les surfaces de rendu : toutes les entrées de même shader (même DoubleSided, même présence d'UV de lightmap)
     /// sont fusionnées puis découpées uniquement selon les limites du moteur, en gardant l'ordre des entrées (chunks compacts).
     /// Chaque surface est rattachée à toutes les feuilles non solides que sa boîte englobante recoupe (repli : feuilles solides
-    /// si aucune autre). Les UV de lightmap suivent les sommets ; les UV0 sont recopiés tels quels (convention Quake).
+    /// si aucune autre). <paramref name="compact"/> trie d'abord les triangles par Morton (surfaces compactes, voir plus bas). Les UV de lightmap suivent les sommets ; les UV0 sont recopiés tels quels (convention Quake).
     /// </summary>
-    public static IReadOnlyList<RenderSurface> FromInputs(IReadOnlyList<SurfaceInput> inputs, BspTree tree, ImportLog? log = null)
+    public static IReadOnlyList<RenderSurface> FromInputs(IReadOnlyList<SurfaceInput> inputs, BspTree tree, ImportLog? log = null, bool compact = false)
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(tree);
         var groups = new Dictionary<(string Shader, bool DoubleSided, bool Lm), List<Builder>>();
         var order = new List<(string Shader, bool DoubleSided, bool Lm)>();
+        var pending = new Dictionary<(string Shader, bool DoubleSided, bool Lm), List<Tri>>();
         int uniqueKey = 0;
         for (int si = 0; si < inputs.Count; si++)
         {
@@ -70,25 +74,92 @@ public static class RenderSurfaces
 
             var gk = (s.Shader, s.DoubleSided, hasUv1);
             if (!groups.TryGetValue(gk, out List<Builder>? chunks)) { groups[gk] = chunks = [new Builder()]; order.Add(gk); }
+            if (!pending.TryGetValue(gk, out List<Tri>? tris)) pending[gk] = tris = [];
             for (int t = 0; t + 2 < s.Indices.Length; t += 3)
             {
                 int i0 = s.Indices[t], i1 = s.Indices[t + 1], i2 = s.Indices[t + 2];
                 if ((uint)i0 >= (uint)nv || (uint)i1 >= (uint)nv || (uint)i2 >= (uint)nv) continue; // indice invalide : triangle ignoré
-                Vector3 a = s.Positions[i0], b = s.Positions[i1], c = s.Positions[i2];
-                Builder bl = chunks[^1];
-                // Découpage par triangles entiers : au plus 3 nouveaux sommets par triangle.
-                if (bl.Positions.Count + 3 > MaxSurfaceVerts || bl.Indices.Count + 3 > MaxSurfaceIndexes)
-                    chunks.Add(bl = new Builder());
-                Vector3 faceN = Vector3.Cross(b - a, c - a);
-                faceN = faceN.LengthSquared() > 0 ? Vector3.Normalize(faceN) : Vector3.UnitZ;
-                // Enroulement JA (mesure etape 15) : ordre inverse de l'entree, on emet v0, v2, v1.
-                foreach (int i in new[] { i0, i2, i1 })
-                {
-                    // Sans normale en entrée la normale dépend de la face : pas de partage de sommet.
-                    long key = hasN ? ((long)si << 32) | (uint)i : -1 - uniqueKey++;
-                    bl.Add(key, s.Positions[i], hasUv0 ? s.Uv0[i] : Vector2.Zero, hasN ? s.Normals[i] : faceN, hasUv1 ? s.Uv1![i] : null);
-                }
+                tris.Add(new Tri(si, i0, i1, i2, hasN, hasUv0, hasUv1));
             }
+        }
+
+        // Mode compact : triangles d'un même shader triés selon une courbe de Morton avant le découpage, de sorte que chaque surface
+        // occupe une région compacte. Sans cela une surface mélange des instances éloignées, sa boîte englobante recoupe presque
+        // toutes les feuilles et le moteur (estimation RTX : somme sur les feuilles de triangles par surface) surestime énormément.
+        if (compact && pending.Count > 0)
+        {
+            Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
+            foreach (SurfaceInput s in inputs)
+                foreach (Vector3 p in s.Positions) { lo = Vector3.Min(lo, p); hi = Vector3.Max(hi, p); }
+            Vector3 ext = Vector3.Max(hi - lo, new Vector3(1e-3f));
+            foreach (var kv in pending)
+            {
+                List<Tri> list = kv.Value;
+                var keys = new ulong[list.Count];
+                for (int k = 0; k < list.Count; k++)
+                {
+                    Tri tr = list[k];
+                    SurfaceInput s = inputs[tr.Input];
+                    Vector3 c = (s.Positions[tr.I0] + s.Positions[tr.I1] + s.Positions[tr.I2]) / 3f;
+                    keys[k] = Morton((c - lo) / ext);
+                }
+                var idx = Enumerable.Range(0, list.Count).ToArray();
+                Array.Sort(idx, (x, y) => keys[x] != keys[y] ? keys[x].CompareTo(keys[y]) : x.CompareTo(y));
+                pending[kv.Key] = idx.Select(k => list[k]).ToList();
+            }
+        }
+
+        void AddTri(Builder bl, Tri tr)
+        {
+            SurfaceInput s = inputs[tr.Input];
+            Vector3 a = s.Positions[tr.I0], b = s.Positions[tr.I1], c = s.Positions[tr.I2];
+            Vector3 faceN = Vector3.Cross(b - a, c - a);
+            faceN = faceN.LengthSquared() > 0 ? Vector3.Normalize(faceN) : Vector3.UnitZ;
+            // Enroulement JA (mesure etape 15) : ordre inverse de l'entree, on emet v0, v2, v1.
+            foreach (int i in new[] { tr.I0, tr.I2, tr.I1 })
+            {
+                // Sans normale en entrée la normale dépend de la face : pas de partage de sommet.
+                long key = tr.HasN ? ((long)tr.Input << 32) | (uint)i : -1 - uniqueKey++;
+                bl.Add(key, s.Positions[i], tr.HasUv0 ? s.Uv0[i] : Vector2.Zero, tr.HasN ? s.Normals[i] : faceN, tr.HasUv1 ? s.Uv1![i] : null);
+            }
+        }
+
+        foreach (var gk in order)
+        {
+            List<Builder> chunks = groups[gk];
+            List<Tri> list = pending[gk];
+            if (!compact)
+            {
+                foreach (Tri tr in list)
+                {
+                    Builder bl = chunks[^1];
+                    // Découpage par triangles entiers : au plus 3 nouveaux sommets par triangle.
+                    if (bl.Positions.Count + 3 > MaxSurfaceVerts || bl.Indices.Count + 3 > MaxSurfaceIndexes)
+                        chunks.Add(bl = new Builder());
+                    AddTri(bl, tr);
+                }
+                continue;
+            }
+
+            // Mode compact : bissection de la liste triee tant qu'une surface depasse les limites du moteur ou que
+            // triangles x feuilles recoupees par sa boite depasse MaxLeafTriangleCost.
+            chunks.Clear();
+            void Emit(int l, int r)
+            {
+                var bl = new Builder();
+                for (int k = l; k < r; k++) AddTri(bl, list[k]);
+                bool fits = bl.Positions.Count <= MaxSurfaceVerts && bl.Indices.Count <= MaxSurfaceIndexes;
+                if (r - l > 1 && (!fits || (long)(r - l) * LeavesTouching(tree, bl.Positions).Count > MaxLeafTriangleCost))
+                {
+                    int mid = (l + r) / 2;
+                    Emit(l, mid);
+                    Emit(mid, r);
+                    return;
+                }
+                chunks.Add(bl);
+            }
+            if (list.Count > 0) Emit(0, list.Count);
+            else chunks.Add(new Builder());
         }
 
         var result = new List<RenderSurface>();
@@ -135,6 +206,25 @@ public static class RenderSurfaces
         all.Sort();
         var open = all.Where(l => !tree.Leaves[l].IsSolid).ToList();
         return open.Count > 0 ? open : all;
+    }
+
+    private readonly record struct Tri(int Input, int I0, int I1, int I2, bool HasN, bool HasUv0, bool HasUv1);
+
+    /// <summary>Code de Morton 3 x 21 bits d'un point de [0,1]^3.</summary>
+    private static ulong Morton(Vector3 p)
+    {
+        static ulong Spread(uint v)
+        {
+            ulong x = v & 0x1FFFFFUL;
+            x = (x | (x << 32)) & 0x1F00000000FFFFUL;
+            x = (x | (x << 16)) & 0x1F0000FF0000FFUL;
+            x = (x | (x << 8)) & 0x100F00F00F00F00FUL;
+            x = (x | (x << 4)) & 0x10C30C30C30C30C3UL;
+            x = (x | (x << 2)) & 0x1249249249249249UL;
+            return x;
+        }
+        static uint Q(float f) => (uint)Math.Clamp(f * 2097151f, 0f, 2097151f);
+        return Spread(Q(p.X)) | (Spread(Q(p.Y)) << 1) | (Spread(Q(p.Z)) << 2);
     }
 
     private sealed class Builder
