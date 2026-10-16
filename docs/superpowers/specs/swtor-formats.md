@@ -185,3 +185,18 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
 - **Nom interne** : le dernier bloc d'`area.dat` (après la section 8) contient `[id 64 bits 0x4...][u32 longueur][nom ASCII][0]` ; pris par `AreaDatReader.ScanInternalName` (267/267 zones, confiance élevée). Ex. `war_planworking`, `tat_main`.
 - **GOM** (`systemgenerated/buckets`, lecteur copié dans `Swtor.Core/Gom`) : l'objet `mapAreasDataProto` est une table `id de zone -> { texte (champ 0x400000080027BF7F), clé de chat (0x400000085CD72A38) }` ; le texte est un identifiant de chaîne 64 bits, résolu dans `fr-fr/str/sys/worldmap.stb`, puis `gui/map.stb`, `spvp/misc.stb`, `rdd.stb` (la table de chaînes n'est pas indiquée, on les essaie dans cet ordre). Les objets `world.areas.<id>.mapdata` donnent la liste des pages de minimap de la zone (nom `map_*`, identifiant de chaîne) ; `sysAreaInfoTablePrototype` associe nom interne et id de zone ; `hydAreaIdToPlanetAliasDataPrototype` associe id de zone et alias de planète (non localisé).
 - Seul le dossier `fr-fr` des chaînes est présent dans l'extraction (`gamedata/str` ne contient que `stb.manifest`) : les noms lisibles sont en français.
+
+## Validation T4 : axes et Euler
+
+- **Ordre effectif corrigé dans la doc** : `qx * qy * qz` (System.Numerics, produit de Hamilton) applique **Z d'abord, puis Y, puis X**
+  (test `Euler_yaw_sends_X_to_minus_Z_and_Z_is_applied_first` : `(90,90,0)` envoie +Y vers +Z, pas vers +X). La phrase « X d'abord » de T2 décrivait
+  l'intention, pas le code. Le code est inchangé : les rotations à un seul axe (lacet Y) ne dépendent pas de l'ordre, et aucun test
+  statistique T4 ne départage les ordres pour les rotations multi-axes (étiquetage par nom « floor/wall », 120 zones : 54 à 61 % de
+  verdicts conformes pour tous les ordres, écart non significatif). Reste **ouvert** : à confirmer visuellement (T7) sur une poutre couchée.
+- **Axes** : le repère SWTOR est (X, Y haut, Z) ; la scène est (X, Y, Z haut). Conversion retenue : rotation propre `(x, y, z) -> (x, -z, y)`
+  (déterminant +1). Elle est cohérente avec les données : sur les 33 906 triangles non collision de `war_planworking`, le produit
+  vectoriel des arêtes est toujours du même côté que les normales (sens anti-horaire, repère direct) et le reste après conversion
+  (159 617 triangles, 0 incohérent). Une symétrie (`--axes mirror`) existe si on découvrait un monde gaucher (texte inversé sur un panneau
+  visible en jeu) ; indétectable sans géométrie asymétrique, donc non tranché par calcul.
+- **Grille 3,2 m** : toutes les dalles `spc_arch_ss_mod_floor_plain` de `war_planworking` ont (x, z) multiples de 3,2 après composition
+  parent/enfant (test d'intégration).

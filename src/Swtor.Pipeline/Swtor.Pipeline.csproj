@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Swtor.Pipeline.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Kotor.Core\Kotor.Core.csproj" />
+    <ProjectReference Include="..\Kotor.Compiler\Kotor.Compiler.csproj" />
+    <ProjectReference Include="..\Kotor.Pipeline\Kotor.Pipeline.csproj" />
+    <ProjectReference Include="..\Swtor.Core\Swtor.Core.csproj" />
+  </ItemGroup>
+
+</Project>

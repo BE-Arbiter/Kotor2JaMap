@@ -71,6 +71,7 @@ public static class PipelineSteps
     /// </summary>
     private static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) ConvertObjects(ModuleScene scene, ExportOptions opt, ImportLog log)
     {
+        if (opt.Game == KotorGame.Swtor) return (ConvertedEntities.Empty, []); // SWTOR objects are not converted (journaled by the scene builder)
         if (string.IsNullOrWhiteSpace(opt.KotorDir) || !Directory.Exists(opt.KotorDir))
         {
             log.Warn("PLACEABLES_NO_GAME_DIR", "No game folder available: placeable conversion skipped, the map has no placed objects.");

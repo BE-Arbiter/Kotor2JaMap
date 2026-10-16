@@ -10,7 +10,7 @@ public static class GameOption
 
     public static Option<string> Create() => new("--game")
     {
-        Description = "Game to read: kotor (default) or kotor2.",
+        Description = "Game to read: kotor (default), kotor2 or swtor (export-ja only: the module argument is then a SWTOR area).",
         DefaultValueFactory = _ => "kotor",
     };
     public static bool TryParse(string? text, out KotorGame game)

@@ -16,9 +16,12 @@ public sealed record ExportOptions(string KotorDir, string JaBaseDir, string Wor
     /// Options d'un jeu a partir des options de base (dont <see cref="KotorDir"/> est le dossier de KOTOR). Pour KOTOR 2, le dossier
     /// est <see cref="Kotor2Dir"/> (chaine vide s'il n'est pas configure).
     /// </summary>
-    public ExportOptions ForGame(KotorGame game) => game == KotorGame.Kotor2
-        ? this with { Game = KotorGame.Kotor2, KotorDir = Kotor2Dir ?? "" }
-        : this with { Game = KotorGame.Kotor1 };
+    public ExportOptions ForGame(KotorGame game) => game switch
+    {
+        KotorGame.Kotor2 => this with { Game = KotorGame.Kotor2, KotorDir = Kotor2Dir ?? "" },
+        KotorGame.Swtor => this with { Game = KotorGame.Swtor }, // SWTOR reads its own extracted assets folder, not KotorDir
+        _ => this with { Game = KotorGame.Kotor1 },
+    };
 
     /// <summary>Message d'erreur si les options sont inutilisables (echelle ou luminosite non finie ou &lt;= 0, profil de limites inconnu), sinon null.</summary>
     public string? Validate()

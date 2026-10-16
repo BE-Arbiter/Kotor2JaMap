@@ -20,13 +20,14 @@ public static class Program
         };
         var gameOption = new Option<string>("--game")
         {
-            Description = "Game to read: kotor (default) or kotor2.",
+            Description = "Game to read: kotor (default), kotor2 or swtor (export-ja only: the module argument is then a SWTOR area).",
             DefaultValueFactory = _ => "kotor",
         };
         var root = new RootCommand("Converts KOTOR modules to Jedi Academy.");
         root.Subcommands.Add(ListModulesCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportObjCommand.Create(kotorOption, gameOption));
         root.Subcommands.Add(ExportJaCommand.Create(kotorOption, gameOption));
+        root.Subcommands.Add(ExportSwtorCommand.Create());
         root.Subcommands.Add(SwtorDumpAreaCommand.Create());
         root.Subcommands.Add(SwtorListAreasCommand.Create());
         return root;

@@ -47,7 +47,7 @@ public static class ShaderNames
     /// <summary>Removes the texture folder prefix of either game (null if the name has none).</summary>
     public static string? StripPrefix(string fullName)
     {
-        foreach (KotorGame g in new[] { KotorGame.Kotor2, KotorGame.Kotor1 })
+        foreach (KotorGame g in new[] { KotorGame.Kotor2, KotorGame.Kotor1, KotorGame.Swtor })
             if (fullName.StartsWith(PrefixFor(g), StringComparison.Ordinal)) return fullName[PrefixFor(g).Length..];
         return null;
     }

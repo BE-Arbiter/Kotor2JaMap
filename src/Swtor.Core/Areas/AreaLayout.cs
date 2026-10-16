@@ -7,8 +7,8 @@ public static class AreaTransforms
 {
     /// <summary>
     /// Rotation depuis les angles d'Euler en degres tels que stockes (X, Y, Z). Convention retenue (confiance moyenne) :
-    /// angles positifs au sens mathematique direct, rotation X appliquee d'abord, puis Y, puis Z, autour des axes du monde
-    /// (equivalent a <c>qx * qy * qz</c> de System.Numerics, ou a la matrice colonne Rz * Ry * Rx).
+    /// angles positifs au sens mathematique direct ; avec la composition de System.Numerics l'ordre effectif est Z d'abord, puis Y, puis X, autour des axes du monde
+    /// (<c>qx * qy * qz</c> de System.Numerics = matrice colonne Rx * Ry * Rz ; verifie par test, T4).
     /// Les rotations a un seul axe (l'immense majorite : lacet autour de Y) n'en dependent pas.
     /// </summary>
     public static Quaternion RotationFromEuler(Vector3 degrees)

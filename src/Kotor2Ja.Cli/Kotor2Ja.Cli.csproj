@@ -17,6 +17,7 @@
     <ProjectReference Include="..\Kotor.Compiler\Kotor.Compiler.csproj" />
     <ProjectReference Include="..\Kotor.Pipeline\Kotor.Pipeline.csproj" />
     <ProjectReference Include="..\Swtor.Core\Swtor.Core.csproj" />
+    <ProjectReference Include="..\Swtor.Pipeline\Swtor.Pipeline.csproj" />
   </ItemGroup>
 
 </Project>

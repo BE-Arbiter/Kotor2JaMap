@@ -206,7 +206,7 @@ public static partial class PreviewBuilder
 
     private static PreviewBlend BlendOf(ShaderKind k) => k switch
     {
-        ShaderKind.LightmappedCutout => PreviewBlend.Cutout,
+        ShaderKind.LightmappedCutout or ShaderKind.UnlitCutout => PreviewBlend.Cutout,
         ShaderKind.Additive => PreviewBlend.Additive,
         ShaderKind.Blend => PreviewBlend.Alpha,
         _ => PreviewBlend.Opaque,
