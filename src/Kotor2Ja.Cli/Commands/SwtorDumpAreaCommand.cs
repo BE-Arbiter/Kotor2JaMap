@@ -10,7 +10,7 @@ public static class SwtorDumpAreaCommand
 {
     public static Command Create()
     {
-        var areaArg = new Argument<string>("area") { Description = "Identifiant numerique de la zone (world/areas/<id>) ou chemin du dossier contenant area.dat." };
+        var areaArg = new Argument<string>("area") { Description = "Identifiant numerique de la zone (world/areas/<id>), nom interne (voir swtor-list-areas, ex. war_planworking) ou chemin du dossier contenant area.dat." };
         var assetsOption = new Option<string?>("--assets")
         {
             Description = "Racine des ressources SWTOR extraites (defaut : SWTOR_ASSETS, puis C:\\jka_tor_assets\\resources).",
@@ -28,13 +28,29 @@ public static class SwtorDumpAreaCommand
         return cmd;
     }
 
-    public static int Run(string area, string? assetsRoot, int maxInstances, TextWriter output, TextWriter error)
+    /// <summary>Cherche une zone par nom interne dans le catalogue (cache JSON du dossier de travail ; reconstruit s'il manque).</summary>
+    private static string? ResolveByInternalName(string area, SwtorAssets assets, string? workDir)
+    {
+        if (area.Length == 0 || area.IndexOfAny(['/', '\\']) >= 0 || !Directory.Exists(Path.Combine(assets.Root, "world", "areas"))) return null;
+        try
+        {
+            var catalog = SwtorAreaCatalog.Load(assets, SwtorAreaCatalog.CachePath(workDir ?? SwtorListAreasCommand.ResolveWorkDir(null, null)));
+            var entry = catalog.Find(area);
+            return entry is null ? null : AreaLayout.ResolveFolder(entry.Id, assets);
+        }
+        catch (Exception ex) when (ex is GameFormatException or IOException)
+        {
+            return null;
+        }
+    }
+
+    public static int Run(string area, string? assetsRoot, int maxInstances, TextWriter output, TextWriter error, string? workDir = null)
     {
         var assets = new SwtorAssets(assetsRoot);
-        string? folder = AreaLayout.ResolveFolder(area, assets);
+        string? folder = AreaLayout.ResolveFolder(area, assets) ?? ResolveByInternalName(area, assets, workDir);
         if (folder is null)
         {
-            error.WriteLine($"SWTOR area '{area}' not found (looked for a folder with area.dat, then {Path.Combine(assets.Root, "world", "areas", area)}).");
+            error.WriteLine($"SWTOR area '{area}' not found (looked for a folder with area.dat, an internal name in the catalogue, then {Path.Combine(assets.Root, "world", "areas", area)}).");
             return 2;
         }
 

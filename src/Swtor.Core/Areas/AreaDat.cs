@@ -88,6 +88,9 @@ public sealed class AreaDat
 
     public AreaProperties AreaProperties => Properties.TryGetValue("Area", out var p) ? p : AreaProperties.Empty;
 
+    /// <summary>Nom interne de la zone ("war_planworking", "tat_main"), lu dans le dernier bloc du fichier ; null si absent.</summary>
+    public string? InternalName { get; init; }
+
     public string? ResolveAsset(ulong id) => Assets.TryGetValue(id, out string? s) ? s : null;
 }
 
@@ -138,7 +141,27 @@ public static class AreaDatReader
             Properties = props,
             Markers = markers,
             SectionOffsets = sections,
+            InternalName = ScanInternalName(data, (int)Math.Min(sections[8], (uint)data.Length)),
         };
+    }
+
+    /// <summary>
+    /// Le dernier bloc d'area.dat se termine par [id 64 bits 0x4...][longueur][nom ASCII][0]... ; on prend la derniere
+    /// occurrence de ce motif dans la derniere section (au plus les 400 derniers octets) (heuristique, voir swtor-formats.md).
+    /// </summary>
+    internal static string? ScanInternalName(byte[] data, int from)
+    {
+        string? name = null;
+        for (int p = Math.Max(from, data.Length - 400); p + 12 < data.Length; p++)
+        {
+            if ((BitConverter.ToUInt64(data, p) >> 60) != 4) continue;
+            int len = BitConverter.ToInt32(data, p + 8);
+            if (len < 2 || len > 80 || p + 12 + len > data.Length || data[p + 11 + len] != 0) continue;
+            bool ok = true;
+            for (int i = 0; i < len - 1; i++) if (data[p + 12 + i] < 0x20 || data[p + 12 + i] > 0x7E) { ok = false; break; }
+            if (ok) name = Encoding.ASCII.GetString(data, p + 12, len - 1);
+        }
+        return name;
     }
 
     /// <summary>

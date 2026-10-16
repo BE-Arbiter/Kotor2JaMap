@@ -94,6 +94,34 @@ public static class SyntheticArea
         return dir;
     }
 
+    /// <summary>Area.dat synthetique suivi du bloc final [id 64 bits][longueur][nom interne][0] lu par <see cref="AreaDatReader"/>.</summary>
+    public static byte[] AreaWithInternalName(string internalName, string[] rooms, Dictionary<ulong, string> assets)
+    {
+        var tail = new List<byte>();
+        tail.AddRange(new byte[16]);
+        Long(tail, 0x4000000000012345UL);
+        Int(tail, internalName.Length + 1);
+        tail.AddRange(Encoding.ASCII.GetBytes(internalName));
+        tail.Add(0);
+        tail.AddRange(new byte[8]);
+        return [.. Area(rooms, assets), .. tail];
+    }
+
+    /// <summary>Racine de ressources synthetique : <c>world/areas/&lt;id&gt;/area.dat</c> et un room .dat par zone (sans GOM ni chaines).</summary>
+    public static string WriteRoot(params (string Id, string InternalName, string[] Rooms)[] areas)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "swtor_root_" + Guid.NewGuid().ToString("N"));
+        foreach (var (id, name, rooms) in areas)
+        {
+            string dir = Path.Combine(root, "world", "areas", id);
+            Directory.CreateDirectory(dir);
+            File.WriteAllBytes(Path.Combine(dir, "area.dat"), AreaWithInternalName(name, rooms, StandardAssets()));
+            foreach (string r in rooms)
+                File.WriteAllBytes(Path.Combine(dir, r + ".dat"), Room("/world/areas/" + id + "/" + r + ".dat", [new Obj(1, GroundTile), new Obj(2, GroundTile), new Obj(3, GroundTile)]));
+        }
+        return root;
+    }
+
     public static Dictionary<ulong, string> StandardAssets() => new()
     {
         [GroundTile] = GroundTilePath,

@@ -179,3 +179,9 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
 - Zone `4611686045100172646` (« war_planworking », vaisseau Sith, flashpoint de chapitre 1) : 6 rooms, 135 assets, 75 gr2 distincts tous présents ;
   dalles de sol à des multiples exacts de 3,2 m ; emprise des modèles `room_01` 6,9 × 5,3 × 5,3 m, `hallway_01` 10,3 × 4,4 × 4,5 m,
   `airlock_01` 3,9 × 2,6 × 3,7 m.
+
+## Noms des zones (T3)
+
+- **Nom interne** : le dernier bloc d'`area.dat` (après la section 8) contient `[id 64 bits 0x4...][u32 longueur][nom ASCII][0]` ; pris par `AreaDatReader.ScanInternalName` (267/267 zones, confiance élevée). Ex. `war_planworking`, `tat_main`.
+- **GOM** (`systemgenerated/buckets`, lecteur copié dans `Swtor.Core/Gom`) : l'objet `mapAreasDataProto` est une table `id de zone -> { texte (champ 0x400000080027BF7F), clé de chat (0x400000085CD72A38) }` ; le texte est un identifiant de chaîne 64 bits, résolu dans `fr-fr/str/sys/worldmap.stb`, puis `gui/map.stb`, `spvp/misc.stb`, `rdd.stb` (la table de chaînes n'est pas indiquée, on les essaie dans cet ordre). Les objets `world.areas.<id>.mapdata` donnent la liste des pages de minimap de la zone (nom `map_*`, identifiant de chaîne) ; `sysAreaInfoTablePrototype` associe nom interne et id de zone ; `hydAreaIdToPlanetAliasDataPrototype` associe id de zone et alias de planète (non localisé).
+- Seul le dossier `fr-fr` des chaînes est présent dans l'extraction (`gamedata/str` ne contient que `stb.manifest`) : les noms lisibles sont en français.
