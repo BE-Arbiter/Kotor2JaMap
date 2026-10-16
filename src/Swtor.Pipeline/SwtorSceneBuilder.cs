@@ -40,6 +40,9 @@ public sealed record SwtorBuildOptions
     public float LightMinRadius { get; init; } = 1.5f;
     public float LightMaxRadius { get; init; } = 10f;
 
+    /// <summary>Echelle du monde (positions et sommets) pour des metres reels ; 0 = automatique selon le kit d architecture (<see cref="SwtorWorldScale"/>).</summary>
+    public float WorldScale { get; init; } = 0f;
+
     /// <summary>Plafond du multiplicateur de luminosite d'une lumiere (le champ vaut jusqu'a 100).</summary>
     public float LightMaxBrightness { get; init; } = 2f;
 }
@@ -75,6 +78,9 @@ public static class SwtorSceneBuilder
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(log);
         options ??= new SwtorBuildOptions();
+        float worldScale = options.WorldScale > 0f ? options.WorldScale : SwtorWorldScale.Detect(layout.AllInstances.Where(i => i.Kind == InstanceKind.Model).Select(i => i.AssetPath));
+        if (worldScale != 1f) log.Warn("SWTOR_WORLD_SCALE", $"World scale x{worldScale:0.##} applied to positions and vertices (models of this kit are about half of human scale; estimate, adjust with --world-scale).");
+        options = options with { WorldScale = worldScale };
         string skyRoom = layout.Area.AreaProperties.Get("skyscene_room") is { Length: > 0 } sr ? sr : "skyscene_room";
 
         var materials = new SwtorMaterials(source, options.MaxTextureSize, log);
@@ -118,7 +124,7 @@ public static class SwtorSceneBuilder
                 instances++;
                 if (!TryGetModel(inst.AssetPath, source, models, missing, log, out Gr2Model? model)) continue;
 
-                Matrix4x4 world = layout.World(inst);
+                Matrix4x4 world = layout.World(inst) * Matrix4x4.CreateScale(worldScale);
                 bool det = world.GetDeterminant() < 0f;
                 bool flip = det ^ SwtorAxes.FlipsWinding(options.Axes);
                 Matrix4x4 normalM = Matrix4x4.Invert(world, out Matrix4x4 inv) ? Matrix4x4.Transpose(inv) : world;
@@ -249,7 +255,7 @@ public static class SwtorSceneBuilder
     {
         if (inst.Color is not { } c) return false;
         LightParams lp = LightFields.Read(inst);
-        SceneLight? light = MakeLight(inst.Id, SwtorAxes.ToZUp(layout.WorldPosition(inst), options.Axes), new Vector3(c.X, c.Y, c.Z), lp, options);
+        SceneLight? light = MakeLight(inst.Id, SwtorAxes.ToZUp(layout.WorldPosition(inst) * options.WorldScale, options.Axes), new Vector3(c.X, c.Y, c.Z), lp, options);
         if (light is null) return false;
         lights.Add(light);
         return true;
@@ -261,7 +267,7 @@ public static class SwtorSceneBuilder
         float multiplier = Math.Clamp(lp.Brightness * lp.Gain, 0f, options.LightMaxBrightness);
         if (lp.IsSpot) multiplier *= 0.6f;
         if (!float.IsFinite(multiplier) || multiplier < 0.02f || MathF.Max(color.X, MathF.Max(color.Y, color.Z)) < 0.02f) return null;
-        float radius = Math.Clamp(lp.MaxExtent * options.LightRadiusFactor, options.LightMinRadius, options.LightMaxRadius);
+        float radius = Math.Clamp(lp.MaxExtent * options.LightRadiusFactor, options.LightMinRadius, options.LightMaxRadius) * (options.WorldScale > 0f ? options.WorldScale : 1f);
         return new SceneLight("light_" + id.ToString("X"), position, color, radius, multiplier);
     }
 
@@ -379,7 +385,7 @@ public static class SwtorSceneBuilder
 
     /// <summary>
     /// Point d'apparition : au milieu du sol de la plus grande room marchable (hors SPACE), sur un triangle de sol avec un degagement
-    /// d'environ 1,35 m au-dessus (joueur JA : 56 unites = 1,4 m a l'echelle 40) ; direction vers le centre de la room marchable suivante, sinon +X.
+    /// de 2 m au-dessus (joueur JA : 64 unites = 1,6 m a l echelle 40) ; direction vers le centre de la room marchable suivante, sinon +X.
     /// </summary>
     internal static ModuleEntry ChooseEntry(IReadOnlyList<SceneWalkmesh> walks, IReadOnlyList<SceneMesh> meshes,
         Dictionary<string, List<SceneMesh>> roomMeshes, ImportLog log)
@@ -441,12 +447,12 @@ public static class SwtorSceneBuilder
         bool found = false;
         foreach (var (point, _) in floor.OrderBy(f => f.Dist).Take(3000))
         {
-            if (HasHeadroom(bw, point, 1.1f)) { spawn = point; found = true; break; }
+            if (HasHeadroom(bw, point, 1.75f)) { spawn = point; found = true; break; }
         }
         if (!found)
         {
             spawn = floor.OrderBy(f => f.Dist).First().Point;
-            log.Warn("SWTOR_SPAWN_HEADROOM", $"No floor point with 1.35 m of headroom near the centre of room {best.Room}: spawn placed on the closest floor triangle.");
+            log.Warn("SWTOR_SPAWN_HEADROOM", $"No floor point with 2 m of headroom near the centre of room {best.Room}: spawn placed on the closest floor triangle.");
         }
 
         Vector2 dir = Vector2.UnitX;

@@ -21,22 +21,23 @@ public static class ExportSwtorCommand
         var cfgOpt = new Option<string?>("--config") { Description = "JSON configuration file (default: kotor2ja.config.json next to the executable)." };
         var texOpt = new Option<int?>("--max-texture") { Description = "Largest exported texture side in pixels (default 512, 0 = no reduction)." };
         var spaceOpt = new Option<bool>("--include-space") { Description = "Keep the SPACE room (ship exterior hull, windows) when all rooms are exported; left out by default for interiors." };
+        var wsOpt = new Option<float?>("--world-scale") { Description = "Multiplier of the SWTOR world (positions and vertices) to reach real metres (default: automatic by architecture kit, 2 for space-station ships, else 1)." };
         var axesOpt = new Option<string?>("--axes") { Description = "Axis conversion: rotation (default, right-handed) or mirror (left-handed source)." };
         cmd.Arguments.Add(area);
-        foreach (Option o in new Option[] { nameOpt, assetsOpt, scaleOpt, limOpt, cfgOpt, texOpt, spaceOpt, axesOpt }) cmd.Options.Add(o);
+        foreach (Option o in new Option[] { nameOpt, assetsOpt, scaleOpt, limOpt, cfgOpt, texOpt, spaceOpt, axesOpt, wsOpt }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
         {
             string? cfgPath = pr.GetValue(cfgOpt) ?? GameOption.DefaultConfigPath;
             if (!ExportJaCommand.TryLoadConfig(cfgPath, Console.Error, out ExportOptions opt)) return 1;
             return Run(opt, pr.GetValue(area)!, pr.GetValue(nameOpt), pr.GetValue(assetsOpt), pr.GetValue(scaleOpt), pr.GetValue(limOpt),
-                pr.GetValue(texOpt), pr.GetValue(spaceOpt), pr.GetValue(axesOpt), Console.Out, Console.Error);
+                pr.GetValue(texOpt), pr.GetValue(spaceOpt), pr.GetValue(axesOpt), Console.Out, Console.Error, pr.GetValue(wsOpt));
         });
         return cmd;
     }
 
     /// <summary>Code de sortie : 0 si OK, 1 si echec (options, compilation, limite), 2 si la zone ou les ressources sont introuvables.</summary>
     public static int Run(ExportOptions opt, string areaText, string? mapName, string? assetsRoot, float? scale, string? bspLimits, int? maxTexture,
-        bool includeSpace, string? axes, TextWriter output, TextWriter error)
+        bool includeSpace, string? axes, TextWriter output, TextWriter error, float? worldScale = null)
     {
         opt = opt.ForGame(Kotor.Core.KotorGame.Swtor);
         if (scale is { } s) opt = opt with { Scale = s };
@@ -72,7 +73,7 @@ public static class ExportSwtorCommand
             return 2;
         }
 
-        var build = new SwtorBuildOptions { IncludeSpaceRoom = includeSpace, Axes = convention };
+        var build = new SwtorBuildOptions { IncludeSpaceRoom = includeSpace, Axes = convention, WorldScale = worldScale is > 0f ? worldScale.Value : 0f };
         if (maxTexture is { } mt) build = build with { MaxTextureSize = mt };
         var log = new ImportLog();
         SwtorExportResult r = SwtorExporter.Export(folder, spec, mapName, assets, opt, build, log);
