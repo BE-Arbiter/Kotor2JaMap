@@ -135,6 +135,15 @@ public static class ModuleExporter
 
             string texFile = ShaderNames.PrefixFor(opt.Game) + planned.Texture + ".tga";
             textures.TryAdd(texFile, new ExportTexture(texFile, tex, false));
+            // Images supplementaires d'une animation (Jedi Knight) ; null pour KOTOR et SWTOR.
+            if (planned.Hints.AnimFrames is { } frames)
+                foreach (string frame in frames)
+                {
+                    scene.Textures.TryGetValue(frame, out KotorTexture? frameTex);
+                    if (frameTex is null) missing.Add(frame);
+                    string frameFile = ShaderNames.PrefixFor(opt.Game) + frame + ".tga";
+                    textures.TryAdd(frameFile, new ExportTexture(frameFile, frameTex, false));
+                }
             if (planned.Overlay is { } overlay)
             {
                 scene.Textures.TryGetValue(overlay, out KotorTexture? overTex);

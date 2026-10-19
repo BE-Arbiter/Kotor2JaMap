@@ -4,7 +4,9 @@ using Jk.Core;
 using Jk.Core.Gob;
 using Jk.Core.Jkl;
 using Jk.Core.Textures;
+using Kotor.Core;
 using Kotor.Core.Diagnostics;
+using Kotor.Core.Export;
 using Kotor.Core.Modules;
 using Kotor.Core.Scene;
 using Kotor.Core.Textures;
@@ -28,10 +30,20 @@ public sealed record JkSceneOptions
 
     /// <summary>Normale Z minimale d'un triangle marchable (MIN_WALK_NORMAL de JA).</summary>
     public float WalkableMinNormalZ { get; init; } = 0.7f;
+
+    /// <summary>
+    /// Facteur applique a la vitesse des textures qui defilent (<c>SlideWall</c>). 1 : la vitesse du COG est lue en unites JK par seconde (la texture suit
+    /// le mouvement dans le monde). Unite non verifiee en jeu : a regler ici si les tapis et les cascades vont trop vite ou trop lentement.
+    /// </summary>
+    public float ScrollSpeedScale { get; init; } = 1f;
 }
 
 /// <summary>Scene JK prete pour le pipeline : <see cref="Scene"/> (en metres), le niveau lu, les gabarits et les materiaux decodes (cle = nom sans extension, en minuscules).</summary>
-public sealed record JkPreparedScene(ModuleScene Scene, JklLevel Level, JkTemplates Templates, IReadOnlyDictionary<string, JkMaterial> Materials);
+public sealed record JkPreparedScene(ModuleScene Scene, JklLevel Level, JkTemplates Templates, IReadOnlyDictionary<string, JkMaterial> Materials)
+{
+    /// <summary>Volumes d'eau, de blessure et de mort (unites JK, voir <see cref="JkSurfaceEffects"/>) ; les entites correspondantes sont produites avec les objets du niveau.</summary>
+    public IReadOnlyList<JkVolume> Volumes { get; init; } = [];
+}
 
 /// <summary>
 /// Construit la <see cref="ModuleScene"/> d'un niveau JK.
@@ -47,7 +59,13 @@ public static class JkSceneBuilder
 {
     private const uint AdjoinMove = 0x2;
     private const uint FaceDoubleSided = 0x1, FaceTranslucent = 0x2;
-    private const uint SurfaceSkyMask = 0x200 | 0x400;
+    private const uint SurfaceHorizonSky = 0x200, SurfaceCeilingSky = 0x400;
+    private const uint SurfaceSkyMask = SurfaceHorizonSky | SurfaceCeilingSky;
+    private const uint SectorUnderwater = 0x2;
+    /// <summary>Plafond d'images d'un animMap (MAX_IMAGE_ANIMATIONS de JA).</summary>
+    private const int MaxAnimFrames = 24;
+    private static readonly System.Text.RegularExpressions.Regex LavaMaterial =
+        new("lava|magma|molten|sludge|sldge|slime|acid|fire", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
     private const int RampWidth = 256;
     private const int RampHeight = 4;
 
@@ -82,6 +100,10 @@ public static class JkSceneBuilder
         var materials = new Dictionary<string, JkMaterial>(StringComparer.Ordinal);
         var matInfo = new MatEntry?[level.Materials.Count];
 
+        // Effets : volumes, textures qui defilent ou s'animent (COG de demarrage), derive du ciel.
+        JkLevelEffects fx = JkSurfaceEffects.Analyze(level, f => read(@"cog\" + f) is { } d ? Encoding.Latin1.GetString(d) : null, log);
+        string prefix = ShaderNames.PrefixFor(KotorGame.JediKnight);
+
         // Pieces : un secteur chacune, ou des groupes de secteurs voisins au-dela de la limite.
         IReadOnlyList<int>[] graph = JkVisibility.SectorGraph(level);
         int[] group = JkVisibility.ChooseGroups(level, graph, JkWorldScale.JaUnitsPerJkUnit, options.MaxRooms, options.MaxClusters, out int clusters);
@@ -100,13 +122,22 @@ public static class JkSceneBuilder
         int orphans = sectorOfSurface.Count(s => s < 0);
         if (orphans > 0) log.Warn("JK_SURFACE_ORPHAN", $"{orphans} surface(s) belong to no sector; they are placed in room 'orphan'.");
 
+        // Ciel : un seul shader par niveau, construit sur le materiau de ciel le plus utilise. L'adjoin d'une surface appartient au secteur qui la porte ;
+        // le secteur d'en face (surface miroir) donne le cote de l'eau.
+        var missing = new HashSet<string>(StringComparer.Ordinal);
+        SkyInfo? skyInfo = PrepareSky(level, matInfo, read, palette, textures, materials, missing, log, fx, prefix, name);
+        bool[] underwater = level.Sectors.Select(s => (s.Flags & SectorUnderwater) != 0).ToArray();
+        var adjoinSector = new Dictionary<int, int>();
+        for (int k = 0; k < level.Surfaces.Count; k++)
+            if (level.Surfaces[k].Adjoin >= 0 && sectorOfSurface[k] >= 0) adjoinSector.TryAdd(level.Surfaces[k].Adjoin, sectorOfSurface[k]);
+        int skyMeshSurfaces = 0, animated = 0, scrolling = 0, waterSurfaces = 0, lavaSurfaces = 0, slideFlat = 0;
+
         var meshes = new List<MeshAcc>();
-        var meshIndex = new Dictionary<(string, string, SurfaceAlpha, string), MeshAcc>();
+        var meshIndex = new Dictionary<(string, string, SurfaceAlpha, string, string), MeshAcc>();
         var ramps = new Dictionary<string, KotorTexture?>(StringComparer.Ordinal);
         var walks = new Dictionary<string, WalkAcc>(StringComparer.Ordinal);
 
         int hidden = 0, degenerate = 0, geoApprox = 0, sky = 0, translucent = 0, doubleSided = 0, solidSurfaces = 0, passable = 0;
-        var missing = new HashSet<string>(StringComparer.Ordinal);
 
         for (int si = 0; si < level.Surfaces.Count; si++)
         {
@@ -135,26 +166,41 @@ public static class JkSceneBuilder
             if (surf.Material < 0 || surf.Geo == 0) { hidden++; continue; }
             if (surf.Material >= level.Materials.Count) { degenerate++; continue; }
             if (surf.Geo is 1 or 2 or 3) geoApprox++;
+            bool isSky = skyInfo is not null && (surf.SurfaceFlags & SurfaceSkyMask) != 0;
             if ((surf.SurfaceFlags & SurfaceSkyMask) != 0) sky++;
 
             MatEntry mat = matInfo[surf.Material] ??= LoadMaterial(level.Materials[surf.Material], read, palette, textures, materials, missing, log);
-            bool translucentFace = (surf.FaceFlags & FaceTranslucent) != 0;
+            bool translucentFace = !isSky && (surf.FaceFlags & FaceTranslucent) != 0;
             string texKey = mat.Key;
             SurfaceAlpha alpha = mat.HasTransparency ? SurfaceAlpha.Cutout : SurfaceAlpha.Opaque;
-            if (translucentFace)
+            ShaderHints hints = ShaderHints.None;
+            if (isSky)
             {
-                texKey = mat.Key + "_t";
-                if (!textures.ContainsKey(texKey)) textures[texKey] = Translucent(textures[mat.Key]);
-                alpha = SurfaceAlpha.Blend;
-                translucent++;
+                // Ouverture sur le ciel : le shader de ciel du niveau (nuages), jamais eclaire ni translucide.
+                texKey = skyInfo!.TextureKey;
+                alpha = SurfaceAlpha.Opaque;
+                hints = skyInfo.Hints;
+                skyMeshSurfaces++;
+            }
+            else
+            {
+                if (translucentFace)
+                {
+                    texKey = mat.Key + "_t";
+                    if (!textures.ContainsKey(texKey)) textures[texKey] = Translucent(textures[mat.Key]);
+                    alpha = SurfaceAlpha.Blend;
+                    translucent++;
+                }
+                hints = SurfaceHints(level, surf, si, sector, mat, translucentFace, texKey, fx, materials, textures, underwater, adjoinSector, options.ScrollSpeedScale, ref animated, ref scrolling, ref waterSurfaces, ref lavaSurfaces, ref slideFlat);
             }
 
             Vector3 tint = sec?.Tint ?? Vector3.Zero;
-            string ramp = alpha == SurfaceAlpha.Blend ? "" : LightRamp(tint, textures, ramps);
-            var key = (room, texKey, alpha, ramp);
+            // Pas de rampe de lumiere pour les surfaces melangees, le ciel et la pleine lumiere (couleur de la texture sans eclairage).
+            string ramp = alpha == SurfaceAlpha.Blend || hints.FullBright || hints.Sky ? "" : LightRamp(tint, textures, ramps);
+            var key = (room, texKey, alpha, ramp, hints.Key);
             if (!meshIndex.TryGetValue(key, out MeshAcc? acc))
             {
-                acc = new MeshAcc(room, $"{room}_{texKey}", texKey, alpha, ramp.Length > 0 ? ramp : null);
+                acc = new MeshAcc(room, hints.IsNone ? $"{room}_{texKey}" : $"{room}_{texKey}_{meshes.Count}", texKey, alpha, ramp.Length > 0 ? ramp : null, hints);
                 meshIndex[key] = acc;
                 meshes.Add(acc);
             }
@@ -211,6 +257,7 @@ public static class JkSceneBuilder
             RenderMeshesAreSolid = false,
             CompactRenderSurfaces = true,
             RoomVisibility = JkVisibility.Build(graph, group, roomNames, options.VisibilityHops),
+            SkyShader = skyInfo is not null && skyMeshSurfaces > 0 ? skyInfo.ShaderName : null,
         };
 
         foreach (string unresolved in ResolveAllTemplates(level, templates))
@@ -218,11 +265,20 @@ public static class JkSceneBuilder
         if (hidden > 0) log.Warn("JK_SURFACE_HIDDEN", $"{hidden} surface(s) without material or with geometry mode 0 are not rendered (invisible portals and hidden faces); they still collide unless they are passable adjoins.");
         if (degenerate > 0) log.Warn("JK_SURFACE_DEGENERATE", $"{degenerate} degenerate or invalid surface(s) skipped.");
         if (geoApprox > 0) log.Warn("JK_GEO_APPROX", $"{geoApprox} surface(s) with geometry mode 1 to 3 (points, wireframe, solid colour) are drawn textured.");
-        if (sky > 0) log.Warn("JK_SKY_APPROX", $"{sky} sky surface(s) are drawn as ordinary textured surfaces until the sky shader is built.");
+        if (sky > 0)
+            log.Warn("JK_SKY_APPROX", skyInfo is null
+                ? $"{sky} sky surface(s) without a usable sky material are drawn as ordinary textured surfaces."
+                : $"{skyMeshSurfaces} sky surface(s) show the level sky shader built on {skyInfo.Material} (a tiled cloud layer: JK's horizon cylinder, horizon distance, ceiling height and sky offsets are approximated or ignored)"
+                + (skyInfo.OtherMaterials.Count > 0 ? $"; the other sky material(s) {string.Join(", ", skyInfo.OtherMaterials)} use the same sky." : "."));
+        if (animated > 0) log.Warn("JK_ANIM_MATERIAL", $"{animated} surface(s) play their material cels as an animMap (animated by SurfaceAnim or MaterialAnim at level start).");
+        if (scrolling > 0) log.Warn("JK_SCROLL_SURFACE", $"{scrolling} surface(s) scroll their texture (SlideWall / SlideSurface at level start; conveyor belts, streams).");
+        if (slideFlat > 0) log.Warn("JK_SLIDE_SKIPPED", $"{slideFlat} sliding surface(s) cannot scroll (texture axes undefined or slide perpendicular to the surface).");
+        if (waterSurfaces > 0) log.Warn("JK_WATER_SURFACE", $"{waterSurfaces} translucent surface(s) between air and water get the rippling water look.");
+        if (lavaSurfaces > 0) log.Warn("JK_LAVA_SURFACE", $"{lavaSurfaces} hazardous liquid surface(s) are drawn full bright and rippling.");
         if (translucent > 0) log.Warn("JK_TRANSLUCENT_APPROX", $"{translucent} translucent surface(s) use a fixed 50 % blend.");
         log.Warn("JK_SCENE", $"{name}: {level.Sectors.Count} sector(s) in {roomNames.Length} room(s), {sceneMeshes.Count} mesh(es), {sceneMeshes.Sum(m => m.Triangles.Length / 3):N0} triangle(s) "
             + $"({doubleSided} surface(s) drawn on both sides), {solidSurfaces} solid and {passable} passable surface(s), {materials.Count} material(s), world scale {scale:0.##} m per JK unit. Not verified in game.");
-        return new JkPreparedScene(scene, level, templates, materials);
+        return new JkPreparedScene(scene, level, templates, materials) { Volumes = fx.Volumes };
     }
 
     // ---- eclairage ----
@@ -341,6 +397,143 @@ public static class JkSceneBuilder
         return new KotorTexture(t.Width, t.Height, rgba, true, TxiInfo.Empty);
     }
 
+    // ---- effets de surface (ciel, animation, defilement, eau, lave) ----
+
+    /// <summary>Ciel du niveau : materiau retenu, autres materiaux de ciel (ramenes au meme ciel), cle de la texture dans la scene, nom du shader et indices communs a tous les maillages de ciel.</summary>
+    private sealed record SkyInfo(string Material, IReadOnlyList<string> OtherMaterials, string TextureKey, string ShaderName, ShaderHints Hints);
+
+    /// <summary>
+    /// Prepare le shader de ciel : un seul par niveau (le compilateur entoure la carte du meme ciel), construit sur le materiau de ciel le plus utilise.
+    /// La texture est copiee sans transparence sous <c>sky_&lt;niveau&gt;</c>. Le <c>HEADER</c> regle la repetition de la couche de nuages
+    /// (<c>Horizon Pixels per Rev</c> : plus la texture couvre de pixels par tour, moins on la repete), la derive vient de <c>SlideHorizonSky</c> /
+    /// <c>SlideCeilingSky</c> (pixels de texture par seconde). Null : aucun ciel dans le niveau.
+    /// </summary>
+    private static SkyInfo? PrepareSky(JklLevel level, MatEntry?[] matInfo, Func<string, byte[]?> read, CmpPalette palette, Dictionary<string, KotorTexture?> textures,
+        Dictionary<string, JkMaterial> materials, HashSet<string> missing, ImportLog log, JkLevelEffects fx, string prefix, string levelName)
+    {
+        var counts = new Dictionary<int, int>();
+        int horizon = 0, ceiling = 0;
+        foreach (JklSurface s in level.Surfaces)
+        {
+            if ((s.SurfaceFlags & SurfaceSkyMask) == 0 || s.Material < 0 || s.Material >= level.Materials.Count || s.Geo == 0) continue;
+            counts[s.Material] = counts.GetValueOrDefault(s.Material) + 1;
+            if ((s.SurfaceFlags & SurfaceHorizonSky) != 0) horizon++; else ceiling++;
+        }
+        if (counts.Count == 0) return null;
+        int best = counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key).First().Key;
+        MatEntry mat = matInfo[best] ??= LoadMaterial(level.Materials[best], read, palette, textures, materials, missing, log);
+
+        string skyKey = ShaderNames.Short("sky_" + TextureKey(levelName), KotorGame.JediKnight);
+        textures[skyKey] = textures.TryGetValue(mat.Key, out KotorTexture? source) && source is not null ? WithoutAlpha(source) : null;
+
+        float revolution = level.Header.HorizonPixelsPerRev > 0f ? level.Header.HorizonPixelsPerRev : 768f;
+        float tile = Math.Clamp(revolution / (2f * mat.Width), 1f, 8f);
+        // Derive : celle du ciel qui montre le plus de surfaces ; SlideHorizonSky / SlideCeilingSky donnent des pixels de texture par seconde.
+        Vector2? slide = horizon >= ceiling ? fx.HorizonSlide ?? fx.CeilingSlide : fx.CeilingSlide ?? fx.HorizonSlide;
+        Vector2? scroll = slide is { } v && v != Vector2.Zero ? new Vector2(v.X / mat.Width, -v.Y / mat.Height) : null;
+
+        var others = counts.Keys.Where(i => i != best).Select(i => level.Materials[i])
+            .Where(m => !TextureKey(m).Equals(mat.Key, StringComparison.Ordinal)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return new SkyInfo(level.Materials[best], others, skyKey, prefix + skyKey, ShaderHints.None with { Sky = true, SkyTile = tile, Scroll = scroll });
+    }
+
+    private static KotorTexture WithoutAlpha(KotorTexture t)
+    {
+        var rgba = (byte[])t.Rgba.Clone();
+        for (int i = 3; i < rgba.Length; i += 4) rgba[i] = 255;
+        return new KotorTexture(t.Width, t.Height, rgba, false, TxiInfo.Empty);
+    }
+
+    /// <summary>
+    /// Effets d'une surface visible (hors ciel) : animation de cellules, defilement, eau, lave, pleine lumiere.
+    /// Eau : surface translucide entre un secteur sous l'eau et un autre qui ne l'est pas. Lave : materiau de liquide dangereux (lave, boue, acide...)
+    /// dans une zone qui blesse ou tue. Pleine lumiere : mode d'eclairage 0 de JK, ou lave.
+    /// </summary>
+    private static ShaderHints SurfaceHints(JklLevel level, JklSurface surf, int si, int sector, MatEntry mat, bool translucentFace, string texKey, JkLevelEffects fx,
+        Dictionary<string, JkMaterial> materials, Dictionary<string, KotorTexture?> textures, bool[] underwater, Dictionary<int, int> adjoinSector, float speedScale,
+        ref int animated, ref int scrolling, ref int waterSurfaces, ref int lavaSurfaces, ref int slideFlat)
+    {
+        string materialFile = level.Materials[surf.Material];
+
+        IReadOnlyList<string>? frames = null;
+        float fps = 0f;
+        JkLevelEffects.Animation? anim = fx.SurfaceAnims.TryGetValue(si, out var sa) ? sa : fx.MaterialAnims.TryGetValue(materialFile, out var ma) ? ma : null;
+        if (anim is { } an && materials.TryGetValue(mat.Key, out JkMaterial? jm))
+        {
+            // Drapeaux de SurfaceAnim / MaterialAnim : 0x2 saute la derniere image, 0x4 saute les deux premieres (la boucle commence a la troisieme).
+            int start = (an.Flags & 0x4) != 0 ? 2 : 0;
+            int end = Math.Min(jm.Cels.Count - ((an.Flags & 0x2) != 0 ? 1 : 0), start + MaxAnimFrames);
+            if (end - start >= 2)
+            {
+                var list = new List<string>();
+                for (int c = start; c < end; c++)
+                {
+                    string frame = c == 0 ? texKey : $"{texKey}_c{c}";
+                    if (c > 0 && !textures.ContainsKey(frame)) textures[frame] = translucentFace ? Translucent(jm.Cels[c]) : jm.Cels[c];
+                    list.Add(frame);
+                }
+                frames = list;
+                fps = an.Fps;
+                animated++;
+            }
+        }
+
+        Vector2? scroll = null;
+        if (fx.Slides.TryGetValue(si, out JkLevelEffects.Slide slide))
+        {
+            scroll = ScrollOf(level, surf, slide with { Speed = slide.Speed * speedScale }, mat.Width, mat.Height);
+            if (scroll is null) slideFlat++; else scrolling++;
+        }
+
+        bool isWater = false;
+        if (translucentFace && surf.Adjoin >= 0 && surf.Adjoin < level.Adjoins.Count && sector >= 0)
+        {
+            int mirror = level.Adjoins[surf.Adjoin].Mirror;
+            isWater = mirror >= 0 && adjoinSector.TryGetValue(mirror, out int other) && other >= 0 && other < underwater.Length && underwater[other] != underwater[sector];
+        }
+        if (isWater) waterSurfaces++;
+
+        bool isLava = LavaMaterial.IsMatch(Path.GetFileNameWithoutExtension(materialFile)) && (fx.HazardSurfaces.Contains(si) || (sector >= 0 && fx.HazardSectors.Contains(sector)));
+        if (isLava) lavaSurfaces++;
+
+        return new ShaderHints(frames, fps, scroll, false, isWater, isLava, surf.Light == 0 || isLava);
+    }
+
+    /// <summary>
+    /// Vitesse du contenu de la texture en largeurs de texture par seconde, en UV de scene, pour un glissement dans le monde (direction unitaire, vitesse en unites JK
+    /// par seconde). Les axes de la texture sont tires de trois sommets de la surface : le contenu qui avance de <c>w</c> dans le plan se retrouve a la coordonnee
+    /// de texture <c>c + dT(w)</c>, dT etant l'application lineaire sommets -&gt; texverts (en pixels, v vers le bas), d'ou (dTu / largeur, -dTv / hauteur).
+    /// Null : axes indetermines ou glissement perpendiculaire a la surface.
+    /// </summary>
+    internal static Vector2? ScrollOf(JklLevel level, JklSurface surf, JkLevelEffects.Slide slide, int width, int height)
+    {
+        int n = surf.VertexIndices.Length;
+        Vector2? Tex(int k) => k < surf.TexIndices.Length && surf.TexIndices[k] >= 0 && surf.TexIndices[k] < level.TexVertices.Length ? level.TexVertices[surf.TexIndices[k]] : null;
+        if (n < 3 || Tex(0) is not { } t0 || Tex(1) is not { } t1) return null;
+        Vector3 p0 = level.Vertices[surf.VertexIndices[0]];
+        Vector3 e1 = level.Vertices[surf.VertexIndices[1]] - p0;
+        for (int k = 2; k < n; k++)
+        {
+            if (Tex(k) is not { } tk) continue;
+            Vector3 e2 = level.Vertices[surf.VertexIndices[k]] - p0;
+            Vector3 normal = Vector3.Cross(e1, e2);
+            float area2 = normal.LengthSquared();
+            if (area2 < 1e-12f) continue;
+            normal /= MathF.Sqrt(area2);
+            Vector3 w = slide.Direction * slide.Speed;
+            w -= normal * Vector3.Dot(w, normal); // composante dans le plan de la surface
+            float g11 = Vector3.Dot(e1, e1), g12 = Vector3.Dot(e1, e2), g22 = Vector3.Dot(e2, e2);
+            float r1 = Vector3.Dot(e1, w), r2 = Vector3.Dot(e2, w);
+            float det = g11 * g22 - g12 * g12;
+            if (MathF.Abs(det) < 1e-12f) continue;
+            float a = (r1 * g22 - r2 * g12) / det, b = (r2 * g11 - r1 * g12) / det;
+            Vector2 dT = a * (t1 - t0) + b * (tk - t0);
+            var scroll = new Vector2(MathF.Round(dT.X / width, 3) + 0f, MathF.Round(-dT.Y / height, 3) + 0f); // + 0 : pas de -0
+            return scroll == Vector2.Zero ? null : scroll;
+        }
+        return null;
+    }
+
     // ---- depart du joueur ----
 
     private static ModuleEntry ChooseEntry(JklLevel level, JkTemplates templates, float scale, ImportLog log)
@@ -389,7 +582,7 @@ public static class JkSceneBuilder
         return len < 1e-12f ? Vector3.Zero : n / len;
     }
 
-    private sealed class MeshAcc(string room, string node, string texture, SurfaceAlpha alpha, string? lightmap)
+    private sealed class MeshAcc(string room, string node, string texture, SurfaceAlpha alpha, string? lightmap, ShaderHints hints)
     {
         private readonly List<Vector3> _pos = [], _nrm = [];
         private readonly List<Vector2> _uv0 = [], _uv1 = [];
@@ -416,7 +609,7 @@ public static class JkSceneBuilder
 
         public SceneMesh ToSceneMesh() =>
             new(room, node, texture, lightmap, TxiInfo.Empty, 0, [.. _pos], [.. _nrm], [.. _uv0], lightmap is null ? null : [.. _uv1], [.. _tri])
-            { Alpha = alpha };
+            { Alpha = alpha, Hints = hints };
     }
 
     private sealed class WalkAcc

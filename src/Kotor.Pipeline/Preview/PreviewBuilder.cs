@@ -146,6 +146,7 @@ public static partial class PreviewBuilder
             if (planned.TryGetValue(s.Shader, out PlannedShader? ps))
             {
                 diffuse = ps.Texture;
+                isSky |= ps.Kind == ShaderKind.Sky; // Jedi Knight : les surfaces de ciel du niveau comme la boite du compilateur
                 lm = ps.Lightmap;
             }
             else
@@ -236,7 +237,7 @@ public static partial class PreviewBuilder
     {
         ShaderKind.LightmappedCutout or ShaderKind.UnlitCutout => PreviewBlend.Cutout,
         ShaderKind.Additive => PreviewBlend.Additive,
-        ShaderKind.Blend => PreviewBlend.Alpha,
+        ShaderKind.Blend or ShaderKind.Water => PreviewBlend.Alpha,
         ShaderKind.Multiply => PreviewBlend.Multiply,
         _ => PreviewBlend.Opaque,
     };

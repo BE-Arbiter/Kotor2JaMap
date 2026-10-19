@@ -134,3 +134,22 @@ COG par fichier), gabarits non resolus et sections sautees. Dossier JK : `--jk`,
 - **Lumiere** : `Intensities` de 0 a 8,5 (la plupart 0..1), `AMBIENT LIGHT` de 0 a 2,22, `EXTRA LIGHT` de secteur 0 a 1, lumiere additionnelle de surface 0 dans 01narshadda.
   Modes `light` rencontres : 3 (gouraud), 0 (pleine lumiere).
 - **Marches [donnees]** : contremarches (surface verticale a quatre sommets dont les aretes haute et basse sont des bords de surfaces horizontales) de 0,02 a 0,10.
+
+## Constats de la tache 5 (ciel, animations, defilement, eau, lave, degats)
+
+- **Ciel [donnees]** : surfaces `0x200` (horizon) et/ou `0x400` (plafond) ; 24 niveaux sur 34 en ont (jusqu'a 233 surfaces, 18ascend). Les niveaux ont presque toujours une seule texture de ciel
+  (`00starry`, `13cnsky2`, `03sky09k`...), parfois deux (06abarons, m4) ou un intrus (une grille `00wgril6` marquee ciel dans 10cargo). `HEADER` : `Horizon Pixels per Rev` 768 (1000 dans 12escape),
+  `Horizon Sky Offset` (0 0 ou 0 -16), `Ceiling Sky Z`, `Horizon Distance`. Derive par COG : `SlideHorizonSky(u, v)`, `SlideCeilingSky(u, v)` (`00_slideceiling`, `C1_SLIDESKIES`), appels de `startup`.
+- **COG, valeurs d'instance [donnees]** : positionnelles. Une instance donne une valeur par symbole ni `local` ni `message`, dans l'ordre de declaration (les symboles `nolink` comptent). Vecteur `(x/y/z)`,
+  surface = indice, materiau = nom de fichier `.mat`, secteur = indice, -1 = vide. Tableau `nom[i]` : famille de symboles `nom`, `nom1`, `nom2`... declares a la suite.
+- **Animations [donnees]** : `SurfaceAnim(surface, fps, flags)` (`00_surfanim`, `00_neonsign`, `02_signanim`, `M5_SURFANIM`) et `MaterialAnim(materiau, fps, flags)` (`00_matanim`, `09_matanim`) dans `startup`.
+  Drapeaux **[specs]** : `0x1` boucle, `0x2` saute la derniere image, `0x4` saute les deux premieres. Materiaux a plusieurs cellules : une petite centaine (particules et sprites compris), 13 cellules au plus, toutes de meme taille.
+- **Defilement [donnees]** : `SlideWall(surface, vecteur, vitesse)` dans `startup` de `00_conveyor` (108 instances), `12_conveyor`, `M5_CONVBELT`, `17a_Stream`. Les « tapis roulants » sont surtout des
+  ECOULEMENTS D'EAU (`13fwater`, `00fwater` : 06abarons, 04escapehouse, 03katarn) de vitesse 0,125 a 9 ; la cascade de 03katarn va vers -Z a 4 (la gravite du niveau est 4). **L'unite de la vitesse
+  n'est pas verifiee** : lue en unites JK par seconde (la texture suit le mouvement dans le monde ; densite mesuree : 320 pixels par unite sur une texture de 128, soit 1,3 a 10 largeurs de texture par seconde).
+  Reglage : `JkSceneOptions.ScrollSpeedScale`.
+- **Eau [donnees]** : secteurs `FLAGS & 0x2` (461 des 604 secteurs teintes, tous teintes : TINT bleu `0.4 0.8 1`, aussi jaune/orange dans 09fuelstation = gaz, rouge sombre dans 14tower). TINT existe aussi
+  sur 143 secteurs non marques. Surface de l'eau : adjoin translucide (face `0x2`) entre un secteur sous l'eau et un autre ; dans 06abarons l'eau est opaque (face `0x0`).
+- **Degats [donnees]** : aucun drapeau de fichier, tout vient de COG. `00_sectordamage` (secteur, intervalle, degats ; negatif = soin), `12_sectordamage` (48 secteurs, `GetThingSector`, 1 point / 2 s),
+  `09_gasdamage`, `M5_FANDAMAGE` (125) ; au contact de surfaces (messages `touched` / `entered`) : `00_deathfloor` (1000), `C2_KILLINGFLOOR` / `C3_KILLINGFLOOR` (1000), `00_damagewall`, `10_damagefloor`,
+  `09_damagefloor`, `09_elevdamage`. Aucun materiau de lave dans les 34 niveaux ; liquides dangereux : `00fsldge` (boue), `00Fgwat*`.
