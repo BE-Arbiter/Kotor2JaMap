@@ -255,3 +255,14 @@ Les rampes ne sont pas reproduites : le compilateur n'a que des lumieres ponctue
 - Pas de facteur d'echelle dans les .gr2 (en-tete, aucun noeud de transformation pour les modeles statiques) ; instances d'architecture a l'echelle 1.
 - Le kit `spc_space/arch` (war_planworking) est un kit de vaisseau capital : porte `doorframe_sm` 0,96 x 0,8 d'ouverture (8,1 x 6,8 m), plafond 1,4 (11,8 m). L'humain y fait 27 % de la hauteur de porte : ce ne sont pas des portes a taille humaine.
 - Code : `SwtorWorldScale.MetresPerGr2Unit` (= 312 / 40 = 7,8) ; `--world-scale <x>` est un multiplicateur manuel en plus (defaut 1).
+
+## Materiaux .mat et correspondance JA (T7-materiaux)
+Champs XML lus : `Derived` (shader), `AlphaMode`, `Visibility`, `PolyType`, `IsTwoSided`, entree `DiffuseMap`. Sondage des 26 958 `.mat` : Uber ≥ 10 000 (opaque surtout), Garment/SkinB/Creature (personnages, hors scope), `AnimatedUV|Add` ≥ 1 800, `AnimatedVFX|Add` 119 (dont 26 noms de type cone/faisceau/fog_cone), `EmissiveOnly|Add` ≥ 185, `DiffuseFlat|Full` ≥ 207, `Glass|Full` 112, `Uber|Test` ≥ 665, `Vegetation*|Test`, `Skydome` 85.
+| Source | Rendu JA | Collision |
+|---|---|---|
+| `Visibility=Hidden` (`util_*_hidden`, `occluder_wall`), `util_collision*`, `fx_transparent` (texture 100 % transparente) | non dessine | gardee seulement si `PolyType` n'est pas `Ignore` (ou `util_collision`) |
+| `AnimatedVFX` + `Add` nomme cone/faisceau (`fog_cone`, `light_beam`, `light_shaft`, `godray`...) | ignore, code `SWTOR_VFX_SKIPPED` | aucune |
+| `Add` (AnimatedUV, EmissiveOnly, autres AnimatedVFX) | `blendFunc GL_ONE GL_ONE`, `cull none`, `nonsolid trans`, sans lightmap ; **rgb premultiplie par l'alpha** de la texture (l'alpha est le masque de la lueur) | aucune |
+| `Full`, `Multiply`, `Glass` | `GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA` (Glass : alpha 110 uniforme) | oui |
+| `Test` | `alphaFunc GE128`, double face | oui |
+| autre (Uber `None`) | opaque ; l'alpha de la texture est ignore (brillance/emissif, pas une opacite) | oui |

@@ -12,7 +12,10 @@ using Swtor.Core.Xml;
 namespace Swtor.Pipeline;
 
 /// <summary>Materiau SWTOR resolu : cle de scene (nom de texture exporte), opacite, echelle UV. <c>Hidden</c> : materiau de collision, jamais rendu.</summary>
-internal sealed record SwtorMaterialInfo(string Key, SurfaceAlpha Alpha, Vector2 UvScale, bool Hidden);
+internal sealed record SwtorMaterialInfo(string Key, SurfaceAlpha Alpha, Vector2 UvScale, bool Hidden, bool NoCollision = false);
+
+/// <summary>Role d'un materiau : opacite JA, rendu supprime (<c>Hidden</c>), exclu de la collision, et code de journal si le materiau est ignore faute de pouvoir le reproduire.</summary>
+internal sealed record SwtorMaterialClass(SurfaceAlpha Alpha, bool Hidden, bool NoCollision, string? SkipCode, string? SkipReason);
 
 /// <summary>
 /// Resout les noms de materiaux d'un .gr2 : .mat, DiffuseMap, DDS, <see cref="KotorTexture"/>. La cle de scene est le nom du materiau
@@ -36,15 +39,15 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
 
     private readonly Dictionary<string, bool> _additive = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Le materiau est additif (ecran, champ de force) : lit seulement le .mat, sans charger de texture. Absent ou illisible : faux.</summary>
-    public bool IsAdditive(string materialName)
+    /// <summary>Le materiau n'a pas de collision (additif, effet, supprime et non solide) : lit seulement le .mat, sans charger de texture. Absent ou illisible : faux.</summary>
+    public bool IsNonSolid(string materialName)
     {
-        if (_cache.TryGetValue(materialName, out var cached)) return cached.Alpha == SurfaceAlpha.Additive;
+        if (_cache.TryGetValue(materialName, out var cached)) return cached.NoCollision || cached.Alpha == SurfaceAlpha.Additive;
         if (_additive.TryGetValue(materialName, out bool known)) return known;
         bool add = false;
         if (!materialName.StartsWith("util_collision", StringComparison.OrdinalIgnoreCase))
         {
-            try { add = source.LoadMaterial(materialName) is { } mat && AlphaOf(mat) == SurfaceAlpha.Additive; }
+            try { add = source.LoadMaterial(materialName) is { } mat && Classify(materialName, mat) is var c && (c.NoCollision || c.Alpha == SurfaceAlpha.Additive); }
             catch (GameFormatException) { add = false; }
         }
         _additive[materialName] = add;
@@ -72,7 +75,10 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
             return new SwtorMaterialInfo(key, SurfaceAlpha.Opaque, Vector2.One, false);
         }
 
-        SurfaceAlpha alpha = AlphaOf(mat);
+        SwtorMaterialClass cls = Classify(name, mat);
+        if (cls.SkipCode is not null) log.Warn(cls.SkipCode, $"{name}: {cls.SkipReason}");
+        if (cls.Hidden) return new SwtorMaterialInfo(key, cls.Alpha, Vector2.One, true, cls.NoCollision);
+        SurfaceAlpha alpha = cls.Alpha;
         Vector2 uvScale = ParseUvScale(mat);
         string? diffuse = mat.DiffuseMap;
         if (diffuse is null)
@@ -103,11 +109,35 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
         bool glass = string.Equals(mat.Shader, "Glass", StringComparison.OrdinalIgnoreCase);
         bool hasAlpha = alpha is SurfaceAlpha.Cutout or SurfaceAlpha.Blend;
         if (glass) Fill(rgba, 110);                 // verre : translucide uniforme
-        else if (!hasAlpha) Fill(rgba, 255);        // opaque ou additif : l'alpha de la texture ne sert a rien
+        else if (alpha == SurfaceAlpha.Additive) PremultiplyAlpha(rgba);   // additif : l'alpha de la texture est le masque de la lueur (sinon le carton entier est ajoute)
+        else if (!hasAlpha) Fill(rgba, 255);        // opaque : l'alpha d'une texture Uber n'est pas de l'opacite (brillance, emissif)
         Textures[key] = new KotorTexture(w, h, rgba, hasAlpha, TxiInfo.Empty);
         if (mat.AlphaMode.Equals("Multiply", StringComparison.OrdinalIgnoreCase))
             log.Warn("SWTOR_ALPHA_MODE_APPROX", $"{name}: alpha mode Multiply not supported, rendered as a translucent surface.");
         return new SwtorMaterialInfo(key, alpha, uvScale, false);
+    }
+
+    /// <summary>Noms (sous-chaines) des cartons de lumiere SWTOR : faisceaux et cones de brouillard lumineux.</summary>
+    private static readonly string[] LightCardNames = ["fog_cone", "light_cone", "lightcone", "light_shaft", "lightshaft", "lightbeam", "light_beam", "godray", "god_ray"];
+
+    /// <summary>
+    /// Classe un materiau SWTOR. Regles : <c>Visibility=Hidden</c> ou <c>util_collision*</c> : jamais dessine ; texture de remplissage <c>fx_transparent</c> : jamais dessine (la texture est entierement transparente) ;
+    /// AnimatedVFX additif nomme comme un faisceau/cone de lumiere : ignore (code <c>SWTOR_VFX_SKIPPED</c>) car son aspect vient de masques animes et d'un fresnel qu'un shader JA statique ne reproduit pas ;
+    /// le reste suit <see cref="AlphaOf"/>. Les surfaces cachees avec <c>PolyType</c> Ignore, les effets et les additifs n'ont pas de collision.
+    /// </summary>
+    internal static SwtorMaterialClass Classify(string name, MaterialDef mat)
+    {
+        SurfaceAlpha alpha = AlphaOf(mat);
+        bool ignoreCollide = mat.PolyType.Equals("Ignore", StringComparison.OrdinalIgnoreCase);
+        if (mat.Visibility.Equals("Hidden", StringComparison.OrdinalIgnoreCase))
+            return new SwtorMaterialClass(alpha, true, ignoreCollide, null, null);
+        string lower = name.ToLowerInvariant();
+        if (lower.StartsWith("fx_transparent", StringComparison.Ordinal) || (mat.DiffuseMap?.Contains("fx_transparent", StringComparison.OrdinalIgnoreCase) ?? false))
+            return new SwtorMaterialClass(alpha, true, true, null, null);
+        if (alpha == SurfaceAlpha.Additive && mat.Shader.StartsWith("AnimatedVFX", StringComparison.OrdinalIgnoreCase) && LightCardNames.Any(lower.Contains))
+            return new SwtorMaterialClass(SurfaceAlpha.Additive, true, true, "SWTOR_VFX_SKIPPED",
+                "light cone / beam card (AnimatedVFX, additive with animated masks and fresnel fade) not reproducible by a static JA shader, skipped instead of drawn as a flat bright card.");
+        return new SwtorMaterialClass(alpha, false, alpha == SurfaceAlpha.Additive, null, null);
     }
 
     private static SurfaceAlpha AlphaOf(MaterialDef mat)
@@ -137,6 +167,17 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
     /// <summary>Nom de fichier et de shader sur : minuscules, <c>[a-z0-9_]</c> seulement.</summary>
     internal static string Sanitize(string name) =>
         new(name.ToLowerInvariant().Select(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_' ? c : '_').ToArray());
+
+    /// <summary>rgb *= alpha, puis alpha = 255 (la texture additive n'a plus besoin de canal alpha).</summary>
+    private static void PremultiplyAlpha(byte[] rgba)
+    {
+        for (int i = 0; i + 3 < rgba.Length; i += 4)
+        {
+            int a = rgba[i + 3];
+            rgba[i] = (byte)(rgba[i] * a / 255); rgba[i + 1] = (byte)(rgba[i + 1] * a / 255); rgba[i + 2] = (byte)(rgba[i + 2] * a / 255);
+            rgba[i + 3] = 255;
+        }
+    }
 
     private static void Fill(byte[] rgba, byte a)
     {

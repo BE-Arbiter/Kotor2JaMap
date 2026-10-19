@@ -14,7 +14,7 @@ using Swtor.Core.Xml;
 namespace Swtor.Pipeline.Tests;
 
 /// <summary>Source de ressources en memoire : une dalle de sol de 3,2 m (plan XZ, normale +Y) et un mesh de collision a ignorer.</summary>
-internal sealed class FakeSource(string material = "floor_mat", bool withMaterial = true, string alphaMode = "None", string shader = "Opaque") : ISwtorModelSource
+internal sealed class FakeSource(string material = "floor_mat", bool withMaterial = true, string alphaMode = "None", string shader = "Opaque", string visibility = "Normal", string polyType = "None") : ISwtorModelSource
 {
     public int ModelLoads;
 
@@ -34,7 +34,7 @@ internal sealed class FakeSource(string material = "floor_mat", bool withMateria
     }
 
     public MaterialDef? LoadMaterial(string materialName) =>
-        withMaterial ? new MaterialDef(shader, new Dictionary<string, string> { ["DiffuseMap"] = "/art/x/tex" }, alphaMode) : null;
+        withMaterial ? new MaterialDef(shader, new Dictionary<string, string> { ["DiffuseMap"] = "/art/x/tex" }, alphaMode, 0.5f, visibility, polyType) : null;
 
     public DdsImage? LoadTexture(string resourcePath) => new(4, 4, Enumerable.Repeat((byte)200, 4 * 4 * 4).ToArray());
 }
@@ -157,6 +157,60 @@ public class SwtorPipelineTests
         Assert.Equal(expected, r.Scene.Meshes[0].Alpha);
     }
 
+    private static SwtorSceneResult BuildMat(string name, string shader, string alphaMode, ImportLog log, string visibility = "Normal", string polyType = "None") =>
+        Build(Layout(new SyntheticArea.Obj(1, SyntheticArea.GroundTile)), new FakeSource(name, true, alphaMode, shader, visibility, polyType), log);
+
+    [Fact]
+    public void Hidden_and_fx_transparent_materials_are_never_drawn()
+    {
+        foreach (var (name, vis) in new[] { ("util_blue_hidden", "Hidden"), ("occluder_wall", "Hidden"), ("fx_transparent", "Normal") })
+        {
+            var r = BuildMat(name, "Uber", "None", new ImportLog(), vis, "Ignore");
+            Assert.Empty(r.Scene.Meshes);
+        }
+    }
+
+    [Fact]
+    public void Non_colliding_hidden_materials_do_not_enter_the_fallback_collision()
+    {
+        // Sans mesh de collision dans le .gr2 : la geometrie visible sert de collision, sauf materiaux caches non solides.
+        var opts = new SwtorBuildOptions { UseCollisionMeshes = true };
+        SwtorSceneResult Run(string polyType) => Build(Layout(new SyntheticArea.Obj(1, SyntheticArea.GroundTile)), new FakeSource("util_blue_hidden", true, "None", "Uber", "Hidden", polyType), new ImportLog(), opts);
+        SwtorSceneResult ignore = Run("Ignore"), collide = Run("Collide");
+        Assert.Equal(0, ignore.Stats.WalkableTriangles + ignore.Stats.SolidTriangles);
+        Assert.True(collide.Stats.WalkableTriangles + collide.Stats.SolidTriangles > 0);
+    }
+
+    [Fact]
+    public void Light_cone_cards_are_skipped_with_a_journal_code()
+    {
+        var log = new ImportLog();
+        var r = BuildMat("standard_light_fog_cone", "AnimatedVFX", "Add", log, polyType: "Ignore");
+        Assert.Empty(r.Scene.Meshes);
+        Assert.Contains(log.Warnings, w => w.Code == "SWTOR_VFX_SKIPPED");
+    }
+
+    [Fact]
+    public void Other_additive_materials_stay_additive_with_alpha_baked_into_rgb()
+    {
+        var r = BuildMat("all_vfx_forcefield_x", "AnimatedUV", "Add", new ImportLog(), polyType: "Ignore");
+        SceneMesh m = Assert.Single(r.Scene.Meshes);
+        Assert.Equal(SurfaceAlpha.Additive, m.Alpha);
+        KotorTexture t = r.Scene.Textures[m.Texture]!;
+        Assert.False(t.HasAlpha);
+        Assert.Equal(200 * 200 / 255, t.Rgba[0]);   // rgb * alpha / 255
+        Assert.Equal(255, t.Rgba[3]);
+    }
+
+    [Fact]
+    public void Opaque_uber_keeps_its_rgb_and_ignores_the_texture_alpha()
+    {
+        var r = BuildMat("some_wall", "Uber", "None", new ImportLog(), polyType: "Collide");
+        KotorTexture t = r.Scene.Textures[Assert.Single(r.Scene.Meshes).Texture]!;
+        Assert.Equal(200, t.Rgba[0]);
+        Assert.Equal(255, t.Rgba[3]);
+    }
+
     [Fact]
     public void Alpha_selects_unlit_cutout_and_blend_shaders()
     {
@@ -241,6 +295,30 @@ public class SwtorPipelineTests
             }
         Assert.True(bad < total / 100, $"{bad}/{total} triangles against their normals");
         Assert.InRange(r.Scene.Info.Entry.Position.Z, -0.2f * SwtorWorldScale.MetresPerGr2Unit, 0.2f * SwtorWorldScale.MetresPerGr2Unit); // sol principal a Y = 0 (SWTOR)
+    }
+
+    private const string CouncilAreaId = "4611686142106770000";
+
+    [SkippableFact]
+    public void DarkCouncil_has_no_opaque_light_cards_or_hidden_utility_surfaces()
+    {
+        string? root = TestEnv.SwtorAssetsDir;
+        Skip.If(root is null || !Directory.Exists(Path.Combine(root, "world", "areas", CouncilAreaId)), "SWTOR Dark Council assets not available");
+        var layout = AreaLayout.Load(Path.Combine(root!, "world", "areas", CouncilAreaId));
+        var log = new ImportLog();
+        var r = SwtorSceneBuilder.Build(layout, new SwtorAssetsModelSource(new SwtorAssets(root)), "dark_council",
+            new SwtorBuildOptions { Rooms = ["station_dark_council_chamber"] }, log);
+        Assert.Contains(log.Warnings, w => w.Code == "SWTOR_VFX_SKIPPED" && w.Message.Contains("standard_light_fog_cone"));
+        foreach (SceneMesh m in r.Scene.Meshes)
+        {
+            Assert.DoesNotContain("fog_cone", m.Texture);
+            Assert.DoesNotContain("fx_transparent", m.Texture);
+            Assert.DoesNotContain("_hidden", m.Texture);
+            Assert.DoesNotContain("occluder", m.Texture);
+        }
+        // Les additifs restants ont une texture sans alpha (masque deja applique au rgb) : jamais de carton blanc opaque.
+        foreach (SceneMesh m in r.Scene.Meshes.Where(x => x.Alpha == SurfaceAlpha.Additive))
+            Assert.False(r.Scene.Textures[m.Texture]!.HasAlpha);
     }
 
     [SkippableFact]

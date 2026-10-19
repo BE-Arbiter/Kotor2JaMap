@@ -4,8 +4,11 @@ using System.Xml.Linq;
 namespace Swtor.Core.Xml;
 
 /// <summary>A game material (.mat file). Inputs are listed by semantic name, for example "DiffuseMap".</summary>
+/// <param name="Visibility">"Normal" or "Hidden" (utility geometry never drawn by the game).</param>
+/// <param name="PolyType">"Collide", "Walk", "Ignore", "None" : role of the surface for the game physics.</param>
 /// <param name="AlphaMode">"None", "Test", "Add", "Full"... With "Test", texels whose opacity is below <paramref name="AlphaTestValue"/> are not drawn.</param>
-public sealed record MaterialDef(string Shader, IReadOnlyDictionary<string, string> Inputs, string AlphaMode = "None", float AlphaTestValue = 0.5f)
+public sealed record MaterialDef(string Shader, IReadOnlyDictionary<string, string> Inputs, string AlphaMode = "None", float AlphaTestValue = 0.5f,
+    string Visibility = "Normal", string PolyType = "None")
 {
     /// <summary>Path of the diffuse texture without extension, or null. Uses '/' separators and no leading slash.</summary>
     public string? DiffuseMap => TexturePath("DiffuseMap");
@@ -33,7 +36,8 @@ public static class MaterialReader
                 if (!string.IsNullOrEmpty(semantic)) inputs[semantic] = input.Element("value")?.Value ?? "";
             }
             float alphaTest = float.TryParse(root.Element("AlphaTestValue")?.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : 0.5f;
-            return new MaterialDef(root.Element("Derived")?.Value ?? "", inputs, root.Element("AlphaMode")?.Value ?? "None", alphaTest);
+            return new MaterialDef(root.Element("Derived")?.Value ?? "", inputs, root.Element("AlphaMode")?.Value ?? "None", alphaTest,
+                root.Element("Visibility")?.Value ?? "Normal", root.Element("PolyType")?.Value ?? "None");
         }
         catch (System.Xml.XmlException e)
         {

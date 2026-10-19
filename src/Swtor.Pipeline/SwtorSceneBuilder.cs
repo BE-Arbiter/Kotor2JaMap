@@ -169,7 +169,7 @@ public static class SwtorSceneBuilder
                         int first = piece.StartTriangle * 3, end = Math.Min(mesh.Indices.Length, (piece.StartTriangle + piece.TriangleCount) * 3);
                         if (first < 0 || first >= end) continue;
                         // Pas de mesh de collision dans le .gr2 : la geometrie visible (et les pieces de collision seule) sert de collision, hors additifs.
-                        if (fallback && mat.Alpha != SurfaceAlpha.Additive) collAcc.Add(mesh, null, Vector2.One, world, normalM, flip, options.Axes, first, end);
+                        if (fallback && !mat.NoCollision && mat.Alpha != SurfaceAlpha.Additive) collAcc.Add(mesh, null, Vector2.One, world, normalM, flip, options.Axes, first, end);
                         if (mat.Hidden) { skippedHidden++; continue; }
 
                         if (!acc.TryGetValue(mat.Key, out MeshAccumulator? a))
@@ -351,7 +351,7 @@ public static class SwtorSceneBuilder
         IReadOnlyList<Gr2Piece> pieces = mesh.Pieces.Count > 0 ? mesh.Pieces : [new Gr2Piece(0, mesh.Indices.Length / 3, -1, Vector3.Zero, Vector3.Zero)];
         foreach (Gr2Piece piece in pieces)
         {
-            if (piece.MaterialIndex >= 0 && piece.MaterialIndex < model.Materials.Count && materials.IsAdditive(model.Materials[piece.MaterialIndex])) continue;
+            if (piece.MaterialIndex >= 0 && piece.MaterialIndex < model.Materials.Count && materials.IsNonSolid(model.Materials[piece.MaterialIndex])) continue;
             int first = piece.StartTriangle * 3, end = Math.Min(mesh.Indices.Length, (piece.StartTriangle + piece.TriangleCount) * 3);
             if (first < 0 || first >= end) continue;
             acc.Add(mesh, null, Vector2.One, world, normalM, flip, axes, first, end);
