@@ -253,10 +253,73 @@ public class JkSceneBuilderTests
         Assert.DoesNotContain(log2.Warnings, w => w.Code == "JK_STAIR_RAMP");
     }
 
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    public void StairRamp_AnyVertexRotation_CoversWholeRiserWithoutCrossing(int rot, bool reverse)
+    {
+        JklLevel level = JklReader.Read(StairLevel(0.1f, rot, reverse));
+        var ramps = JkStairRamps.Compute(level, _ => true, 0.05f, out int skipped);
+        Assert.Equal(0, skipped);
+        JkStairRamps.Ramp r = Assert.Single(ramps);
+
+        // Rampe attendue : largeur 1 (y 0..1), de x = 1 (haut, z = 0,1) a x = 1 - 0,12 (bas, z = 0).
+        float expected = 1f * MathF.Sqrt(0.1f * 0.1f + 0.12f * 0.12f);
+        Vector3 n1 = Vector3.Cross(r.B - r.A, r.C - r.A), n2 = Vector3.Cross(r.C - r.A, r.D - r.A);
+        // Les deux triangles ont la meme orientation (normale vers le haut), marchable (pente 40 deg) : pas de noeud papillon.
+        Assert.True(n1.Z > 0f && n2.Z > 0f, $"orientation {n1} / {n2}");
+        Assert.True(Vector3.Normalize(n1).Z > 0.7f && Vector3.Normalize(n2).Z > 0.7f);
+        // Couverture complete de la contremarche : l'aire totale est celle du rectangle attendu.
+        Assert.Equal(expected, (n1.Length() + n2.Length()) / 2f, 4);
+        // Les 4 coins : deux sur l'arete haute (x = 1, z = 0,1), deux au sol (x = 0,88, z = 0), couvrant y = 0 et y = 1.
+        Vector3[] c = [r.A, r.B, r.C, r.D];
+        Assert.Equal(2, c.Count(p => MathF.Abs(p.Z - 0.1f) < 1e-4f && MathF.Abs(p.X - 1f) < 1e-4f));
+        Assert.Equal(2, c.Count(p => MathF.Abs(p.Z) < 1e-4f && MathF.Abs(p.X - 0.88f) < 1e-4f));
+        Assert.Equal(2, c.Count(p => MathF.Abs(p.Y) < 1e-4f));
+        Assert.Equal(2, c.Count(p => MathF.Abs(p.Y - 1f) < 1e-4f));
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(2, true)]
+    public void StairRamp_InScene_AllRampTrianglesWalkableAndUpward(int rot, bool reverse)
+    {
+        JklLevel level = JklReader.Read(StairLevel(0.1f, rot, reverse));
+        JkPreparedScene s = JkSceneBuilder.Build(level, JkTemplates.FromLevels(null, level), SyntheticLevel.Files(), "stairs", new ImportLog(), null);
+        float area = 0f; int count = 0;
+        var pts = new List<Vector3>();
+        foreach (SceneWalkmesh w in s.Scene.Walkmeshes)
+            for (int t = 0; t < w.Triangles.Length / 3; t++)
+            {
+                Vector3 a = w.Positions[w.Triangles[t * 3]], b = w.Positions[w.Triangles[t * 3 + 1]], c = w.Positions[w.Triangles[t * 3 + 2]];
+                Vector3 cr = Vector3.Cross(b - a, c - a);
+                float nz = cr.Z / cr.Length();
+                if (nz > 0.7f && nz < 0.99f) { Assert.True(w.Walkable[t]); area += cr.Length() / 2f; count++; pts.AddRange([a, b, c]); }
+                if (nz < -0.1f && nz > -0.99f) Assert.Fail("Downward-facing sloped triangle"); // pas de rampe retournee
+            }
+        Assert.Equal(2, count);
+        // Aire = largeur (etendue Y) x longueur inclinee (diagonale XZ) du quad, a l'echelle de la scene.
+        float width = pts.Max(p => p.Y) - pts.Min(p => p.Y);
+        float length = MathF.Sqrt(MathF.Pow(pts.Max(p => p.X) - pts.Min(p => p.X), 2) + MathF.Pow(pts.Max(p => p.Z) - pts.Min(p => p.Z), 2));
+        Assert.InRange(area, width * length * 0.999f, width * length * 1.001f);
+    }
+
     /// <summary>Un secteur : sol bas (x 0..1, z 0), contremarche en x = 1, sol haut (x 1..2, z = h). Les sommets sont partages comme dans un vrai niveau.</summary>
-    private static string StairLevel(float h)
+    private static string StairLevel(float h, int rot = 0, bool reverse = false)
     {
         string H = h.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+        // Contremarche : memes 4 sommets, mais rotation / sens d'enroulement variables comme dans les vrais fichiers.
+        string[] riser = ["1,0", "4,1", "7,2", "2,3"];
+        if (reverse) Array.Reverse(riser);
+        riser = riser.Skip(rot).Concat(riser.Take(rot)).ToArray();
+        string riserVerts = string.Join(" ", riser);
         return $@"SECTION: HEADER
 Version 1
 SECTION: MATERIALS
@@ -283,7 +346,7 @@ World adjoins 0
 World surfaces 3
 0: 0 0x4 0x0 4 3 1 -1 0.0 4 0,0 1,1 2,2 3,3 0.5 0.5 0.5 0.5
 1: 0 0x4 0x0 4 3 1 -1 0.0 4 4,0 5,1 6,2 7,3 0.5 0.5 0.5 0.5
-2: 0 0x4 0x0 4 3 1 -1 0.0 4 1,0 4,1 7,2 2,3 0.5 0.5 0.5 0.5
+2: 0 0x4 0x0 4 3 1 -1 0.0 4 {riserVerts} 0.5 0.5 0.5 0.5
 #--- Surface normals ---
 0: 0 0 1
 1: 0 0 1

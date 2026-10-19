@@ -25,7 +25,7 @@ public static class JkStairRamps
     {
         skipped = 0;
         var ramps = new List<Ramp>();
-        // Aretes des surfaces horizontales (sol et plafond compris : seuls les sols sont utilises plus bas, via la normale).
+        // Aretes des surfaces de sol uniquement (Normal.Z >= 0,9 : les plafonds, a normale vers le bas, sont exclus).
         var floorByEdge = new Dictionary<(int, int), List<int>>();
         for (int i = 0; i < level.Surfaces.Count; i++)
         {
@@ -53,7 +53,11 @@ public static class JkStairRamps
                 var top = Enumerable.Range(0, 4).Where(k => v[k].Z > zMax - 5e-4f).ToArray();
                 var bottom = Enumerable.Range(0, 4).Where(k => v[k].Z < zMin + 5e-4f).ToArray();
                 if (top.Length != 2 || bottom.Length != 2) continue;
-                int t0 = s.VertexIndices[top[0]], t1 = s.VertexIndices[top[1]], b0 = s.VertexIndices[bottom[0]], b1 = s.VertexIndices[bottom[1]];
+                // Appariement par proximite XY : le sommet bas b0 est celui situe sous t0 (la rotation des sommets du quad dans le fichier est quelconque).
+                int t0 = s.VertexIndices[top[0]], t1 = s.VertexIndices[top[1]];
+                int bA = s.VertexIndices[bottom[0]], bB = s.VertexIndices[bottom[1]];
+                float dA = XyDistSq(level.Vertices[t0], level.Vertices[bA]), dB = XyDistSq(level.Vertices[t0], level.Vertices[bB]);
+                int b0 = dA <= dB ? bA : bB, b1 = dA <= dB ? bB : bA;
                 if (!floorByEdge.ContainsKey(Edge(t0, t1)) || !floorByEdge.TryGetValue(Edge(b0, b1), out var lowerTreads)) continue;
 
                 var dir = new Vector3(s.Normal.X, s.Normal.Y, 0f);
@@ -67,11 +71,16 @@ public static class JkStairRamps
                 float run = MathF.Min(RunPerRise * h, depth * 0.98f);
                 if (run < h) { skipped++; continue; } // pente de plus de 45 degres : non marchable de toute facon
                 Vector3 pb0 = level.Vertices[b0] + dir * run, pb1 = level.Vertices[b1] + dir * run;
-                ramps.Add(new Ramp(sector, pb0, pb1, level.Vertices[t1], level.Vertices[t0]));
+                // Quad pb0 -> pb1 -> t1 -> t0 : cotes opposes pb0-t0 et pb1-t1 non croises (appariement ci-dessus) ; on impose une normale vers le haut.
+                Vector3 ta = level.Vertices[t0], tb = level.Vertices[t1];
+                if (Vector3.Cross(pb1 - pb0, tb - pb0).Z < 0f) ramps.Add(new Ramp(sector, ta, tb, pb1, pb0));
+                else ramps.Add(new Ramp(sector, pb0, pb1, tb, ta));
             }
         }
         return ramps;
     }
+
+    private static float XyDistSq(Vector3 a, Vector3 b) => (a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y);
 
     private static (int, int) Edge(int a, int b) => a < b ? (a, b) : (b, a);
 }
