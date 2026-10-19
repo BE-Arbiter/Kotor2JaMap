@@ -135,6 +135,32 @@ public class ThreeDoReaderTests
         Assert.Throws<InvalidDataException>(() => ThreeDoReader.Read("SECTION: HEADER\n3DO 2.1\nSECTION: GEOMETRYDEF\nGEOSETS 1\nGEOSET 0\nMESHES 1\nMESH 0\nVERTICES 2\n0: 1 2 3 0\n"));
     }
 
+    [Theory]
+    [InlineData("0,0 1,1 9,2")]   // sommet au-dela du nombre de sommets
+    [InlineData("0,0 -1,1 2,2")]  // sommet negatif
+    public void ThreeDo_VertexIndexOutOfRange_ThrowsInvalidData(string corners)
+    {
+        string text = TwoNodes.Replace("0: 0 0x0000 4 3 1 0.0 3 0,0 1,1 2,2", "0: 0 0x0000 4 3 1 0.0 3 " + corners);
+        var ex = Assert.Throws<InvalidDataException>(() => ThreeDoReader.Read(text));
+        Assert.Contains("vertex", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ThreeDo_CyclicHierarchy_ThrowsInvalidData()
+    {
+        // Base devient l'enfant d'Arm alors qu'Arm est deja l'enfant de Base.
+        string text = TwoNodes.Replace("0: 0x0000 0x00001 0 -1 1 -1 1", "0: 0x0000 0x00001 0 1 1 -1 1");
+        var ex = Assert.Throws<InvalidDataException>(() => ThreeDoReader.Read(text));
+        Assert.Contains("cycle", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ThreeDo_NodeIsItsOwnParent_ThrowsInvalidData()
+    {
+        string text = TwoNodes.Replace("1: 0x0000 0x00001 1 0 -1 -1 0", "1: 0x0000 0x00001 1 1 -1 -1 0");
+        Assert.Throws<InvalidDataException>(() => ThreeDoReader.Read(text));
+    }
+
     [SkippableFact]
     public void All3doInRes2_Read()
     {

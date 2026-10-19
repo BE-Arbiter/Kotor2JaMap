@@ -29,13 +29,14 @@ public sealed record JkMd3(Md3Asset Asset, Vector3 Min, Vector3 Max, int Frames,
 /// <summary>
 /// Conversion des modeles <c>.3do</c> (et de leur animation <c>.key</c>) en MD3. Geoset 0 (le plus detaille), noeuds hierarchiques, une surface MD3
 /// par materiau. Chemin <c>models/jk/&lt;modele&gt;.md3</c> (<c>models/jk/s&lt;echelle&gt;/</c> hors echelle par defaut, comme les objets KOTOR),
-/// shader <c>models/jk/&lt;texture&gt;</c>. Voir <c>docs/superpowers/specs/jk-formats.md</c> pour les constats sur les formats.
+/// shader <c>models/jk/&lt;texture&gt;</c>. Un modele reparti sur plusieurs MD3 n'est pas gere : au-dela de <see cref="Md3Writer.MaxSurfaces"/> surfaces
+/// la conversion echoue (journalisee). Voir <c>docs/superpowers/specs/jk-formats.md</c> pour les constats sur les formats.
 /// </summary>
 public static class JkModelConverter
 {
     public const string ShaderPrefix = "models/jk/";
 
-    /// <summary>Un modele reparti sur plusieurs MD3 n'est pas gere ici : au-dela de <see cref="Md3Writer.MaxSurfaces"/> surfaces la conversion echoue (journalisee).</summary>
+    /// <summary>Seuils sous lesquels une position (unites JK) ou un angle (degres) est considere comme constant d'une image a l'autre.</summary>
     private const float PositionEpsilon = 1e-5f, AngleEpsilonDegrees = 1e-3f;
 
     /// <param name="fs">Systeme de fichiers du niveau (GOB de l'episode, Res2, Res1hi).</param>
@@ -66,6 +67,13 @@ public static class JkModelConverter
             return null;
         }
 
+        // Fichier tronque : aucun geoset (ou geoset 0 sans maillage), donc rien a dessiner.
+        if (model.Geosets.Count == 0 || model.Geosets[0].Meshes.Count == 0)
+        {
+            log.Warn("JK_MODEL_EMPTY", $"Model {model3do}: no geometry (no geoset or no mesh); the thing is not placed with a model.");
+            return null;
+        }
+
         KeyAnimation? anim = null;
         if (key is not null)
         {
@@ -84,16 +92,23 @@ public static class JkModelConverter
         int frameCount = anim is null ? 1 : Math.Max(1, Math.Min(anim.Frames, Md3Writer.MaxFrames));
         if (anim is not null && anim.Frames > Md3Writer.MaxFrames)
             log.Warn("JK_KEY_TRUNCATED", $"Animation {key}: {anim.Frames} frames, only the first {Md3Writer.MaxFrames} are kept.");
-        var rest = model.NodeMatrices();
         var poses = new Matrix4x4[frameCount][];
         var pyrs = new (Vector3 Pos, Vector3 Pyr)[frameCount][];
-        for (int f = 0; f < frameCount; f++)
+        try
         {
-            pyrs[f] = new (Vector3, Vector3)[model.Nodes.Count];
-            for (int n = 0; n < model.Nodes.Count; n++)
-                pyrs[f][n] = anim is not null && keyOf[n] >= 0 ? anim.Nodes[keyOf[n]].PoseAt(f) : (model.Nodes[n].Position, model.Nodes[n].PitchYawRoll);
-            var captured = pyrs[f];
-            poses[f] = model.NodeMatrices((i, _) => captured[i]);
+            for (int f = 0; f < frameCount; f++)
+            {
+                pyrs[f] = new (Vector3, Vector3)[model.Nodes.Count];
+                for (int n = 0; n < model.Nodes.Count; n++)
+                    pyrs[f][n] = anim is not null && keyOf[n] >= 0 ? anim.Nodes[keyOf[n]].PoseAt(f) : (model.Nodes[n].Position, model.Nodes[n].PitchYawRoll);
+                var captured = pyrs[f];
+                poses[f] = model.NodeMatrices((i, _) => captured[i]);
+            }
+        }
+        catch (InvalidDataException ex) // hierarchie cyclique
+        {
+            log.Warn("JK_MODEL_UNREADABLE", $"Model {model3do}: {ex.Message}");
+            return null;
         }
 
         // --- Animation : statique, rotation pure ou images multiples ---
@@ -106,10 +121,10 @@ public static class JkModelConverter
         else if (anim is not null && movers == 1 && frameCount > 1)
         {
             int node = Array.IndexOf(moving, true);
-            if (TryPureRotation(model, node, pyrs, rest, anim.Fps, out axis, out dps))
+            if (TryPureRotation(model, node, pyrs, poses[0], anim.Fps, out axis, out dps))
             {
                 pure = true;
-                center = Vector3.Transform(Vector3.Zero, rest[node]) * JkWorldScale.MetresPerJkUnit;
+                center = Vector3.Transform(Vector3.Zero, poses[0][node]) * JkWorldScale.MetresPerJkUnit; // pose ecrite dans le MD3
             }
         }
 
@@ -216,6 +231,21 @@ public static class JkModelConverter
         return moving;
     }
 
+    /// <summary>Vrai si tous les noeuds qui dessinent quelque chose (face de mode geometrie 3 ou plus) sont <paramref name="root"/> ou ses descendants.</summary>
+    private static bool AllDrawnGeometryUnder(ThreeDoModel model, int root)
+    {
+        ThreeDoGeoset geoset = model.Geosets[0];
+        for (int n = 0; n < model.Nodes.Count; n++)
+        {
+            int mesh = model.Nodes[n].Mesh;
+            if (mesh < 0 || !geoset.Meshes[mesh].Faces.Any(f => f.Geo >= 3 && f.Corners.Length >= 3)) continue;
+            int cur = n, steps = 0;
+            while (cur >= 0 && cur != root && steps++ <= model.Nodes.Count) cur = model.Nodes[cur].Parent;
+            if (cur != root) return false;
+        }
+        return true;
+    }
+
     private static float AngleDiff(float a, float b)
     {
         float d = b - a;
@@ -225,12 +255,14 @@ public static class JkModelConverter
 
     /// <summary>
     /// Rotation pure : la position du noeud est constante et l'increment de rotation d'une image a la suivante a le meme axe (a 1,8 degres pres)
-    /// et le meme angle (a 3 % pres) sur toute l'animation. Axe renvoye dans le repere du modele ; vitesse en degres par seconde.
+    /// et le meme angle (a 3 % pres) sur toute l'animation. Toute la geometrie dessinee doit etre dans le sous-arbre du noeud (sinon une partie
+    /// fixe tournerait avec lui). Axe renvoye dans le repere du modele (matrices de l'image 0, celle du MD3) ; vitesse en degres par seconde.
     /// </summary>
-    private static bool TryPureRotation(ThreeDoModel model, int node, (Vector3 Pos, Vector3 Pyr)[][] pyrs, Matrix4x4[] rest, float fps,
+    private static bool TryPureRotation(ThreeDoModel model, int node, (Vector3 Pos, Vector3 Pyr)[][] pyrs, Matrix4x4[] frame0, float fps,
         out Vector3 axisModel, out float degreesPerSecond)
     {
         axisModel = Vector3.Zero; degreesPerSecond = 0;
+        if (!AllDrawnGeometryUnder(model, node)) return false;
         for (int f = 1; f < pyrs.Length; f++)
             if (Vector3.Distance(pyrs[0][node].Pos, pyrs[f][node].Pos) > PositionEpsilon) return false;
 
@@ -251,7 +283,7 @@ public static class JkModelConverter
         }
         if (axis0 is null) return false;
         // Axe du repere du parent vers le repere du modele (la partie rotation de la matrice du parent au repos).
-        Matrix4x4 parentFrame = model.Nodes[node].Parent >= 0 ? rest[model.Nodes[node].Parent] : Matrix4x4.Identity;
+        Matrix4x4 parentFrame = model.Nodes[node].Parent >= 0 ? frame0[model.Nodes[node].Parent] : Matrix4x4.Identity;
         Vector3 inModel = Vector3.Normalize(Vector3.TransformNormal(axis0.Value, parentFrame));
         axisModel = inModel;
         degreesPerSecond = angle0 * fps;

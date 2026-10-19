@@ -55,7 +55,7 @@ public sealed record KeyAnimation(uint Flags, float Fps, int Frames, IReadOnlyLi
 /// <summary>
 /// Lecteur de <c>.key</c> (texte Latin-1). <c>HEADER</c> : <c>FLAGS</c>, <c>TYPE</c>, <c>FRAMES</c>, <c>FPS</c>, <c>JOINTS</c> ;
 /// <c>KEYFRAME NODES</c> : par <c>NODE n</c>, <c>MESH NAME</c>, <c>ENTRIES k</c>, puis par entree deux lignes : <c>idx: image drapeaux x y z p y r</c>
-/// et leurs variations (<c>dx dy dz dp dy dr</c>, ignorees : l'interpolation les recalcule). Voir <c>docs/superpowers/specs/jk-formats.md</c>.
+/// et leurs variations par image (<c>dx dy dz dp dy dr</c>, lues : elles donnent le sens et le nombre de tours des rotations). Voir <c>docs/superpowers/specs/jk-formats.md</c>.
 /// </summary>
 public static class KeyReader
 {

@@ -36,6 +36,12 @@ public static class ThreeDoReader
             if (VertexCount >= 0 && Vertices.Count != VertexCount) throw new InvalidDataException($"3DO {where}: {Vertices.Count} vertices read, {VertexCount} declared.");
             if (TexVertexCount >= 0 && TexVertices.Count != TexVertexCount) throw new InvalidDataException($"3DO {where}: {TexVertices.Count} texture vertices read, {TexVertexCount} declared.");
             if (FaceCount >= 0 && Faces.Count != FaceCount) throw new InvalidDataException($"3DO {where}: {Faces.Count} faces read, {FaceCount} declared.");
+            // Indices de sommet des faces : doivent designer un sommet existant (les indices de texture sont toleres hors plage : les donnees
+            // du jeu en contiennent pour des maillages sans coordonnees de texture, le convertisseur les traite).
+            for (int f = 0; f < Faces.Count; f++)
+                foreach (ThreeDoCorner c in Faces[f].Corners)
+                    if (c.Vertex < 0 || c.Vertex >= Vertices.Count)
+                        throw new InvalidDataException($"3DO {where}: face {f} uses vertex {c.Vertex}, outside 0..{Vertices.Count - 1}.");
             return new ThreeDoMesh(Name, Radius, Geometry, Lighting, Texture, [.. Vertices], [.. Intensities], [.. TexVertices],
                 [.. VertexNormals], [.. Faces], [.. FaceNormals]);
         }
@@ -119,6 +125,16 @@ public static class ThreeDoReader
         foreach (ThreeDoNode n in nodes)
             if (n.Parent >= nodes.Count || n.Mesh >= (built.Count > 0 ? built[0].Meshes.Count : 0))
                 throw new InvalidDataException($"3DO: node {n.Index} ('{n.Name}') references a missing parent or mesh.");
+        // Hierarchie sans cycle : en remontant les parents on doit atteindre une racine en au plus Count pas.
+        foreach (ThreeDoNode n in nodes)
+        {
+            int cur = n.Index, steps = 0;
+            while (cur >= 0)
+            {
+                if (++steps > nodes.Count) throw new InvalidDataException($"3DO: hierarchy has a cycle (node {n.Index} '{n.Name}').");
+                cur = nodes[cur].Parent;
+            }
+        }
         return new ThreeDoModel { Materials = materials, Geosets = built, Nodes = nodes, Radius = radius, InsertOffset = insert };
 
         MeshBuilder RequireMesh() => mesh ?? throw new InvalidDataException("mesh keyword outside a MESH block");
