@@ -24,6 +24,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
     private ImportStepResult? _imported;
     private ExportStepResult? _exported;
     private PreviewModel? _importModel;
+    private string? _mapName;               // nom de carte impose (scene fournie par UseScene) ; null : nom du module
 
     public bool IsInstalled(KotorGame game)
     {
@@ -70,12 +71,26 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             IReadOnlyList<ModuleEntity> entities = ReadEntities(opt, scene, module, log);
             PreviewModel model = PreviewBuilder.FromScene(scene, opt.Scale);
             _opt = opt;
-            _scene = scene; Assembly = null; _imported = null; _exported = null; _importModel = null;
+            _scene = scene; Assembly = null; _imported = null; _exported = null; _importModel = null; _mapName = null;
             _entities = entities;
             progress.Report($"Preview: {scene.Meshes.Count} mesh(es), {model.TriangleCount} triangle(s), {entities.Count} entity(ies).");
             return model;
         }
         finally { Flush(log, progress); }
+    }
+
+    /// <summary>
+    /// Fournit une scene deja construite (zone SWTOR) : les etapes Importer, Exporter et Creer PK3 s'enchainent ensuite comme pour un module
+    /// KOTOR. <paramref name="opt"/> : options du jeu de la scene ; <paramref name="mapName"/> : nom de carte (null : module de la scene).
+    /// </summary>
+    public void UseScene(ModuleScene scene, ExportOptions opt, string? mapName)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(opt);
+        _opt = opt;
+        _scene = scene; Assembly = null; _imported = null; _exported = null; _importModel = null;
+        _entities = [];
+        _mapName = mapName;
     }
 
     public AssemblySession? Assembly { get; private set; }
@@ -100,7 +115,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
             var session = new AssemblySession([.. modules], parts, links, (part, door) => FrameOf(opt, part, door));
             PreviewModel model = BuildAssembled(session, opt, log);
             _opt = opt;
-            Assembly = session;
+            Assembly = session; _mapName = null;
             _imported = null; _exported = null; _importModel = null;
             progress.Report($"Preview: {modules.Count} modules, {session.AutoLinks.Count} link(s), {session.UnlinkedGroups.Count} unlinked group(s), {model.TriangleCount} triangle(s).");
             return model;
@@ -158,7 +173,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         var log = new ImportLog();
         try
         {
-            ImportStepResult imported = PipelineSteps.Import(scene, null, _opt, log);
+            ImportStepResult imported = PipelineSteps.Import(scene, _mapName, _opt, log);
             PreviewModel model = PreviewBuilder.FromImport(imported, _entities, _opt.Scale, _opt.LightmapBrightness, log);
             _imported = imported; _exported = null;
             _importModel = model;

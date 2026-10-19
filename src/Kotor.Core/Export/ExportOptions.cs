@@ -4,10 +4,11 @@ namespace Kotor.Core.Export;
 /// Options d'export : dossiers, echelle KOTOR (metres) vers JA (unites Quake), luminosite des lightmaps et profil de limites BSP.
 /// <see cref="KotorDir"/> est le dossier du jeu choisi (<see cref="Game"/>). <see cref="Kotor2Dir"/> garde le dossier de KOTOR 2
 /// dans les options de base ; <see cref="ForGame"/> en tire les options d'un jeu.
+/// <see cref="SwtorDir"/> : racine des ressources SWTOR extraites (cle swtorAssetsDir, variable SWTOR_ASSETS).
 /// </summary>
 public sealed record ExportOptions(string KotorDir, string JaBaseDir, string WorkDir, float Scale = ExportOptions.DefaultScale,
     float LightmapBrightness = 1.0f, string BspLimits = ExportOptions.DefaultBspLimits,
-    KotorGame Game = KotorGame.Kotor1, string? Kotor2Dir = null)
+    KotorGame Game = KotorGame.Kotor1, string? Kotor2Dir = null, string? SwtorDir = null)
 {
     public const float DefaultScale = 40f;
     public const string DefaultBspLimits = "swgl";

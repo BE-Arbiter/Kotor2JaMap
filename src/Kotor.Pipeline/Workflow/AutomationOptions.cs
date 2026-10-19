@@ -25,7 +25,7 @@ public sealed record AutomationOptions(KotorGame Game, string Module, string Run
 public static class AutomationParser
 {
     public const string Usage =
-        "Usage: Kotor2Ja.App [--game kotor|kotor2] --module <module>[,<module>...] [--run-to preview|import|export|pk3] "
+        "Usage: Kotor2Ja.App [--game kotor|kotor2|swtor] --module <module>[,<module>...] (swtor: <area id>[:room1,room2]) [--run-to preview|import|export|pk3] "
         + "[--camera \"x y z yaw pitch\"] [--screenshot <png>] [--exit]";
 
     /// <summary>
@@ -37,7 +37,7 @@ public static class AutomationParser
         ArgumentNullException.ThrowIfNull(args);
         error = null;
         var game = KotorGame.Kotor1;
-        string? module = null, screenshot = null;
+        string? module = null, screenshot = null, moduleText = null;
         IReadOnlyList<string> modules = [];
         string runTo = "preview";
         Vector3? cameraPos = null;
@@ -66,13 +66,13 @@ public static class AutomationParser
                             {
                                 case "kotor": game = KotorGame.Kotor1; break;
                                 case "kotor2": game = KotorGame.Kotor2; break;
-                                default: error = $"Invalid --game '{v}' (expected kotor or kotor2)."; return null;
+                                case "swtor": game = KotorGame.Swtor; break;
+                                default: error = $"Invalid --game '{v}' (expected kotor, kotor2 or swtor)."; return null;
                             }
                             break;
                         case "--module":
                             if (string.IsNullOrWhiteSpace(v)) { error = "--module must not be empty."; return null; }
-                            if (!ModuleSelection.TryParse(v, out modules, out string? listError)) { error = $"Invalid --module '{v}': {listError}"; return null; }
-                            module = modules[0];
+                            moduleText = v;
                             break;
                         case "--run-to":
                             runTo = v.ToLowerInvariant();
@@ -92,6 +92,12 @@ public static class AutomationParser
                     error = $"Unknown argument '{a}'.";
                     return null;
             }
+        }
+        if (moduleText is not null)
+        {
+            if (game == KotorGame.Swtor) modules = [moduleText.Trim()];   // SWTOR : « id[:room1,room2] », la virgule separe les rooms
+            else if (!ModuleSelection.TryParse(moduleText, out modules, out string? listError)) { error = $"Invalid --module '{moduleText}': {listError}"; return null; }
+            module = modules[0];
         }
         if (module is null)
         {

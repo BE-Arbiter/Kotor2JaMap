@@ -64,7 +64,7 @@ public static class ExportSwtorCommand
             return 1;
         }
 
-        var assets = new SwtorAssets(assetsRoot);
+        var assets = new SwtorAssets(assetsRoot ?? opt.SwtorDir);
         var spec = SwtorAreaSpec.Parse(areaText);
         string? folder = SwtorExporter.ResolveFolder(spec.Area, assets, opt.WorkDir);
         if (folder is null)

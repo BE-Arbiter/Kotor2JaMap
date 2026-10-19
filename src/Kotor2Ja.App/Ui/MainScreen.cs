@@ -41,6 +41,7 @@ public sealed class MainScreen
     private volatile string[] _labels = [];
     private bool _scrollLog;
     private readonly PlacementEditor _editor = new();
+    private SwtorPanel? _swtor;
 
     public MainScreen(WorkflowController workflow, ViewOptions view)
     {
@@ -50,6 +51,12 @@ public sealed class MainScreen
 
     /// <summary>Editeur de placement (ouvert par « Link modules » / « Edit placement »).</summary>
     public PlacementEditor Editor => _editor;
+
+    /// <summary>Faux tant que la branche SWTOR charge son catalogue ou les rooms d une zone.</summary>
+    public bool SwtorIdle => _swtor is not { } p || p.IsIdle;
+
+    /// <summary>Branche SWTOR de l arbre (remplacee quand les reglages sont enregistres).</summary>
+    public void SetSwtor(Swtor.Pipeline.SwtorWorkflowSteps steps) => _swtor = new SwtorPanel(steps, AddLog);
 
     /// <summary>Liste des modules (appelable depuis un autre fil).</summary>
     public void SetModules(IReadOnlyList<ModuleListItem> modules)
@@ -97,11 +104,12 @@ public sealed class MainScreen
         bool busy = _workflow.IsBusy;
 
         foreach (KotorGame game in new[] { KotorGame.Kotor1, KotorGame.Kotor2 })
-            DrawGameNode(game, height * 0.25f, busy);
+            DrawGameNode(game, height * 0.15f, busy);
+        _swtor?.Draw(_workflow, busy, height * 0.16f);
         ImGui.TextDisabled("Ctrl+click: select several modules of one game.");
         DrawAssemblySelection(busy);
 
-        ImGui.BeginDisabled(!_workflow.CanPreview);
+        ImGui.BeginDisabled(!_workflow.CanPreview || (_workflow.SelectedGame == KotorGame.Swtor && _swtor is { NoRoomSelected: true }));
         if (ImGui.Button("Preview", new Vector2(-1, 0))) _ = _workflow.PreviewAsync();
         ImGui.EndDisabled();
         DrawLinkButton(busy);

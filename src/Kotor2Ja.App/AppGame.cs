@@ -54,6 +54,7 @@ public sealed class AppGame : Game
     }
 
     private PreviewModel? _failedPreview;
+    private Swtor.Pipeline.SwtorWorkflowSteps? _swtorSteps;
 
     // The back buffer follows the window when it is resized, maximized or the screen resolution changes.
     private void OnClientSizeChanged(object? sender, EventArgs e)
@@ -95,8 +96,9 @@ public sealed class AppGame : Game
             configWarning = $"ERROR: unreadable configuration ({configPath}): {e.Message} Default values used.";
             options = ConfigLoader.Defaults();
         }
-        _workflow = new WorkflowController(new KotorWorkflowSteps(options));
+        _workflow = NewWorkflow(options);
         _screen = new MainScreen(_workflow, _options);
+        _screen.SetSwtor(_swtorSteps!);
         _screen.SaveSettings = SaveSettings;
         _screen.DetectSettings = () => GameLocator.Detect();
         if (_auto is not null) _screen.LogSink = Console.WriteLine;
@@ -108,10 +110,19 @@ public sealed class AppGame : Game
         base.Initialize();
     }
 
+    // KOTOR 1 / 2 et SWTOR derriere un meme flux de travail ; la branche SWTOR de l'arbre reprend les etapes SWTOR.
+    private WorkflowController NewWorkflow(ExportOptions options)
+    {
+        var swtor = _swtorSteps = new Swtor.Pipeline.SwtorWorkflowSteps(options);
+        _screen?.SetSwtor(swtor);
+        return new WorkflowController(new Swtor.Pipeline.GameWorkflowSteps(new KotorWorkflowSteps(options), swtor));
+    }
+
     private void LogFolders(ExportOptions options)
     {
         _screen.AddLog($"KOTOR: {options.KotorDir} (scale {options.Scale:0.##})");
         _screen.AddLog($"KOTOR 2: {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
+        if (_swtorSteps is { } sw) _screen.AddLog($"SWTOR: {(sw.IsInstalled(Kotor.Core.KotorGame.Swtor) ? sw.Assets.Root : sw.Assets.Root + " (not found, branch hidden)")}");
     }
 
     // Settings "Save": writes the config file next to the executable (else in %APPDATA%\Kotor2Ja), then reloads the module list with the new folders.
@@ -127,7 +138,7 @@ public sealed class AppGame : Game
         string info = "Saved to " + written + (fallback ? " (the executable folder is not writable)." : ".");
         _screen.SavedInfo = info;
         _screen.AddLog("Settings " + char.ToLowerInvariant(info[0]) + info[1..]);
-        _workflow = new WorkflowController(new KotorWorkflowSteps(options));
+        _workflow = NewWorkflow(options);
         _screen.SetWorkflow(_workflow);
         LogFolders(options);
         LoadModules();
@@ -259,7 +270,7 @@ public sealed class AppGame : Game
                 _autoPhase = 2;
                 break;
             case 2:
-                if (_workflow.Preview is null || ReferenceEquals(_workflow.Preview, _failedPreview)) { FailAutomation("The view could not be displayed."); return; }
+                if (_workflow.Preview is null || ReferenceEquals(_workflow.Preview, _failedPreview)) { FailAutomation($"The view could not be displayed. (preview null={_workflow.Preview is null}, stage={_workflow.Stage}, err={_workflow.LastError})"); return; }
                 if (!ReferenceEquals(_workflow.Preview, _renderer.Model)) return;
                 if (a.CameraPosition is { } p)
                 {
@@ -276,6 +287,7 @@ public sealed class AppGame : Game
                     float yr = MathHelper.ToRadians(yaw);
                     _camera.Position = new Vector3(sp.X, sp.Y, sp.Z) - new Vector3(MathF.Cos(yr), MathF.Sin(yr), 0f) * 64f + new Vector3(0, 0, 48f);
                 }
+                if (a.Game == Kotor.Core.KotorGame.Swtor && !_screen.SwtorIdle) return;   // catalogue et rooms visibles sur la capture
                 _autoFrames = 0;
                 _autoPhase = 3;
                 break;

@@ -20,6 +20,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Kotor.Core\Kotor.Core.csproj" />
     <ProjectReference Include="..\Kotor.Pipeline\Kotor.Pipeline.csproj" />
+    <ProjectReference Include="..\Swtor.Core\Swtor.Core.csproj" />
+    <ProjectReference Include="..\Swtor.Pipeline\Swtor.Pipeline.csproj" />
     <None Include="..\Kotor2Ja.Cli\kotor2ja.config.json" Link="kotor2ja.config.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

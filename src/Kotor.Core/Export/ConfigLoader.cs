@@ -9,6 +9,7 @@ public static class ConfigLoader
     public const string DefaultKotor2Dir = @"C:\Program Files (x86)\Steam\steamapps\common\Knights of the Old Republic II";
     public const string DefaultJaBaseDir = @"C:\Program Files (x86)\Steam\steamapps\common\Jedi Academy - SWGL_DEV\GameData\base";
     public static string DefaultWorkDir => GameLocator.DefaultWorkDir();
+    public const string DefaultSwtorAssetsDir = @"C:\jka_tor_assets\resources";
     public const string ConfigFileName = "kotor2ja.config.json";
 
     /// <summary>
@@ -21,7 +22,8 @@ public static class ConfigLoader
         getEnv ??= Environment.GetEnvironmentVariable;
         GamePaths found = (detect ?? (() => GameLocator.Detect()))();
         return new ExportOptions(EnvOr(getEnv, "KOTOR_PATH", found.KotorDir ?? DefaultKotorDir), found.JaBaseDir ?? DefaultJaBaseDir,
-            found.WorkDir, Kotor2Dir: EnvOr(getEnv, "KOTOR2_PATH", found.Kotor2Dir ?? DefaultKotor2Dir));
+            found.WorkDir, Kotor2Dir: EnvOr(getEnv, "KOTOR2_PATH", found.Kotor2Dir ?? DefaultKotor2Dir),
+            SwtorDir: getEnv("SWTOR_ASSETS") is { } sw && !string.IsNullOrWhiteSpace(sw) ? sw : null);
     }
 
     /// <summary>User-level config folder: %APPDATA%Kotor2Ja.</summary>
@@ -70,6 +72,7 @@ public static class ConfigLoader
             ["kotorDir"] = o.KotorDir, ["kotor2Dir"] = o.Kotor2Dir ?? "", ["jaBaseDir"] = o.JaBaseDir, ["workDir"] = o.WorkDir,
             ["scale"] = o.Scale, ["lightmapBrightness"] = o.LightmapBrightness, ["bspLimits"] = o.BspLimits,
         };
+        if (!string.IsNullOrWhiteSpace(o.SwtorDir)) data["swtorAssetsDir"] = o.SwtorDir;
         string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
@@ -95,7 +98,8 @@ public static class ConfigLoader
             getEnv(envName) is { } v && !string.IsNullOrWhiteSpace(v) ? v : Str(key, current);
         return new ExportOptions(GameDir("kotorDir", "KOTOR_PATH", o.KotorDir), Str("jaBaseDir", o.JaBaseDir), Str("workDir", o.WorkDir),
             Num("scale", o.Scale), Num("lightmapBrightness", o.LightmapBrightness), Str("bspLimits", o.BspLimits),
-            Kotor2Dir: GameDir("kotor2Dir", "KOTOR2_PATH", o.Kotor2Dir ?? ""));
+            Kotor2Dir: GameDir("kotor2Dir", "KOTOR2_PATH", o.Kotor2Dir ?? ""),
+            SwtorDir: getEnv("SWTOR_ASSETS") is { } sw && !string.IsNullOrWhiteSpace(sw) ? sw : Str("swtorAssetsDir", o.SwtorDir ?? "") is { Length: > 0 } cfg ? cfg : null);
     }
 
     private static JsonElement? Find(JsonElement obj, string key)
