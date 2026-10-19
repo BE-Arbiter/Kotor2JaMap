@@ -6,10 +6,12 @@ namespace Swtor.Core.Areas;
 public static class AreaTransforms
 {
     /// <summary>
-    /// Rotation depuis les angles d'Euler en degres tels que stockes (X, Y, Z). Convention retenue (confiance moyenne) :
-    /// angles positifs au sens mathematique direct ; avec la composition de System.Numerics l'ordre effectif est Z d'abord, puis Y, puis X, autour des axes du monde
-    /// (<c>qx * qy * qz</c> de System.Numerics = matrice colonne Rx * Ry * Rz ; verifie par test, T4).
-    /// Les rotations a un seul axe (l'immense majorite : lacet autour de Y) n'en dependent pas.
+    /// Rotation depuis les angles d'Euler en degres tels que stockes (X, Y, Z). Convention validee (T7 Euler) : angles positifs au sens
+    /// mathematique direct (+90 sur Y envoie +X vers -Z) et ordre X d'abord, puis Z, puis Y : tangage X et roulis Z dans le repere
+    /// propre de l'objet, puis lacet Y autour de la verticale du parent (matrice colonne <c>Ry * Rz * Rx</c>, soit <c>qy * qz * qx</c> avec
+    /// le produit de Hamilton de System.Numerics). Preuve : 12 appliques <c>spc_item_ss_wall_light01</c> disposees en cercle ne different
+    /// entre elles que d'un lacet pur avec cet ordre seulement (ecart 0,0 deg, contre 79,9 deg pour l'ancien ordre Z-Y-X) ; voir swtor-formats.md.
+    /// Les rotations a un seul axe, ou sans X, n'en dependent pas.
     /// </summary>
     public static Quaternion RotationFromEuler(Vector3 degrees)
     {
@@ -17,7 +19,7 @@ public static class AreaTransforms
         var qx = Quaternion.CreateFromAxisAngle(Vector3.UnitX, degrees.X * d2r);
         var qy = Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees.Y * d2r);
         var qz = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, degrees.Z * d2r);
-        return qx * qy * qz;
+        return qy * qz * qx;
     }
 
     /// <summary>

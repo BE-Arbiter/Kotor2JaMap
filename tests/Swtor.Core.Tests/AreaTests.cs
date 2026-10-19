@@ -235,6 +235,56 @@ public class RealAreaTests
         return folder!;
     }
 
+    private const string DarkCouncilAreaId = "4611686142106770000";
+
+    /// <summary>
+    /// Preuve de l'ordre d'Euler : les 12 appliques <c>spc_item_ss_wall_light01</c> de la salle du Conseil noir sont deux familles de
+    /// 6 pieces disposees en cercle autour de la verticale du parent. Dans une meme famille, les rotations ne different donc que d'un
+    /// lacet pur (la verticale reste la verticale) et le lacet envoie la position d'une piece sur celle d'une autre. Seul l'ordre
+    /// X, Z, Y le verifie (ecart 0 deg ; 79,9 deg avec l'ancien ordre Z, Y, X).
+    /// </summary>
+    [SkippableFact]
+    public void DarkCouncil_wall_lights_differ_by_a_pure_yaw()
+    {
+        AreaLayout layout = AreaLayout.Load(RequireArea(DarkCouncilAreaId));
+        var lights = layout.Rooms.Single(r => r.Name == "station_dark_council_chamber").Room.Instances
+            .Where(i => i.AssetPath?.EndsWith("spc_item_ss_wall_light01.gr2", StringComparison.OrdinalIgnoreCase) == true && i.Scale.X > 0.5f)
+            .ToList();
+        Assert.Equal(12, lights.Count);
+        foreach (var family in lights.GroupBy(i => (i.ParentId, MathF.Round(i.EulerDegrees.X))))
+        {
+            var members = family.ToList();
+            Assert.True(members.Count >= 3, $"famille {family.Key} : {members.Count}");
+            Quaternion q0 = AreaTransforms.RotationFromEuler(members[0].EulerDegrees);
+            foreach (var m in members.Skip(1))
+            {
+                Quaternion rel = AreaTransforms.RotationFromEuler(m.EulerDegrees) * Quaternion.Inverse(q0);
+                Vector3 up = Vector3.Transform(Vector3.UnitY, rel);
+                Assert.True(Vector3.Distance(up, Vector3.UnitY) < 1e-3f, $"{m.Id:X} : la verticale devient {up}");
+            }
+            // le lacet relatif (signe compris) amene la position de la premiere piece sur celle d'une autre de la famille
+            var other = members.First(m => Math.Abs(m.EulerDegrees.Y - members[0].EulerDegrees.Y) > 45f);
+            Quaternion yaw = AreaTransforms.RotationFromEuler(other.EulerDegrees) * Quaternion.Inverse(q0);
+            Vector3 moved = Vector3.Transform(members[0].Position, yaw);
+            Assert.Contains(members, m => Vector3.Distance(new Vector3(moved.X, 0, moved.Z), new Vector3(m.Position.X, 0, m.Position.Z)) < 0.1f);
+        }
+    }
+
+    /// <summary>Un ecran mural incline de 20 deg (X) est un tangage : sa normale monte ou descend de sin(20 deg), elle ne tourne pas dans le plan du mur.</summary>
+    [SkippableFact]
+    public void ShipInterior_wall_monitors_are_pitched_not_rolled()
+    {
+        AreaLayout layout = AreaLayout.Load(RequireArea(ShipAreaId));
+        var monitors = layout.AllInstances.Where(i => i.AssetPath?.EndsWith("all_item_tech_wall_monitor.gr2", StringComparison.OrdinalIgnoreCase) == true
+            && MathF.Abs(i.EulerDegrees.X - 20f) < 0.1f).ToList();
+        Assert.NotEmpty(monitors);
+        foreach (var m in monitors)
+        {
+            Vector3 n = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, layout.World(m)));
+            Assert.True(MathF.Abs(MathF.Abs(n.Y) - MathF.Sin(20f * MathF.PI / 180f)) < 0.01f, $"{m.Id:X} : normale {n}");
+        }
+    }
+
     [SkippableFact]
     public void ShipInterior_has_expected_rooms_and_every_model_exists()
     {

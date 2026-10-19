@@ -166,11 +166,10 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
   et les pièces de stronghold sont modélisés à environ 1/5 (porte `spc_ps_sith_int_door_large` : 0,73 × 0,47 ; hauteur de
   salle ~1 au lieu de ~2,5) : un facteur d'échelle d'affichage est appliqué ailleurs (non trouvé) ; ne pas prendre ces zones
   pour valider l'échelle.
-- Convention d'Euler (**confiance moyenne-basse pour les rotations multi-axes**) : angles en degrés, sens mathématique direct
-  (+90° sur Y envoie +X vers -Z), ordre « X d'abord, puis Y, puis Z » autour d'axes monde (`qx * qy * qz`). La majorité des objets n'ont
-  qu'un lacet sur Y (0, ±90, ±180, ±45...) et sont indépendants de l'ordre ; les combinaisons usuelles `(0, ±90, ±90)`, `(±90, ±90, 0)`,
-  `(0, ±90, 180)` ne se départagent pas par les tests statistiques réalisés (recouvrement d'AABB, appartenance enfant/parent) : à
-  valider visuellement en T4/T7 sur un mur ou une poutre couchée, quitte à changer `AreaTransforms.RotationFromEuler`.
+- Convention d'Euler (**validée par symétrie, T7 Euler ; confiance Haute pour l'ordre, Moyenne pour le sens du repère**) : angles en degrés,
+  sens mathématique direct (+90° sur Y envoie +X vers -Z), ordre **X d'abord, puis Z, puis Y** (tangage X et roulis Z dans le repère de
+  l'objet, puis lacet Y autour de la verticale du parent ; matrice colonne `Ry * Rz * Rx`, soit `qy * qz * qx` en System.Numerics). Les rotations
+  sans X (la quasi-totalité : lacet seul, ou `(0, ±90, ±90)`) ne dépendent pas de cet ordre. Voir « Validation T7 : ordre d'Euler ».
 
 ## Résultats de validation
 
@@ -188,7 +187,7 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
 
 ## Validation T4 : axes et Euler
 
-- **Ordre effectif corrigé dans la doc** : `qx * qy * qz` (System.Numerics, produit de Hamilton) applique **Z d'abord, puis Y, puis X**
+- **Ordre effectif (corrigé ensuite par T7 Euler : c est X, Z, Y)** : `qx * qy * qz` (System.Numerics, produit de Hamilton) applique **Z d'abord, puis Y, puis X**
   (test `Euler_yaw_sends_X_to_minus_Z_and_Z_is_applied_first` : `(90,90,0)` envoie +Y vers +Z, pas vers +X). La phrase « X d'abord » de T2 décrivait
   l'intention, pas le code. Le code est inchangé : les rotations à un seul axe (lacet Y) ne dépendent pas de l'ordre, et aucun test
   statistique T4 ne départage les ordres pour les rotations multi-axes (étiquetage par nom « floor/wall », 120 zones : 54 à 61 % de
@@ -198,6 +197,30 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
   vectoriel des arêtes est toujours du même côté que les normales (sens anti-horaire, repère direct) et le reste après conversion
   (159 617 triangles, 0 incohérent). Une symétrie (`--axes mirror`) existe si on découvrait un monde gaucher (texte inversé sur un panneau
   visible en jeu) ; indétectable sans géométrie asymétrique, donc non tranché par calcul.
+
+## Validation T7 : ordre d'Euler (remplace la conclusion « ordre Z-Y-X » de T4)
+
+Les 6 ordres x 2 signes ont été comparés sur des pièces dont la disposition impose une relation géométrique (pas sur des statistiques) :
+
+- **Appliques `spc_item_ss_wall_light01`** de `station_dark_council_chamber` (zone `4611686142106770000`) : 12 pièces rangées en cercle autour
+  du parent (rotations `(-69,±45,-90)` et `(-61,±135,-90)`). Si l'ordre est le bon, la rotation relative de deux pièces d'une même famille est un lacet
+  pur (la verticale reste la verticale) et ce lacet amène la position de l'une sur celle de l'autre. Écart moyen de la verticale, en degrés :
+  `Rx*Ry*Rz` (ancien code) **79,9** ; `Rx*Rz*Ry` 98,2 ; `Ry*Rx*Rz` 4,4 ; **`Ry*Rz*Rx` 0,0** ; `Rz*Rx*Ry` 98,2 ; `Rz*Ry*Rx` 96,7. Le signe
+  `+` est le bon : avec `-` l'erreur de sens du lacet est de 160 à 180° (alors qu'elle est <= 21° avec `+`, résidu dû aux deux familles de hauteurs).
+- **Piliers `all_arch_imp_buildings_pillar_1`** `(79,6 ; ±90 ; -180)` et `(-81,7 ; ±90 ; 0)` : avec `Ry*Rz*Rx` leur boîte englobante monde est centrée
+  sur leur ancre (z = -3,66, boîte -3,87..-3,49) et les paires gauche/droite sont symétriques ; avec l'ancien ordre elles débordent de 1,1 m
+  (z jusqu'à -4,79). Écart de symétrie 12 deg (contre 118).
+- **Écrans muraux `all_item_tech_wall_monitor`** `(20, ±90, 0)` de `war_planworking` : avec `Ry*Rz*Rx` l'écran de 0,41 x 0,24 m est incliné vers l'avant
+  (tangage, hauteur 0,23 m, normale `(-cos20, -sin20, 0)`) ; avec l'ancien ordre il est tourné de 20° dans son plan (roulis, hauteur 0,36 m).
+- Les cas `(0, ±90, ±Z)` (panneaux de hangar `all_arch_imp_space_mod_hangar_wall_flat_med`, `spc_arch_imp_mod_prop_tech_panel`) ne dépendent pas de l'ordre
+  (X nul : `Rx*Ry*Rz` = `Ry*Rz*Rx`).
+- **Repère (chiralité)** : non tranché par calcul. Le sens positif d'un angle est mathématique direct dans le repère des positions (vérifié ci-dessus), ce qui
+  vaut aussi pour une matrice D3D ligne ; la cohérence des normales et du sens des triangles (T4) est compatible avec la rotation propre `(x, y, z) -> (x, -z, y)`.
+  Aucune pièce asymétrique de la salle ne départage une symétrie (la crête impériale est symétrique) : l'option `--axes mirror` reste le recours si un texte apparaît inversé en jeu.
+- Tests : `DarkCouncil_wall_lights_differ_by_a_pure_yaw`, `ShipInterior_wall_monitors_are_pitched_not_rolled` (SkippableFact, ressources réelles) et
+  `Euler_yaw_sends_X_to_minus_Z_and_order_is_X_then_Z_then_Y` (synthétique).
+- Le « mur de détail `spc_arch_ss_wall_detail01` 4 à 7 m sous le sol » de T7-échelle **n'est pas** lié à l'Euler : ses rotations `(0, -90, 0)` et celles de son parent
+  n'ont pas de composante X ; voir le rapport T7-euler.
 - **Grille 3,2 m** : toutes les dalles `spc_arch_ss_mod_floor_plain` de `war_planworking` ont (x, z) multiples de 3,2 après composition
   parent/enfant (test d'intégration).
 
