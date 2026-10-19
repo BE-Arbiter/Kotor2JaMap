@@ -45,6 +45,9 @@ public sealed record SwtorBuildOptions
 
     /// <summary>Plafond du multiplicateur de luminosite d'une lumiere (le champ vaut jusqu'a 100).</summary>
     public float LightMaxBrightness { get; init; } = 2f;
+
+    /// <summary>Decalage de l origine (unites GR2, plan X/Z) soustrait aux positions ; calcule automatiquement par <c>Build</c> quand la zone exportee est trop loin de l origine pour les limites du monde JA (131072).</summary>
+    public Vector3 OriginOffset { get; init; } = Vector3.Zero;
 }
 
 /// <summary>Comptes de la construction, pour le rapport et les tests.</summary>
@@ -81,6 +84,7 @@ public static class SwtorSceneBuilder
         float worldScale = SwtorWorldScale.Resolve(options.WorldScale);
         log.Warn("SWTOR_WORLD_SCALE", $"World scale {worldScale:0.###} m per GR2 unit ({worldScale * SwtorWorldScale.JaUnitsPerMetre:0.#} JA units, derived from the SWTOR human of {SwtorWorldScale.HumanHeightGr2} units = {SwtorWorldScale.JaHumanModelHeight} JA units; manual multiplier --world-scale = {(options.WorldScale > 0f ? options.WorldScale : 1f):0.###}). Not verified in game.");
         options = options with { WorldScale = worldScale };
+        options = options with { OriginOffset = ComputeOriginOffset(layout, options, worldScale, log) };
         string skyRoom = layout.Area.AreaProperties.Get("skyscene_room") is { Length: > 0 } sr ? sr : "skyscene_room";
 
         var materials = new SwtorMaterials(source, options.MaxTextureSize, log);
@@ -124,7 +128,7 @@ public static class SwtorSceneBuilder
                 instances++;
                 if (!TryGetModel(inst.AssetPath, source, models, missing, log, out Gr2Model? model)) continue;
 
-                Matrix4x4 world = layout.World(inst) * Matrix4x4.CreateScale(worldScale);
+                Matrix4x4 world = layout.World(inst) * Matrix4x4.CreateTranslation(-options.OriginOffset) * Matrix4x4.CreateScale(worldScale);
                 bool det = world.GetDeterminant() < 0f;
                 bool flip = det ^ SwtorAxes.FlipsWinding(options.Axes);
                 Matrix4x4 normalM = Matrix4x4.Invert(world, out Matrix4x4 inv) ? Matrix4x4.Transpose(inv) : world;
@@ -248,6 +252,37 @@ public static class SwtorSceneBuilder
     }
 
     /// <summary>
+    /// Les limites du monde JA sont de +-131072 unites : si le centre (X/Z) des modeles exportes est plus loin que 60000 unites JA de l origine,
+    /// renvoie le decalage (unites GR2) qui le ramene a l origine (sinon zero). Log <c>SWTOR_RECENTERED</c>.
+    /// </summary>
+    internal static Vector3 ComputeOriginOffset(AreaLayout layout, SwtorBuildOptions options, float worldScale, ImportLog log)
+    {
+        if (options.OriginOffset != Vector3.Zero) return options.OriginOffset;
+        string skyRoom = layout.Area.AreaProperties.Get("skyscene_room") is { Length: > 0 } sr ? sr : "skyscene_room";
+        var filter = options.Rooms is { Count: > 0 } r ? new HashSet<string>(r, StringComparer.OrdinalIgnoreCase) : null;
+        Vector3 mn = new(float.MaxValue), mx = new(float.MinValue);
+        foreach (var (roomName, room) in layout.Rooms)
+        {
+            if (string.Equals(roomName, skyRoom, StringComparison.OrdinalIgnoreCase) || roomName.Equals("skyscene", StringComparison.OrdinalIgnoreCase)) continue;
+            if (filter is not null ? !filter.Contains(roomName) : !options.IncludeSpaceRoom && IsSpaceRoom(roomName)) continue;
+            foreach (RoomInstance inst in room.Instances)
+            {
+                if (inst.Kind != InstanceKind.Model || inst.AssetPath is null) continue;
+                Vector3 p = layout.WorldPosition(inst);
+                mn = Vector3.Min(mn, p); mx = Vector3.Max(mx, p);
+            }
+        }
+        if (mn.X > mx.X) return Vector3.Zero;
+        var centre = new Vector3((mn.X + mx.X) / 2f, 0f, (mn.Z + mx.Z) / 2f);
+        float ja = worldScale * SwtorWorldScale.JaUnitsPerMetre;
+        float far = MathF.Max(MathF.Abs(centre.X), MathF.Abs(centre.Z)) * ja;
+        float half = MathF.Max(mx.X - mn.X, mx.Z - mn.Z) / 2f * ja;
+        if (far + half <= 60000f) return Vector3.Zero;
+        log.Warn("SWTOR_RECENTERED", FormattableString.Invariant($"Area centre ({centre.X:F2}, {centre.Z:F2}) GR2 units is {far:F0} JA units from the origin (world limit 131072): scene translated by (-{centre.X:F2}, -{centre.Z:F2}) GR2 units."));
+        return centre;
+    }
+
+    /// <summary>
     /// Lumiere ponctuelle depuis les champs decodes (<see cref="LightFields"/>). Rayon = plus grande echelle de l'objet x facteur, borne ;
     /// multiplicateur = luminosite x gain (plafonne), reduit pour un projecteur dont le cone n'est pas reproduit. Lumiere noire ou eteinte ignoree.
     /// </summary>
@@ -255,7 +290,7 @@ public static class SwtorSceneBuilder
     {
         if (inst.Color is not { } c) return false;
         LightParams lp = LightFields.Read(inst);
-        SceneLight? light = MakeLight(inst.Id, SwtorAxes.ToZUp(layout.WorldPosition(inst) * options.WorldScale, options.Axes), new Vector3(c.X, c.Y, c.Z), lp, options);
+        SceneLight? light = MakeLight(inst.Id, SwtorAxes.ToZUp((layout.WorldPosition(inst) - options.OriginOffset) * options.WorldScale, options.Axes), new Vector3(c.X, c.Y, c.Z), lp, options);
         if (light is null) return false;
         lights.Add(light);
         return true;
