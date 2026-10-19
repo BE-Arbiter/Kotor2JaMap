@@ -411,6 +411,28 @@ public class JkSurfaceEffectsTests
     }
 
     [Fact]
+    public void EventDrivenDamageWithoutNamedArea_IsLoggedAsUnresolved()
+    {
+        // Ecrasement declenche par un evenement : le script ne designe ni secteur ni surface, le comportement est ignore mais doit etre signale.
+        const string script = """
+            symbols
+              message activated
+              thing victim local
+            end
+            code
+            activated:
+                victim = GetSourceRef();
+                DamageThing(victim, 1000.0, 0x1, victim);
+                return;
+            end
+            """;
+        var log = new ImportLog();
+        var level = new SyntheticLevel { Sectors = 1, Cogs = ["20_crush.cog"] }.Read();
+        Assert.Empty(JkSurfaceEffects.Volumes(level, _ => script, log));
+        Assert.Contains(log.Warnings, w => w.Code == "JK_DAMAGE_COG_UNRESOLVED" && w.Message.Contains("20_crush.cog"));
+    }
+
+    [Fact]
     public void SectorListCheckedWithGetThingSector_HurtsEachListedSector_AtTheSetPulseRate()
     {
         // Meme forme que 12_sectordamage.cog : tableau de secteurs compare au secteur du joueur, impulsion toutes les 2 secondes, 1 point de degats.

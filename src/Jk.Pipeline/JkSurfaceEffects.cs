@@ -101,7 +101,7 @@ public static class JkSurfaceEffects
             water++;
         }
         if (water > 0)
-            log.Warn("JK_WATER_VOLUME", $"{water} underwater sector(s) become water volumes with fog of the sector tint (water brushes are placed with the level objects).");
+            log.Warn("JK_WATER_VOLUME", $"{water} underwater sector(s) found: only the water look (translucent surface, tint) is converted for now; walkable or swimmable water volumes are not supported yet, so the water stays solid.");
 
         if (readCog is null) return result;
 
@@ -137,7 +137,7 @@ public static class JkSurfaceEffects
         if (heal > 0)
             log.Warn("JK_HEAL_SECTOR_SKIPPED", $"{heal} healing sector(s) are not converted (no JA equivalent of a healing zone).");
         if (unresolvedDamage.Count > 0)
-            log.Warn("JK_DAMAGE_COG_UNRESOLVED", $"COG script(s) that hurt the player and name sectors or surfaces, none of which became a volume (no sector watch or touch message): {string.Join(", ", unresolvedDamage)}.");
+            log.Warn("JK_DAMAGE_COG_UNRESOLVED", $"COG script(s) call DamageThing but no sector or surface became a hurt volume (event-driven damage, no sector watch or touch message, or unbound areas); this behavior is ignored: {string.Join(", ", unresolvedDamage)}.");
         if (deferred > 0)
             log.Warn("JK_SURFACE_EFFECT_DEFERRED", $"{deferred} texture slide or animation call(s) run by events (switches, timers) rather than at level start are not converted as surface effects.");
         return result;
@@ -213,7 +213,7 @@ public static class JkSurfaceEffects
 
     // ---- zones qui blessent ----
 
-    /// <summary>Lit un script qui appelle <c>DamageThing</c> ; faux si le script designe des secteurs ou des surfaces fixes mais qu'aucun n'est converti (cas a journaliser).</summary>
+    /// <summary>Lit un script qui appelle <c>DamageThing</c> ; faux si aucun secteur ni aucune surface n'est converti : script declenche par evenement sans zone designee, ou zones non liees (cas a journaliser).</summary>
     private static bool ReadHazards(JklLevel level, CogLite script, IReadOnlyDictionary<string, string> values, int[] sectorOfSurface, JkLevelEffects result,
         HashSet<(JkVolumeKind, int, int)> seen, ref int heal)
     {
@@ -233,7 +233,6 @@ public static class JkSurfaceEffects
         bool found = false;
         // Secteurs : le script regarde ce qui s'y trouve a chaque impulsion (FirstThingInSector), ou compare le secteur du joueur a sa liste (GetThingSector).
         bool watchesSectors = script.Code.Contains("firstthinginsector(", StringComparison.OrdinalIgnoreCase) || script.Code.Contains("getthingsector(", StringComparison.OrdinalIgnoreCase);
-        bool namesArea = script.Symbols.Any(s => s.Type is "sector" or "surface" && !s.Local && values.TryGetValue(s.Name, out string? av) && Index(av) >= 0);
         if (watchesSectors)
             foreach (CogSymbol sym in script.Symbols.Where(s => s.Type == "sector" && !s.Local))
             {
@@ -257,7 +256,7 @@ public static class JkSurfaceEffects
                 Vector3 pad = new(SurfaceVolumeMargin);
                 AddHazard(result, seen, amount, interval, Math.Max(sector, 0), surface, min - pad, max + pad);
             }
-        return found || !namesArea;
+        return found;
     }
 
     private static void AddHazard(JkLevelEffects result, HashSet<(JkVolumeKind, int, int)> seen, float amount, float interval, int sector, int surface, Vector3 min, Vector3 max)
