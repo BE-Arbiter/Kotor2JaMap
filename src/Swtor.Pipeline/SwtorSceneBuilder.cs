@@ -82,7 +82,7 @@ public static class SwtorSceneBuilder
         ArgumentNullException.ThrowIfNull(log);
         options ??= new SwtorBuildOptions();
         float worldScale = SwtorWorldScale.Resolve(options.WorldScale);
-        log.Warn("SWTOR_WORLD_SCALE", $"World scale {worldScale:0.###} m per GR2 unit ({worldScale * SwtorWorldScale.JaUnitsPerMetre:0.#} JA units, derived from the SWTOR human of {SwtorWorldScale.HumanHeightGr2} units = {SwtorWorldScale.JaHumanModelHeight} JA units; manual multiplier --world-scale = {(options.WorldScale > 0f ? options.WorldScale : 1f):0.###}). Not verified in game.");
+        log.Warn("SWTOR_WORLD_SCALE", $"World scale {worldScale:0.###} m per GR2 unit ({worldScale * SwtorWorldScale.JaUnitsPerMetre:0.#} JA units, calibrated on JA stairs, seats and doors; SWTOR human {SwtorWorldScale.HumanHeightGr2} units = {SwtorWorldScale.HumanHeightGr2 * SwtorWorldScale.JaUnitsPerGr2Unit:0.#} JA units; manual multiplier --world-scale = {(options.WorldScale > 0f ? options.WorldScale : 1f):0.###}). Not verified in game.");
         options = options with { WorldScale = worldScale };
         options = options with { OriginOffset = ComputeOriginOffset(layout, options, worldScale, log) };
         string skyRoom = layout.Area.AreaProperties.Get("skyscene_room") is { Length: > 0 } sr ? sr : "skyscene_room";

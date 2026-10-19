@@ -247,14 +247,13 @@ Les rampes ne sont pas reproduites : le compilateur n'a que des lumieres ponctue
 ### Reglages d'area.dat utilises (cle `Area`)
 `is_outdoor`, `static_light_front/side/back` (+ `static_light_intensity`), `light_azimuth` / `light_polar` (direction du soleil ; polaire > 90 = la lumiere descend : orientation horizontale non verifiee), `static_fog_*` (decode, non exporte). Les valeurs par defaut (front blanc, side 0,5, back noir) sont presentes dans presque toutes les zones : elles servent peu d'information.
 
-## Echelle du monde (T7-echelle-2)
-**Unite GR2 SWTOR = 7,8 m JA (312 unites JA).** Un seul facteur global, derive du personnage humain mis a la hauteur de la capsule du joueur JA, 64 unites (details : `plans/swtor/reports/T7-echelle-2.md`, recalibrage : `T7-dark-council.md`). Avant l essai en jeu : 338 (8,45 m), humain = modele JKA de 72 u, jugee "un peu trop grande".
-- Humain masculin (bmn) debout : semelle -0,001, haut du crane 0,205, cou/cheveux ~0,213 unite GR2 (meme espace pour tete, corps, bottes ; maillages en pose de liaison).
-- SWTOR-Character-maker convertit les personnages en JKA avec un facteur uniforme (cou SWTOR -> joint `cervical`) de 338 : humain SWTOR = modele JKA de 72 unites (KOTOR : 40 u/m, humain 1,8 m = 72 u). Nous retenons 64 u (capsule de collision du joueur, 64 / 0,205 = 312) car 72 donnait une carte trop grande en jeu.
-- Autres donnees SWTOR dans le meme ordre de grandeur (mediane de 120 zones) : chaise 0,157, table 0,10, rambarde 0,135, marche d'escalier 0,025 (21 cm), points de couvert espaces de 0,18 (~1,5 m), noms de modeles `h3m` = 0,3 unite = 3 m. Les anciennes affirmations "1 unite = 1 m pour l'architecture" (T1) et "x2" (T7) ne sont pas etayees ; "1 unite = 10 m" etait l'ordre de grandeur correct.
-- Pas de facteur d'echelle dans les .gr2 (en-tete, aucun noeud de transformation pour les modeles statiques) ; instances d'architecture a l'echelle 1.
-- Le kit `spc_space/arch` (war_planworking) est un kit de vaisseau capital : porte `doorframe_sm` 0,96 x 0,8 d'ouverture (8,1 x 6,8 m), plafond 1,4 (11,8 m). L'humain y fait 27 % de la hauteur de porte : ce ne sont pas des portes a taille humaine.
-- Code : `SwtorWorldScale.MetresPerGr2Unit` (= 312 / 40 = 7,8) ; `--world-scale <x>` est un multiplicateur manuel en plus (defaut 1).
+## Echelle du monde (T7-echelle-3)
+**Unite GR2 SWTOR = 6,25 m JA (250 unites JA).** Un seul facteur global (positions, sommets, collision, lumieres). Calibre cote JA (details et tableau des candidats : `plans/swtor/reports/T7-echelle-3.md`). Historique : x1 (40) trop petit, x2 faux, 338 (humain -> modele JKA 72 u) trop grand, 312 (humain -> capsule 64 u) "un peu trop grand".
+- Les accessoires SWTOR ne sont pas a la taille du personnage (humain bmn 0,205 unite) : assise de chaise ~0,06 (0,29 humain), table 0,10, marche d'escalier 0,025 (mediane des 252 modeles d'escalier ; 90e centile 0,045 ; vrais escaliers jusqu'a 0,058, petites estrades jusqu'a 0,07), porte de batiment 0,36 a 0,55, porte de kit capital `spc_arch_ss` 0,8.
+- Contraintes JA (OpenJK-SWGL) : capsule du joueur 64 u (mins z -24, maxs z 40, oeil a 60 u du sol), `STEPSIZE` 18 u (marche franchissable sans saut), saut ~ `JUMP_VELOCITY` 225. A 250 : marche 0,025 = 6 u, 0,058 = 14,5 u, 0,07 = 17,5 u ; assise 15 u ; porte de batiment 90 a 130 u ; humain SWTOR 51 u.
+- Pas de facteur d'echelle dans les .gr2 (en-tete, aucun noeud de transformation pour les modeles statiques) ; instances d'architecture a l'echelle 1 (le trone du Conseil noir est a 1,17).
+- Le kit `spc_space/arch` (war_planworking) est un kit de vaisseau capital (porte `doorframe_sm` 0,96 x 0,8 d'ouverture) : ce ne sont pas des portes a taille humaine, quel que soit le facteur.
+- Code : `SwtorWorldScale.MetresPerGr2Unit` (= 250 / 40 = 6,25) ; `--world-scale <x>` est un multiplicateur manuel en plus (defaut 1).
 
 ## Materiaux .mat et correspondance JA (T7-materiaux)
 Champs XML lus : `Derived` (shader), `AlphaMode`, `Visibility`, `PolyType`, `IsTwoSided`, entree `DiffuseMap`. Sondage des 26 958 `.mat` : Uber ≥ 10 000 (opaque surtout), Garment/SkinB/Creature (personnages, hors scope), `AnimatedUV|Add` ≥ 1 800, `AnimatedVFX|Add` 119 (dont 26 noms de type cone/faisceau/fog_cone), `EmissiveOnly|Add` ≥ 185, `DiffuseFlat|Full` ≥ 207, `Glass|Full` 112, `Uber|Test` ≥ 665, `Vegetation*|Test`, `Skydome` 85.
