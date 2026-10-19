@@ -20,12 +20,12 @@ public class WorldScaleTests
     [Fact]
     public void World_scale_multiplies_positions_and_vertices_together()
     {
-        // Defaut : constante derivee du personnage humain (338 u JA par unite GR2 = 8,45 m par unite).
+        // Defaut : constante derivee du personnage humain (312 u JA par unite GR2 = 7,8 m par unite).
         var layout = Layout(new SyntheticArea.Obj(1, SyntheticArea.GroundTile, Position: new Vector3(6.4f, 0, 0)));
         var r = SwtorSceneBuilder.Build(layout, new FakeSource(), "t", new SwtorBuildOptions(), new ImportLog());
         SceneMesh m = Assert.Single(r.Scene.Meshes);
         float k = SwtorWorldScale.MetresPerGr2Unit;
-        Assert.Equal(8.45f, k, 3);
+        Assert.Equal(7.8f, k, 3);
         Assert.Equal(6.4f * k, m.Positions.Min(p => p.X), 2);
         Assert.Equal(9.6f * k, m.Positions.Max(p => p.X), 2);   // (6,4 + 3,2) unites
         Assert.Equal(-3.2f * k, m.Positions.Min(p => p.Y), 2);
@@ -44,7 +44,7 @@ public class WorldScaleTests
     [Fact]
     public void Derived_scale_makes_a_swtor_human_a_ja_human_model()
     {
-        // Humain SWTOR 0,213 unite GR2 -> 72 unites JA (modele JKA / humain KOTOR de 1,8 m a 40 u/m).
+        // Humain SWTOR 0,205 unite GR2 -> 64 unites JA (capsule du joueur).
         Assert.Equal(SwtorWorldScale.JaHumanModelHeight, SwtorWorldScale.HumanHeightGr2 * SwtorWorldScale.MetresPerGr2Unit * SwtorWorldScale.JaUnitsPerMetre, 0.2f);
     }
 
@@ -67,7 +67,7 @@ public class WorldScaleTests
         var r = SwtorSceneBuilder.Build(layout, new SwtorAssetsModelSource(new SwtorAssets(root)), "war_planworking", null, new ImportLog());
         Vector3 spawn = r.Scene.Info.Entry.Position;
 
-        // Plafond au-dessus du point d apparition : 1,4 unite GR2 x 8,45 = ~11,8 m (salle de vaisseau capital, pas un couloir humain).
+        // Plafond au-dessus du point d apparition : 1,4 unite GR2 x 7,8 = ~10,9 m (salle de vaisseau capital, pas un couloir humain).
         float ceiling = float.MaxValue;
         foreach (SceneMesh m in r.Scene.Meshes)
             for (int i = 0; i + 2 < m.Triangles.Length; i += 3)

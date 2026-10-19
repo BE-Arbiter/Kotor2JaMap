@@ -425,7 +425,16 @@ public static class SwtorSceneBuilder
             int level = (int)MathF.Round((a.Z + b.Z + c0.Z) / 3f * 10f);
             levelArea[level] = levelArea.GetValueOrDefault(level) + Vector3.Cross(b - a, c0 - a).Length() * 0.5f;
         }
+        // Niveau principal : hauteur (tranches de 10 cm) qui porte le plus de surface marchable, parmi celles proches de la geometrie visible de la room
+        // (mediane des Z des sommets, +-4 m scene = 160 u JA) : evite un plan de collision geant tres bas, un toit ou une passerelle.
         int mainLevel = levelArea.OrderByDescending(kv => kv.Value).First().Key;
+        if (roomMeshes.TryGetValue(best.Room, out var bestMeshes) && bestMeshes.Sum(m => m.Positions.Length) > 0)
+        {
+            float[] zs = [.. bestMeshes.SelectMany(m => m.Positions).Select(p => p.Z).Order()];
+            float refZ = zs[zs.Length / 2];
+            var near = levelArea.Where(kv => Math.Abs(kv.Key / 10f - refZ) <= 4f).ToList();
+            if (near.Count > 0) mainLevel = near.OrderByDescending(kv => kv.Value).First().Key;
+        }
         for (int t = 0; t < bw.Triangles.Length / 3; t++)
         {
             if (!bw.Walkable[t]) continue;

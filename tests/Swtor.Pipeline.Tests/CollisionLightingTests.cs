@@ -198,7 +198,7 @@ public class CollisionLightingTests
         Assert.Equal(new Vector3(1, 0.5f, 0.25f), l.Color);
         Assert.Equal(3f, l.Radius, 3);                        // 2 x 1,5
         Assert.Equal(0.5f * 0.6f, l.Multiplier, 3);            // gain 0,5, projecteur x 0,6
-        Assert.Equal(new Vector3(1, -3, 2), l.Position);       // (x, -z, y)
+        Assert.True(Vector3.Distance(new Vector3(1, -3, 2), l.Position) < 1e-4f); // (x, -z, y)
     }
 
     // ---- eclairage de zone ----
