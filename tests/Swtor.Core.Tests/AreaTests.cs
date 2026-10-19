@@ -241,7 +241,7 @@ public class RealAreaTests
     /// Preuve de l'ordre d'Euler : les 12 appliques <c>spc_item_ss_wall_light01</c> de la salle du Conseil noir sont deux familles de
     /// 6 pieces disposees en cercle autour de la verticale du parent. Dans une meme famille, les rotations ne different donc que d'un
     /// lacet pur (la verticale reste la verticale) et le lacet envoie la position d'une piece sur celle d'une autre. Seul l'ordre
-    /// X, Z, Y le verifie (ecart 0 deg ; 79,9 deg avec l'ancien ordre Z, Y, X).
+    /// Y en dernier le verifie (X, Z, Y comme Z, X, Y : ecart 0 deg ; 79,9 deg avec l'ancien ordre Z, Y, X) ; l'ordre des deux rotations internes est tranche par le test du cone de brouillard.
     /// </summary>
     [SkippableFact]
     public void DarkCouncil_wall_lights_differ_by_a_pure_yaw()
@@ -283,6 +283,45 @@ public class RealAreaTests
             Vector3 n = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, layout.World(m)));
             Assert.True(MathF.Abs(MathF.Abs(n.Y) - MathF.Sin(20f * MathF.PI / 180f)) < 0.01f, $"{m.Id:X} : normale {n}");
         }
+    }
+
+    /// <summary>
+    /// Verite terrain de l'ordre des deux rotations internes (X et Z) : chacune des 12 appliques <c>spc_item_ss_wall_light01</c> a un cone de
+    /// brouillard <c>standard_light_fog_cone_01</c> (instance racine, y = 83,61, echelle &gt; 2) a 0,15 a 0,22 d'elle ; l'origine de ce cone doit
+    /// tomber sur la face avant de l'applique, soit le plan local z = 0,20 (face plane du gr2 a z = 0,197, plaque arriere a z = 0). Avec l'ordre Z, X, Y
+    /// l'ecart-type est 0,004 sur les 12 pieces (0,076 avec X, Z, Y) ; la normale avant monte (+Y &gt; 0,9) et penche vers l'axe de la plateforme.
+    /// </summary>
+    [SkippableFact]
+    public void DarkCouncil_wall_light_beam_origin_lies_on_the_front_face_and_the_light_faces_up_and_inward()
+    {
+        AreaLayout layout = AreaLayout.Load(RequireArea(DarkCouncilAreaId));
+        var room = layout.Rooms.Single(r => r.Name == "station_dark_council_chamber").Room;
+        var lights = room.Instances
+            .Where(i => i.AssetPath?.EndsWith("spc_item_ss_wall_light01.gr2", StringComparison.OrdinalIgnoreCase) == true && i.Scale.X > 0.5f).ToList();
+        var cones = room.Instances
+            .Where(i => i.AssetPath?.Contains("standard_light_fog_cone_01", StringComparison.OrdinalIgnoreCase) == true && i.ParentId == 0
+                && i.Scale.X > 2f && MathF.Abs(i.Position.Y - 83.6101f) < 0.01f)
+            .Select(layout.WorldPosition).ToList();
+        Assert.Equal(12, lights.Count);
+        Assert.Equal(12, cones.Count);
+        var zs = new List<float>();
+        foreach (var l in lights)
+        {
+            Matrix4x4 world = layout.World(l);
+            Vector3 p = layout.WorldPosition(l);
+            Vector3 cone = cones.OrderBy(c => Vector3.Distance(c, p)).First();
+            Assert.True(Matrix4x4.Invert(world, out Matrix4x4 inv));
+            Vector3 local = Vector3.Transform(cone, inv);
+            zs.Add(local.Z);
+            Assert.InRange(local.Z, 0.18f, 0.23f);
+            // avant (+Z local) vers le haut et, horizontalement, vers l'axe (origine du parent) : applique inclinee vers l'interieur, pas debout de cote.
+            Vector3 front = Vector3.Normalize(Vector3.TransformNormal(Vector3.UnitZ, world));
+            Assert.True(front.Y > 0.85f, $"{l.Id:X} : avant {front}");
+            Vector3 axis = layout.WorldPosition(layout.Find(l.ParentId)!);
+            Vector2 inward = Vector2.Normalize(new Vector2(axis.X - p.X, axis.Z - p.Z));
+            Assert.True(Vector2.Dot(inward, Vector2.Normalize(new Vector2(front.X, front.Z))) > 0.9f, $"{l.Id:X} : avant {front}, vers l'axe {inward}");
+        }
+        Assert.True(zs.Max() - zs.Min() < 0.02f, $"dispersion de z : {zs.Max() - zs.Min()}");
     }
 
     [SkippableFact]

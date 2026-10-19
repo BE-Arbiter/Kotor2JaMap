@@ -166,10 +166,11 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
   et les pièces de stronghold sont modélisés à environ 1/5 (porte `spc_ps_sith_int_door_large` : 0,73 × 0,47 ; hauteur de
   salle ~1 au lieu de ~2,5) : un facteur d'échelle d'affichage est appliqué ailleurs (non trouvé) ; ne pas prendre ces zones
   pour valider l'échelle.
-- Convention d'Euler (**validée par symétrie, T7 Euler ; confiance Haute pour l'ordre, Moyenne pour le sens du repère**) : angles en degrés,
-  sens mathématique direct (+90° sur Y envoie +X vers -Z), ordre **X d'abord, puis Z, puis Y** (tangage X et roulis Z dans le repère de
-  l'objet, puis lacet Y autour de la verticale du parent ; matrice colonne `Ry * Rz * Rx`, soit `qy * qz * qx` en System.Numerics). Les rotations
-  sans X (la quasi-totalité : lacet seul, ou `(0, ±90, ±90)`) ne dépendent pas de cet ordre. Voir « Validation T7 : ordre d'Euler ».
+- Convention d'Euler (**T7 Euler 2 ; confiance Haute pour l'ordre, Moyenne pour le sens du repère**) : angles en degrés,
+  sens mathématique direct (+90° sur Y envoie +X vers -Z), ordre **Z d'abord (roulis), puis X (tangage), puis Y (lacet autour de la verticale du
+  parent)**, soit l'ordre « yaw, pitch, roll » de `D3DXMatrixRotationYawPitchRoll` ; matrice colonne `Ry * Rx * Rz`, soit `qy * qx * qz` en System.Numerics.
+  Les rotations sans X, sans Z, ou à un seul axe (la quasi-totalité : lacet seul, ou `(0, ±90, ±90)`) ne dépendent pas de l'ordre des deux rotations internes
+  X et Z ; le lacet en dernier est établi par T7 Euler 1, l'ordre Z puis X par T7 Euler 2. Voir « Validation T7 : ordre d'Euler ».
 
 ## Résultats de validation
 
@@ -187,7 +188,7 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
 
 ## Validation T4 : axes et Euler
 
-- **Ordre effectif (corrigé ensuite par T7 Euler : c est X, Z, Y)** : `qx * qy * qz` (System.Numerics, produit de Hamilton) applique **Z d'abord, puis Y, puis X**
+- **Ordre effectif (corrigé ensuite par T7 Euler 2 : c est Z, X, Y)** : `qx * qy * qz` (System.Numerics, produit de Hamilton) applique **Z d'abord, puis Y, puis X**
   (test `Euler_yaw_sends_X_to_minus_Z_and_Z_is_applied_first` : `(90,90,0)` envoie +Y vers +Z, pas vers +X). La phrase « X d'abord » de T2 décrivait
   l'intention, pas le code. Le code est inchangé : les rotations à un seul axe (lacet Y) ne dépendent pas de l'ordre, et aucun test
   statistique T4 ne départage les ordres pour les rotations multi-axes (étiquetage par nom « floor/wall », 120 zones : 54 à 61 % de
@@ -198,7 +199,21 @@ deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet d
   (159 617 triangles, 0 incohérent). Une symétrie (`--axes mirror`) existe si on découvrait un monde gaucher (texte inversé sur un panneau
   visible en jeu) ; indétectable sans géométrie asymétrique, donc non tranché par calcul.
 
-## Validation T7 : ordre d'Euler (remplace la conclusion « ordre Z-Y-X » de T4)
+## Validation T7 : ordre d'Euler (remplace la conclusion « ordre Z-Y-X » de T4 ; l'ordre X, Z, Y de T7 Euler 1 est lui-même corrigé en Z, X, Y par T7 Euler 2)
+
+**T7 Euler 2 (ordre Z, X, Y, vérité terrain).** Le test de lacet pur ci-dessous ne prouve que « Y en dernier » : X, Z, Y et Z, X, Y le passent tous deux. Les appliques à trois axes
+(`(-69,±45,-90)`, `(-61,±135,-90)`) les départagent, et elles étaient « debout de côté » avec X, Z, Y (avant tangentiel). Preuve retenue : chaque applique `spc_item_ss_wall_light01` a un cône de brouillard
+`standard_light_fog_cone_01` (12 cônes racines, `y = 83,6101`, échelle ~2,16 x 1,07 x 0,47, `(0, ±45|±135, ±180)`) à 0,15..0,22 d'elle. Le gr2 de l'applique est une plaque
+1,1 (X) x 1,6 (Y) dont la plaque arrière est le plan z = 0 (normale -Z, aire 1,56) et la face avant plane le plan z = 0,20 (aire 0,45 + 0,22) : l'origine du cône doit être sur la face
+avant, soit z local = 0,20, pour les 12 pièces. Sur 288 conventions (6 ordres x 8 signes x 6 permutations de champs) : **Z, X, Y (`qy*qx*qz`) : écart-type de z local 0,004** (z moyen 0,202,
+x 0,21, y 0,00) ; X, Z, Y (ancien) 0,076 ; Z, Y, X (T4) 0,022 mais x dispersé de 0,195 ; toutes les autres (hors alias) >= 0,05. Les seuls autres candidats à z constant sont des alias de la même
+rotation (permutation + signes équivalents) ou le même ordre avec Z de signe opposé (plaque retournée de 180° dans son plan, indiscernable par ce test ; le signe `+` est conservé comme
+pour les autres axes). Avec Z, X, Y l'avant des appliques (+Z local) regarde vers le haut et vers l'axe de la plateforme parente (+Y 0,87..0,93, cosinus horizontal avec la direction de l'axe 0,96..0,99) :
+couvercle incliné de 21..29° d'un pupitre en couronne, face vers les sièges, et non plaque verticale de champ. Aucun mur plan ne sert de référence : la plaque arrière touche de
+multiples facettes (armoires `all_arch_imp_war_room_tech_cabinet`, murs `vb_wall`) sans plan commun (alignement < 30 % des sommets pour tout candidat) ; ce critère « face de montage contre un mur »
+n'a donc pas été retenu. Effet du changement : 24 instances de la salle (12 appliques, 8 cônes de brouillard `(±45, 0, 180)`, 2 piliers `all_arch_imp_buildings_pillar_1` `(79,6 ; ±90 ; -180)`,
+2 garnitures `kor_item_dark_council_throne_platform_trim_01`) ; `war_planworking` : 0. Les affirmations de T7 Euler 1 ci-dessous sur les piliers à Z = 180 (boîte centrée) sont à lire comme
+valables pour l'ordre « lacet en dernier » (les deux ordres donnent des boîtes de même taille, symétriques l'une de l'autre).
 
 Les 6 ordres x 2 signes ont été comparés sur des pièces dont la disposition impose une relation géométrique (pas sur des statistiques) :
 
@@ -218,7 +233,7 @@ Les 6 ordres x 2 signes ont été comparés sur des pièces dont la disposition 
   vaut aussi pour une matrice D3D ligne ; la cohérence des normales et du sens des triangles (T4) est compatible avec la rotation propre `(x, y, z) -> (x, -z, y)`.
   Aucune pièce asymétrique de la salle ne départage une symétrie (la crête impériale est symétrique) : l'option `--axes mirror` reste le recours si un texte apparaît inversé en jeu.
 - Tests : `DarkCouncil_wall_lights_differ_by_a_pure_yaw`, `ShipInterior_wall_monitors_are_pitched_not_rolled` (SkippableFact, ressources réelles) et
-  `Euler_yaw_sends_X_to_minus_Z_and_order_is_X_then_Z_then_Y` (synthétique).
+  `Euler_yaw_sends_X_to_minus_Z_and_order_is_Z_then_X_then_Y` (synthétique) et `DarkCouncil_wall_light_beam_origin_lies_on_the_front_face_and_the_light_faces_up_and_inward` (T7 Euler 2, ressources réelles).
 - Le « mur de détail `spc_arch_ss_wall_detail01` 4 à 7 m sous le sol » de T7-échelle **n'est pas** lié à l'Euler : ses rotations `(0, -90, 0)` et celles de son parent
   n'ont pas de composante X ; voir le rapport T7-euler.
 - **Grille 3,2 m** : toutes les dalles `spc_arch_ss_mod_floor_plain` de `war_planworking` ont (x, z) multiples de 3,2 après composition

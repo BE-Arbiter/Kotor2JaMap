@@ -65,16 +65,18 @@ public class SwtorPipelineTests
     }
 
     [Fact]
-    public void Euler_yaw_sends_X_to_minus_Z_and_order_is_X_then_Z_then_Y()
+    public void Euler_yaw_sends_X_to_minus_Z_and_order_is_Z_then_X_then_Y()
     {
         static Vector3 Rot(Vector3 deg, Vector3 v) => Vector3.Transform(v, AreaTransforms.RotationFromEuler(deg));
         AssertNear(new Vector3(0, 0, -1), Rot(new Vector3(0, 90, 0), Vector3.UnitX));
         AssertNear(new Vector3(0, 1, 0), Rot(new Vector3(0, 0, 90), Vector3.UnitX));
         AssertNear(new Vector3(0, 0, 1), Rot(new Vector3(90, 0, 0), Vector3.UnitY));
-        // qy * qz * qx applique X d'abord (+Y -> +Z), puis Z, puis Y (+Z -> +X pour +90).
+        // qy * qx * qz applique Z d'abord (roulis), puis X (tangage), puis Y (lacet : +Z -> +X pour +90).
         AssertNear(new Vector3(1, 0, 0), Rot(new Vector3(90, 90, 0), Vector3.UnitY));
-        // X puis Z : +X -> (Rz 90) +Y ; X pur d abord ne bouge pas +X, puis Z 90 -> +Y, puis Y 90 laisse +Y.
-        AssertNear(new Vector3(0, 1, 0), Rot(new Vector3(90, 90, 90), Vector3.UnitX));
+        // Z puis X puis Y : +X -> (Rz 90) +Y -> (Rx 90) +Z -> (Ry 90) +X.
+        AssertNear(new Vector3(1, 0, 0), Rot(new Vector3(90, 90, 90), Vector3.UnitX));
+        // applique incline (-69, 0, -90) : le roulis ne change pas la normale +Z, puis le tangage la releve : (0 ; 0,934 ; 0,358).
+        AssertNear(new Vector3(0, MathF.Sin(69 * MathF.PI / 180), MathF.Cos(69 * MathF.PI / 180)), Rot(new Vector3(-69, 0, -90), Vector3.UnitZ));
         // inclinaison d un ecran mural : pitch X (20) dans le repere de l objet puis lacet -90 : la normale +Z de l ecran s incline dans le plan vertical (-cos20, -sin20, 0), pas en roulis.
         AssertNear(new Vector3(-MathF.Cos(20 * MathF.PI / 180), -MathF.Sin(20 * MathF.PI / 180), 0), Rot(new Vector3(20, -90, 0), Vector3.UnitZ));
     }

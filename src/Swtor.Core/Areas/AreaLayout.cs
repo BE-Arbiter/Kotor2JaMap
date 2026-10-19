@@ -6,12 +6,14 @@ namespace Swtor.Core.Areas;
 public static class AreaTransforms
 {
     /// <summary>
-    /// Rotation depuis les angles d'Euler en degres tels que stockes (X, Y, Z). Convention validee (T7 Euler) : angles positifs au sens
-    /// mathematique direct (+90 sur Y envoie +X vers -Z) et ordre X d'abord, puis Z, puis Y : tangage X et roulis Z dans le repere
-    /// propre de l'objet, puis lacet Y autour de la verticale du parent (matrice colonne <c>Ry * Rz * Rx</c>, soit <c>qy * qz * qx</c> avec
-    /// le produit de Hamilton de System.Numerics). Preuve : 12 appliques <c>spc_item_ss_wall_light01</c> disposees en cercle ne different
-    /// entre elles que d'un lacet pur avec cet ordre seulement (ecart 0,0 deg, contre 79,9 deg pour l'ancien ordre Z-Y-X) ; voir swtor-formats.md.
-    /// Les rotations a un seul axe, ou sans X, n'en dependent pas.
+    /// Rotation depuis les angles d'Euler en degres tels que stockes (X, Y, Z). Convention validee (T7 Euler 1 et 2) : angles positifs au sens
+    /// mathematique direct (+90 sur Y envoie +X vers -Z) et ordre Z d'abord (roulis), puis X (tangage), puis Y (lacet autour de la verticale
+    /// du parent), c'est-a-dire l'ordre « yaw, pitch, roll » de D3DXMatrixRotationYawPitchRoll : matrice colonne <c>Ry * Rx * Rz</c>, soit
+    /// <c>qy * qx * qz</c> avec le produit de Hamilton de System.Numerics. Preuves : (1) le lacet est applique en dernier (12 appliques
+    /// <c>spc_item_ss_wall_light01</c> en cercle ne different que d'un lacet pur) ; (2) pour ces 12 appliques, l'origine du cone de brouillard
+    /// (<c>standard_light_fog_cone_01</c>) qui leur est associe tombe, dans le repere de l'applique, sur le plan z = 0,20 de sa face avant
+    /// (ecart-type 0,004) avec cet ordre seulement ; l'ordre X, Z, Y precedent donne 0,076. Voir swtor-formats.md. Les rotations a un seul axe,
+    /// ou dont X ou Z est nul, n'en dependent pas.
     /// </summary>
     public static Quaternion RotationFromEuler(Vector3 degrees)
     {
@@ -19,7 +21,7 @@ public static class AreaTransforms
         var qx = Quaternion.CreateFromAxisAngle(Vector3.UnitX, degrees.X * d2r);
         var qy = Quaternion.CreateFromAxisAngle(Vector3.UnitY, degrees.Y * d2r);
         var qz = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, degrees.Z * d2r);
-        return qy * qz * qx;
+        return qy * qx * qz;
     }
 
     /// <summary>
