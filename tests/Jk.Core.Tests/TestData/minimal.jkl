@@ -1,0 +1,111 @@
+#********** Niveau JKL minimal pour les tests **********
+
+SECTION: JK
+# Jedi Knight specific data
+
+SECTION: HEADER
+Version          1
+World Gravity    4.00
+Ceiling Sky Z    20.000000
+Horizon Distance 200.000000
+Horizon Pixels per Rev 768.000000
+Horizon Sky Offset   0.100000 0.200000
+Ceiling Sky Offset   0.000000 0.000000
+MipMap Distances	1.000000	2.000000	3.000000	4.000000
+LOD Distances		0.300000	0.600000	0.900000	1.200000
+Perspective distance 2.00
+Gouraud distance 2.00
+
+SECTION: SOUNDS
+
+World sounds 1
+
+walkmetaldry01.wav
+
+SECTION: MATERIALS
+
+World materials 1
+
+#num:	mat:		xTile:		yTile:
+0:	floor.mat	1.000000	2.000000
+
+SECTION: GEORESOURCE
+
+#------ Palette Subsection -----
+World Colormaps	1
+0:	dflt.cmp
+
+#----- Vertices Subsection -----
+World vertices 4
+#num:	vertex:
+0:	0.0	0.0	0.0
+1:	1.0	0.0	0.0
+2:	1.0	1.0	0.0
+3:	0.0	1.0	0.5
+
+#-- Texture Verts Subsection ---
+World texture vertices 4
+#num:	u:	v:
+0:	0.0	0.0
+1:	64.0	0.0
+2:	64.0	64.0
+3:	0.0	64.0
+
+#------ Adjoins Subsection -----
+World adjoins 0
+#num:	flags:	mirror:	dist:
+
+#----- Surfaces Subsection -----
+World surfaces 1
+#num:	mat:	surfflags:	faceflags:	geo:	light:	tex:	adjoin:	extralight:	nverts:	vertices:			intensities:
+0:	0	0x4		0x1		4	3	1	-1	0.25		4	0,0	1,1	2,2	3,3	0.5	0.6	0.7	0.8
+
+#--- Surface normals ---
+0:	0.000000	0.000000	1.000000
+
+Section: SECTORS
+
+World sectors 1
+
+SECTOR	0
+FLAGS	0x1000
+AMBIENT LIGHT	0.37
+EXTRA LIGHT	0.10
+COLORMAP	0
+TINT	0.10	0.20	0.30
+BOUNDBOX	0 0 0 1 1 0.5
+SOUND	wind.wav 0.600000
+CENTER	0.5 0.5 0.2
+RADIUS	0.7
+VERTICES	4
+0:	0
+1:	1
+2:	2
+3:	3
+SURFACES	0	1
+
+Section: UNKNOWNSTUFF
+foo bar
+
+Section: TEMPLATES
+
+World templates 2
+
+#Name:           Based On:        Params:
+_actor           none             type=actor collide=1 move=physics
+walkplayer       _actor           type=player model3d=ky.3do
+
+Section: Things
+
+World things 2
+
+#num template:       name:         	X:		Y:		Z:		Pitch:		Yaw:		Roll:		Sector:
+  0: walkplayer      walkplayer     	0.5	0.25	0.1	1.0	-59.5	0.0	0	thingflags=0x20000401
+  1: walkplayer      lift     	2.0	3.0	4.0	0.0	90.0	0.0	0	numframes=2 frame=(1.0/2.0/3.0:0.0/90.0/0.0) frame=(1.0/2.0/4.0:0.0/90.0/0.0)
+end
+
+Section: cogs
+World cogs 1
+#Num	Script          Symbol values
+0:	00_door.cog	4 -1 8.000000
+end

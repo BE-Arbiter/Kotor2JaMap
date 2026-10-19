@@ -24,4 +24,8 @@
     <ProjectReference Include="..\..\src\Kotor.Core\Kotor.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="TestData/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
