@@ -31,7 +31,37 @@ public static class Md3Writer
     {
         List<Surface> surfaces = BuildSurfaces(name, partsJaUnits, shaderPrefix);
         if (surfaces.Count > MaxSurfaces) throw new ArgumentException($"Too many MD3 surfaces ({surfaces.Count}, max {MaxSurfaces}).", nameof(partsJaUnits));
-        return WriteSurfaces(name, surfaces);
+        return WriteSurfaces(name, [surfaces]);
+    }
+
+    /// <summary>Limite d'images par modele (MD3_MAX_FRAMES de Quake 3, qfiles.h).</summary>
+    public const int MaxFrames = 1024;
+
+    /// <summary>
+    /// Plusieurs images (animation par sommets). Chaque image est une liste de parties comme pour <see cref="Write"/> ; toutes les images
+    /// doivent avoir la meme topologie (memes textures, memes indices, meme nombre de sommets par partie) : seules les positions et les
+    /// normales changent. Les UV et les indices viennent de la premiere image. Une seule image : octets identiques a <see cref="Write"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">Aucune image, trop d'images, topologies differentes, ou les cas de <see cref="Write"/>.</exception>
+    public static byte[] WriteFrames(string name, IReadOnlyList<IReadOnlyList<ModelPart>> framesJaUnits, string shaderPrefix)
+    {
+        ArgumentNullException.ThrowIfNull(framesJaUnits);
+        if (framesJaUnits.Count == 0) throw new ArgumentException("An MD3 needs at least one frame.", nameof(framesJaUnits));
+        if (framesJaUnits.Count > MaxFrames) throw new ArgumentException($"Too many MD3 frames ({framesJaUnits.Count}, max {MaxFrames}).", nameof(framesJaUnits));
+        var frames = new List<List<Surface>>(framesJaUnits.Count);
+        foreach (IReadOnlyList<ModelPart> parts in framesJaUnits) frames.Add(BuildSurfaces(name, parts, shaderPrefix));
+        if (frames[0].Count > MaxSurfaces) throw new ArgumentException($"Too many MD3 surfaces ({frames[0].Count}, max {MaxSurfaces}).", nameof(framesJaUnits));
+        for (int f = 1; f < frames.Count; f++)
+        {
+            if (frames[f].Count != frames[0].Count) throw new ArgumentException($"Frame {f} has a different surface count than frame 0.", nameof(framesJaUnits));
+            for (int s = 0; s < frames[0].Count; s++)
+            {
+                Surface a = frames[0][s], b = frames[f][s];
+                if (a.Shader != b.Shader || a.Positions.Length != b.Positions.Length || !a.Indices.AsSpan().SequenceEqual(b.Indices))
+                    throw new ArgumentException($"Frame {f}, surface '{a.Name}': the topology differs from frame 0.", nameof(framesJaUnits));
+            }
+        }
+        return WriteSurfaces(name, frames);
     }
 
     /// <summary>Un fichier MD3 produit par <see cref="WriteSplit"/> et les textures de ses surfaces.</summary>
@@ -52,7 +82,7 @@ public static class Md3Writer
             List<Surface> chunk = surfaces.Skip(i * MaxSurfaces).Take(MaxSurfaces).ToList();
             string fileName = count == 1 ? name : $"{name}_p{i}";
             if (fileName.Length > 63) throw new ArgumentException($"MD3 name too long (max 63 characters): {fileName}", nameof(name));
-            files.Add(new Md3File(WriteSurfaces(fileName, chunk), [.. chunk.Select(c => c.Name).Distinct(StringComparer.Ordinal)]));
+            files.Add(new Md3File(WriteSurfaces(fileName, [chunk]), [.. chunk.Select(c => c.Name).Distinct(StringComparer.Ordinal)]));
         }
         return files;
     }
@@ -76,20 +106,29 @@ public static class Md3Writer
         return surfaces;
     }
 
-    private static byte[] WriteSurfaces(string name, List<Surface> surfaces)
+    /// <summary>Ecrit le MD3 ; <paramref name="frames"/>[0] fournit la topologie (indices, UV, shader), chaque image ses positions et normales.</summary>
+    private static byte[] WriteSurfaces(string name, List<List<Surface>> frames)
     {
+        List<Surface> surfaces = frames[0];
+        int nF = frames.Count;
 
-        Vector3 min = new(float.MaxValue), max = new(float.MinValue);
-        float radius = 0;
-        foreach (Surface s in surfaces)
-            foreach (Vector3 p in s.Positions)
-            {
-                min = Vector3.Min(min, p); max = Vector3.Max(max, p);
-                radius = MathF.Max(radius, p.Length());
-            }
+        // Boite et rayon de chaque image.
+        var bounds = new (Vector3 Min, Vector3 Max, float Radius)[nF];
+        for (int f = 0; f < nF; f++)
+        {
+            Vector3 min = new(float.MaxValue), max = new(float.MinValue);
+            float radius = 0;
+            foreach (Surface s in frames[f])
+                foreach (Vector3 p in s.Positions)
+                {
+                    min = Vector3.Min(min, p); max = Vector3.Max(max, p);
+                    radius = MathF.Max(radius, p.Length());
+                }
+            bounds[f] = (min, max, radius);
+        }
 
-        int offSurfaces = HeaderSize + FrameSize;
-        int total = offSurfaces + surfaces.Sum(SurfaceBytes);
+        int offSurfaces = HeaderSize + FrameSize * nF;
+        int total = offSurfaces + surfaces.Sum(s => SurfaceBytes(s, nF));
         var buf = new byte[total];
         using var ms = new MemoryStream(buf);
         using var w = new BinaryWriter(ms, Encoding.ASCII);
@@ -97,7 +136,7 @@ public static class Md3Writer
         w.Write(15);
         WriteName(w, name, 64);
         w.Write(0);                   // flags
-        w.Write(1);                   // numFrames
+        w.Write(nF);                  // numFrames
         w.Write(0);                   // numTags
         w.Write(surfaces.Count);
         w.Write(0);                   // numSkins
@@ -106,19 +145,23 @@ public static class Md3Writer
         w.Write(offSurfaces);         // ofsSurfaces
         w.Write(total);               // ofsEnd
 
-        // Frame
-        W(w, min); W(w, max); W(w, Vector3.Zero); w.Write(radius);
-        WriteName(w, "frame0", 16);
-
-        foreach (Surface s in surfaces)
+        // Frames
+        for (int f = 0; f < nF; f++)
         {
+            W(w, bounds[f].Min); W(w, bounds[f].Max); W(w, Vector3.Zero); w.Write(bounds[f].Radius);
+            WriteName(w, "frame" + f, 16);
+        }
+
+        for (int si = 0; si < surfaces.Count; si++)
+        {
+            Surface s = surfaces[si];
             int nT = s.Indices.Length / 3, nV = s.Positions.Length;
             int ofsTri = SurfaceHeaderSize, ofsShader = ofsTri + nT * 12, ofsSt = ofsShader + ShaderSize, ofsXyz = ofsSt + nV * 8;
-            int end = ofsXyz + nV * 8;
+            int end = ofsXyz + nF * nV * 8;
             w.Write("IDP3"u8.ToArray());
             WriteName(w, s.Name, 64);
             w.Write(0);               // flags
-            w.Write(1);               // numFrames
+            w.Write(nF);              // numFrames
             w.Write(1);               // numShaders
             w.Write(nV);
             w.Write(nT);
@@ -128,11 +171,15 @@ public static class Md3Writer
             WriteName(w, s.Shader, 64);
             w.Write(0);               // shaderIndex
             foreach (Vector2 uv in s.Uv) { w.Write(uv.X); w.Write(1f - uv.Y); }
-            for (int i = 0; i < nV; i++)
+            for (int f = 0; f < nF; f++)
             {
-                Vector3 p = s.Positions[i];
-                w.Write(Fixed(p.X)); w.Write(Fixed(p.Y)); w.Write(Fixed(p.Z));
-                w.Write(EncodeNormal(s.Normals[i]));
+                Surface sf = frames[f][si];
+                for (int i = 0; i < nV; i++)
+                {
+                    Vector3 p = sf.Positions[i];
+                    w.Write(Fixed(p.X)); w.Write(Fixed(p.Y)); w.Write(Fixed(p.Z));
+                    w.Write(EncodeNormal(sf.Normals[i]));
+                }
             }
         }
         return buf;
@@ -140,8 +187,8 @@ public static class Md3Writer
 
     private sealed record Surface(string Name, string Shader, Vector3[] Positions, Vector3[] Normals, Vector2[] Uv, int[] Indices);
 
-    private static int SurfaceBytes(Surface s) =>
-        SurfaceHeaderSize + s.Indices.Length / 3 * 12 + ShaderSize + s.Positions.Length * 16;
+    private static int SurfaceBytes(Surface s, int frames) =>
+        SurfaceHeaderSize + s.Indices.Length / 3 * 12 + ShaderSize + s.Positions.Length * 8 + frames * s.Positions.Length * 8;
 
     private static void Validate(ModelPart p)
     {

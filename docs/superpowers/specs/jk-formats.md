@@ -153,3 +153,43 @@ COG par fichier), gabarits non resolus et sections sautees. Dossier JK : `--jk`,
 - **Degats [donnees]** : aucun drapeau de fichier, tout vient de COG. `00_sectordamage` (secteur, intervalle, degats ; negatif = soin), `12_sectordamage` (48 secteurs, `GetThingSector`, 1 point / 2 s),
   `09_gasdamage`, `M5_FANDAMAGE` (125) ; au contact de surfaces (messages `touched` / `entered`) : `00_deathfloor` (1000), `C2_KILLINGFLOOR` / `C3_KILLINGFLOOR` (1000), `00_damagewall`, `10_damagefloor`,
   `09_damagefloor`, `09_elevdamage`. Aucun materiau de lave dans les 34 niveaux ; liquides dangereux : `00fsldge` (boue), `00Fgwat*`.
+
+## Constats de la tache 6 (modeles 3DO et animations KEY)
+
+Code : `Jk.Core/Models` (`ThreeDoReader`, `KeyReader`), `Jk.Pipeline/JkModelConverter`. Releves sur `Res2.gob` : 477 `.3do` (dossier `3do\`), 504 `.key` (dossier `3do\key\`) ;
+les deux se lisent sans erreur et avec des comptes declares exacts (sommets, faces, noeuds, entrees).
+
+### 3DO (texte Latin-1, « 3DO 2.1 »)
+
+- Sections : `HEADER`, `MODELRESOURCE` (`MATERIALS n`, lignes `idx: nom.mat`), `GEOMETRYDEF` (`RADIUS`, `INSERT OFFSET x y z`, `GEOSETS n`, par geoset `MESHES n` puis par maillage
+  `NAME`, `RADIUS`, `GEOMETRYMODE`, `LIGHTINGMODE`, `TEXTUREMODE`, `VERTICES n` (`idx: x y z intensite`), `TEXTURE VERTICES n` (`idx: u v`), `VERTEX NORMALS`, `FACES n`, `FACE NORMALS`),
+  `HIERARCHYDEF` (`HIERARCHY NODES n`).
+- **Geosets [donnees]** : 424 modeles en ont 1, 53 en ont 4 (niveaux de detail) ; le geoset 0 est le plus detaille et le seul converti. Un seul modele (`kd.3do`) a un maillage que
+  aucun noeud ne reference (le moteur ne le dessine pas : ignore).
+- **Face [donnees]** : `idx: materiau type geo light tex extralight n  v,t v,t ...`. Les paires `v,t` sont ecrites avec des blancs apres la virgule (`0,  0   1,  1`). `type` : `0x0` (38 561 faces),
+  `0x1` double face ; autres bits vus (`0x2`, `0x4`...) non exploites. `geo` : 4 texturee (24 788 faces), 3 couleur pleine (653), 1 points (196, tous dans `sphere.3do`, aucune face dessinable).
+  Materiau toujours valide (aucun -1). Dans les faces `geo` 3 / 1 l'indice de sommet de texture peut valoir 0 alors que le maillage n'a aucune coordonnee de texture.
+- **Sens des faces [donnees]** : la methode de Newell donne une normale du cote de la normale de face du fichier pour 25 619 faces sur 25 625 : sens antihoraire vu du cote de la normale
+  (comme les surfaces du .jkl). Pas d'inversion.
+- **UV [donnees, comme le .jkl]** : `u`, `v` en pixels de la cellule 0 du materiau ; `v` est un indice de rangee depuis le haut et les valeurs sortent de la texture (jusqu'a -191 sur une
+  texture de 128, 256 en `u` : repetition). Coordonnee de modele = (u / largeur, 1 - v / hauteur), donc `t` du fichier MD3 = v / hauteur.
+- **Hierarchie [donnees]** : `idx: flags type mesh parent child sibling numChildren x y z pitch yaw roll pivotx pivoty pivotz nom`. `mesh` = -1 pour un noeud sans maillage (`$$$DUMMY` racine des
+  personnages) ; `x y z` et `pitch yaw roll` sont relatifs au parent. 373 modeles ont un seul noeud ; les armes / personnages ont 4 a 18 noeuds.
+- **Pivot [donnees, mesure]** : les sommets d'un maillage sont dans un repere decale du pivot : sommet dans le repere du noeud = `v + pivot`. Mesure sur les 1 207 couples parent / enfant de
+  la hierarchie : la distance (relative a la diagonale de la boite) entre l'origine de l'enfant et la boite du maillage du parent vaut 0,198 sans pivot, 0,461 avec `pos + pivot` et
+  **0,014 avec `pos - pivot`** (origine de l'enfant dans les coordonnees brutes du maillage parent). La rotation se fait autour de l'origine du noeud, apres ce decalage.
+- **Rotation [specs + coherence]** : angles en degres, Z vers le haut, sens trigonometrique ; matrice noeud = roll (axe Y), pitch (axe X), yaw (axe Z), puis translation, composee avec le parent.
+  Lacet 0 = modele tourne vers +Y, comme les things du .jkl.
+- **`INSERT OFFSET` [specs]** : point d'insertion de l'editeur ; ignore (non verifie sur les donnees).
+
+### KEY (texte Latin-1)
+
+- `HEADER` : `FLAGS` (0x0 : 338, 0x3 : 163 ; 0x1 et 0xb rares), `TYPE`, `FRAMES`, `FPS` (15 dans 498 fichiers sur 504 ; 8, 10, 12, 55), `JOINTS`. Section `MARKERS` facultative (124 fichiers) : `MARKERS n`
+  puis `temps type` (pas, impacts) ; non utilisee. `KEYFRAME NODES` : par `NODE n`, `MESH NAME` (nom du noeud du 3DO ; apparie par nom, 3 321 couples modele / animation ont la meme liste de noms et aucun noeud n est reste sans piste), `ENTRIES k`.
+- Entree (deux lignes) : `idx: image drapeaux x y z p y r` puis `dx dy dz dp dy dr`. Positions et angles sont **absolus** (le noeud est place par la cle, pas par la pose de repos + cle ;
+  la position cle est proche de celle de la hierarchie). Les images cles sont creuses (a l interpolation pres, une entree par image dans certains fichiers, une toutes les 8 images dans d autres).
+- **Variations [donnees]** : `d*` est la variation par image ; `d x (image suivante - image)` = difference des deux entrees (positions exactes, angles modulo 360). Exemple `sphr2anm.key` :
+  lacet 0 -> 280 en 8 images avec `-10` par image. L'interpolation est donc lineaire ; la variation sert a choisir le sens (nombre de tours) quand l'ecart depasse 180 degres.
+- Plus longue animation : 411 images (`macamera.key`) ; le MD3 le plus gros produit (`tk.3do` + `tkidle.key`, 283 images) fait environ 1 Mo.
+- Animation entierement constante : une seule image. Rotation pure (un seul noeud mobile, position fixe, axe et angle constants entre images) : aucun cas dans les `.key` de `Res2.gob` ; les objets
+  qui tournent dans les niveaux le font par vitesse angulaire de gabarit ou par COG (taches 9 et 10).
