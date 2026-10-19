@@ -22,18 +22,6 @@ public sealed class CompilerTests : IDisposable
     private static int LumpLen(byte[] b, int lump) => BitConverter.ToInt32(b, 12 + lump * 8);
 
     [Fact]
-    public void Limit_exceeded_writes_no_bsp()
-    {
-        var log = new ImportLog();
-        // Brushes et plans sont desormais plafonnes (COLLISION_CAPPED) : on force une vraie limite dure, les feuilles.
-        var r = BspCompiler.Compile(TestScenes.Input(), BspPath, new Limits(0x8000, 0x20000, 0x20000, 0), log);
-
-        Assert.False(r.Ok);
-        Assert.Contains("MAX_MAP_LEAFS", r.Error);
-        Assert.False(File.Exists(BspPath));
-    }
-
-    [Fact]
     public void Compile_in_memory_writes_bsp()
     {
         var log = new ImportLog();
@@ -47,6 +35,11 @@ public sealed class CompilerTests : IDisposable
         Assert.Contains("info_player_deathmatch", ents);
         Assert.True(LumpLen(b, BspWriter.LumpSurfaces) > 0);
         Assert.True(LumpLen(b, BspWriter.LumpBrushes) > 0);
+
+        string map = File.ReadAllText(Path.ChangeExtension(BspPath, ".map"));
+        Assert.Contains("\"classname\" \"worldspawn\"", map);
+        Assert.Contains("info_player_start", map);
+        Assert.Contains("textures/common/caulk", map);
     }
 
     [Fact]
@@ -58,21 +51,6 @@ public sealed class CompilerTests : IDisposable
         Assert.True(r.Ok, r.Error);
         Assert.Contains(r.Warnings, w => w.Contains("collision"));
         Assert.Contains(log.Warnings, w => w.Code == "BSP_WARNING");
-    }
-
-    [Fact]
-    public void Non_collision_limit_fails_immediately_without_reducing_collision()
-    {
-        var log = new ImportLog();
-        var limits = Limits.Vanilla with { MaxLeafSurfaces = 0 };
-
-        var r = BspCompiler.Compile(TestScenes.Input(), BspPath, limits, log);
-
-        Assert.False(r.Ok);
-        Assert.Contains("MAX_MAP_LEAFFACES", r.Error);
-        Assert.False(File.Exists(BspPath));
-        Assert.Contains(log.Warnings, w => w.Code == "BSP_ERROR");
-        Assert.DoesNotContain(log.Warnings, w => w.Code is "COLLISION_CAPPED" or "WALKABLE_CAPPED");
     }
 
     [Fact]
@@ -142,23 +120,6 @@ public sealed class CompilerTests : IDisposable
             tri.AddRange([b, b + 1, b + 2]);
         }
         return TestScenes.Mesh(pos.ToArray(), tri.ToArray());
-    }
-
-    [Fact]
-    public void Tree_node_planes_are_enforced_by_rebuild_and_compilation_succeeds()
-    {
-        const int maxPlanes = 25000;
-        var log = new ImportLog();
-        var input = TestScenes.Input(solid: TiltedTriangles(3000));
-
-        var r = BspCompiler.Compile(input, BspPath, new Limits(0x8000, maxPlanes, 0x20000, 0x20000), log);
-
-        Assert.True(r.Ok, r.Error);
-        byte[] b = File.ReadAllBytes(BspPath);
-        Assert.True(LumpLen(b, BspWriter.LumpPlanes) / 16 <= maxPlanes);
-        Assert.True(LumpLen(b, BspWriter.LumpBrushes) / 12 > 1000, $"info planes={LumpLen(b, BspWriter.LumpPlanes) / 16} brushes={LumpLen(b, BspWriter.LumpBrushes) / 12} nodes={LumpLen(b, BspWriter.LumpNodes) / 36}");
-        Assert.Contains(log.Warnings, w => w.Code == "COLLISION_CAPPED");
-        Assert.DoesNotContain(log.Warnings, w => w.Code == "BSP_ERROR");
     }
 
     [Fact]

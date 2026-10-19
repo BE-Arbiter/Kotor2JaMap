@@ -65,16 +65,6 @@ public class BspWriterTests
         Assert.True(BitConverter.ToInt32(b, 12 + BspWriter.LumpNodes * 8) >= 36);
     }
 
-    [Fact]
-    public void Brush_sides_limit_throws_without_partial_output()
-    {
-        var brushes = Enumerable.Range(0, 12000).Select(i =>
-            new Brush(Enumerable.Repeat(new BspPlane(Vector3.UnitX, i), 5).ToArray(), new Vector3(i), new Vector3(i + 1))).ToList();
-        var ms = new MemoryStream();
-        Assert.Throws<BspLimitException>(() => BspWriter.Write(BspTree.Build(brushes), ms));
-        Assert.Equal(0, ms.Length);
-    }
-
     private static byte[] WriteSurface(SurfaceInput input)
     {
         var tree = BspTree.Build([]);

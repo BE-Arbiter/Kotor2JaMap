@@ -16,14 +16,14 @@ public class LimitsProfileTests : IDisposable
     public void Profiles_have_expected_values()
     {
         Assert.Equal(new Limits(0x8000, 0x20000, 0x20000, 0x20000, 0x20000, 0x40000), Limits.Vanilla);
-        Assert.Equal(0x100000, Limits.Swgl.MaxBrushes);
-        Assert.Equal(0x100000, Limits.Swgl.MaxPlanes);
-        Assert.Equal(0x100000, Limits.Swgl.MaxNodes);
-        Assert.Equal(0x100000, Limits.Swgl.MaxLeaves);
-        Assert.Equal(0x100000, Limits.Swgl.MaxBrushSides);
-        Assert.Equal(0x100000, Limits.Swgl.MaxLeafBrushes);
+        Assert.Equal(int.MaxValue, Limits.Swgl.MaxBrushes);
+        Assert.Equal(int.MaxValue, Limits.Swgl.MaxPlanes);
+        Assert.Equal(int.MaxValue, Limits.Swgl.MaxNodes);
+        Assert.Equal(int.MaxValue, Limits.Swgl.MaxLeaves);
+        Assert.Equal(int.MaxValue, Limits.Swgl.MaxBrushSides);
+        Assert.Equal(int.MaxValue, Limits.Swgl.MaxLeafBrushes);
         // Relevee pour l assemblage end_m01aa + end_m01ab (1 242 104 leaf faces) : les chargeurs SWGL allouent d apres le lump.
-        Assert.Equal(0x200000, Limits.Swgl.MaxLeafSurfaces);
+        Assert.Equal(int.MaxValue / 4, Limits.Swgl.MaxLeafSurfaces);
         Assert.Equal(0x20000, Limits.Vanilla.MaxLeafSurfaces);
         Assert.Same(Limits.Swgl, Limits.FromName(null));
         Assert.Same(Limits.Swgl, Limits.FromName("SWGL"));

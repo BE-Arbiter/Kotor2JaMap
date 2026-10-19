@@ -544,7 +544,7 @@ public sealed class WorkflowControllerTests
             Assert.True(skyTris > 0);
             Assert.Equal(imported.TriangleCount, exported.Batches.Where(b => !b.IsSky).Sum(b => (long)b.Indices.Length / 3));
             Assert.Equal(imported.TriangleCount + skyTris, exported.TriangleCount);
-            Assert.True(File.Exists(Path.Combine(opt.JaBaseDir, "kotor_tar_m02aa.pk3")));
+            Assert.True(File.Exists(Path.Combine(opt.JaBaseDir, "tar_m02aa.pk3")));
             Assert.NotEmpty(imported.Markers);
         }
         finally

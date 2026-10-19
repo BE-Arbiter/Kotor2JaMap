@@ -19,6 +19,9 @@ public sealed class ViewOptions
     public bool Sky;            // boite de ciel du compilateur : cachee par defaut (elle enferme toute la carte)
     public bool BothSides;      // desactive le culling de toutes les faces
     public readonly HashSet<EntityKind> HiddenKinds = [];
+
+    /// <summary>Selection de rooms sur la carte (SWTOR, grandes zones) : les rooms de la liste sont surlignees, les autres assombries. Null = pas de selection.</summary>
+    public HashSet<string>? SelectedRooms;
 }
 
 /// <summary>Sommet a deux jeux d'UV pour DualTextureEffect (diffuse x lightmap).</summary>
@@ -49,6 +52,9 @@ public sealed class PreviewRenderer : IDisposable
 
     private static readonly RasterizerState CullBack = new() { CullMode = CullMode.CullClockwiseFace };
     private static readonly RasterizerState CullNone = RasterizerState.CullNone;
+    // Lots transparents (ecrans additifs, vitres, decalcomanies) : tires vers la camera, comme polygonOffset en jeu, sinon ils scintillent sur leur cadre coplanaire.
+    private static readonly RasterizerState CullBackOffset = new() { CullMode = CullMode.CullClockwiseFace, DepthBias = -0.00002f, SlopeScaleDepthBias = -1f };
+    private static readonly RasterizerState CullNoneOffset = new() { CullMode = CullMode.None, DepthBias = -0.00002f, SlopeScaleDepthBias = -1f };
     private static readonly RasterizerState LineRaster = new() { CullMode = CullMode.None, DepthBias = -0.00002f, SlopeScaleDepthBias = -1f };
 
     private sealed class GpuBatch
@@ -60,6 +66,8 @@ public sealed class PreviewRenderer : IDisposable
         public required Texture2D Diffuse;
         public Texture2D? Lightmap;
         public int Triangles;
+        /// <summary>Sommets avec alpha (seconde couche de sol) : tampon <see cref="VertexPositionColorTexture"/>.</summary>
+        public bool VertexAlpha;
     }
 
     private readonly GraphicsDevice _gd;
@@ -136,7 +144,19 @@ public sealed class PreviewRenderer : IDisposable
             Texture2D? lm = b.LightmapKey is not null && _textures.TryGetValue(b.LightmapKey, out var l) ? l : null;
             bool dual = lm is not null && !b.IsSky;
             VertexBuffer vb;
-            if (dual)
+            bool vertexAlpha = !dual && Array.Exists(b.Vertices, v => v.Alpha != 255);
+            if (vertexAlpha)
+            {
+                var v = new VertexPositionColorTexture[b.Vertices.Length];
+                for (int i = 0; i < v.Length; i++)
+                {
+                    PreviewVertex s = b.Vertices[i];
+                    v[i] = new VertexPositionColorTexture(ToXna(s.Position), new XnaColor((byte)255, (byte)255, (byte)255, s.Alpha), new(s.Uv0.X, s.Uv0.Y));
+                }
+                vb = new VertexBuffer(_gd, VertexPositionColorTexture.VertexDeclaration, v.Length, BufferUsage.WriteOnly);
+                vb.SetData(v);
+            }
+            else if (dual)
             {
                 var v = new VertexDual[b.Vertices.Length];
                 for (int i = 0; i < v.Length; i++)
@@ -163,28 +183,13 @@ public sealed class PreviewRenderer : IDisposable
             return new GpuBatch
             {
                 Source = b, Vb = vb, Ib = ib, Dual = dual, Diffuse = diffuse, Lightmap = dual ? lm : null,
-                Triangles = b.Indices.Length / 3,
+                Triangles = b.Indices.Length / 3, VertexAlpha = vertexAlpha,
             };
         }
     }
 
     private void UploadOverlays(PreviewModel model)
     {
-        if (model.CollisionTriangles.Length >= 3)
-        {
-            var lines = new List<VertexPositionColor>(model.CollisionTriangles.Length * 2);
-            var c = new XnaColor(80, 255, 120);
-            for (int i = 0; i + 2 < model.CollisionTriangles.Length; i += 3)
-            {
-                XnaVector3 a = ToXna(model.CollisionTriangles[i]), b = ToXna(model.CollisionTriangles[i + 1]), d = ToXna(model.CollisionTriangles[i + 2]);
-                lines.Add(new(a, c)); lines.Add(new(b, c));
-                lines.Add(new(b, c)); lines.Add(new(d, c));
-                lines.Add(new(d, c)); lines.Add(new(a, c));
-            }
-            _collisionLines = MakeColorBuffer(lines);
-            _collisionCount = lines.Count / 2;
-        }
-
         var cubes = new Dictionary<EntityKind, List<VertexPositionColor>>();
         var outlines = new Dictionary<EntityKind, List<VertexPositionColor>>();
         foreach (PreviewMarker mk in model.Markers)
@@ -223,6 +228,33 @@ public sealed class PreviewRenderer : IDisposable
             };
             _spawnLines = MakeColorBuffer(ll); _spawnLineCount = ll.Count / 2;
         }
+    }
+
+    // Plus de triangles de collision que cela (zones entieres SWTOR) : les derniers ne sont pas dessines. 6 sommets de 16 octets par triangle ; au-dela
+    // la liste, le tableau et le tampon depassent la memoire (ExecutionEngineException dans SetData).
+    private const int MaxCollisionTriangles = 1_000_000;
+    private bool _collisionBuilt;
+
+    // Lignes de collision construites a la premiere activation de l'option (pas a chaque envoi de la vue : tres cher sur une grande zone).
+    private void EnsureCollisionLines()
+    {
+        if (_collisionBuilt || _model is not { } model) return;
+        _collisionBuilt = true;
+        int triangles = Math.Min(model.CollisionTriangles.Length / 3, MaxCollisionTriangles);
+        if (triangles == 0) return;
+        var lines = new VertexPositionColor[triangles * 6];
+        var c = new XnaColor(80, 255, 120);
+        for (int t = 0, k = 0; t < triangles; t++)
+        {
+            XnaVector3 a = ToXna(model.CollisionTriangles[t * 3]), b = ToXna(model.CollisionTriangles[t * 3 + 1]), d = ToXna(model.CollisionTriangles[t * 3 + 2]);
+            lines[k++] = new(a, c); lines[k++] = new(b, c);
+            lines[k++] = new(b, c); lines[k++] = new(d, c);
+            lines[k++] = new(d, c); lines[k++] = new(a, c);
+        }
+        var vb = new VertexBuffer(_gd, VertexPositionColor.VertexDeclaration, lines.Length, BufferUsage.WriteOnly);
+        vb.SetData(lines);
+        _collisionLines = vb;
+        _collisionCount = lines.Length / 2;
     }
 
     private static Matrix ToXna(System.Numerics.Matrix4x4 m) => new(m.M11, m.M12, m.M13, m.M14, m.M21, m.M22, m.M23, m.M24,
@@ -271,6 +303,7 @@ public sealed class PreviewRenderer : IDisposable
             if (_spawnCube is not null) DrawColor(_spawnCube, _spawnCubeCount, PrimitiveType.TriangleList);
             if (_spawnLines is not null) DrawColor(_spawnLines, _spawnLineCount, PrimitiveType.LineList);
 
+            if (opt.Collisions) EnsureCollisionLines();
             if (opt.Collisions && _collisionLines is not null)
             {
                 _gd.DepthStencilState = DepthStencilState.DepthRead;
@@ -283,11 +316,20 @@ public sealed class PreviewRenderer : IDisposable
 
     private static bool Visible(GpuBatch b, ViewOptions opt) => !b.Source.IsSky || opt.Sky;
 
+    private static readonly XnaVector3 RoomSelectedTint = new(0.65f, 1f, 0.65f), RoomUnselectedTint = new(0.3f, 0.3f, 0.35f);
+
+    // Selection de rooms : rooms choisies en vert clair, les autres assombries ; sans selection (ou lot sans room), couleur d'origine.
+    private static XnaVector3 TintOf(PreviewBatch s, ViewOptions opt) =>
+        opt.SelectedRooms is { } rooms && s.Room is not null && !s.IsSky
+            ? (rooms.Contains(s.Room) ? RoomSelectedTint : RoomUnselectedTint)
+            : XnaVector3.One;
+
     private void DrawBatch(GpuBatch b, ViewOptions opt, Matrix world)
     {
         PreviewBatch s = b.Source;
-        _gd.RasterizerState = s.DoubleSided || s.IsSky || opt.BothSides ? CullNone : CullBack;
         bool blended = s.Blend is PreviewBlend.Additive or PreviewBlend.Alpha or PreviewBlend.Multiply;
+        bool cullNone = s.DoubleSided || s.IsSky || opt.BothSides;
+        _gd.RasterizerState = blended ? (cullNone ? CullNoneOffset : CullBackOffset) : (cullNone ? CullNone : CullBack);
         _gd.BlendState = s.Blend switch
         {
             PreviewBlend.Additive => AddBlend,
@@ -299,6 +341,7 @@ public sealed class PreviewRenderer : IDisposable
         _gd.SetVertexBuffer(b.Vb);
         _gd.Indices = b.Ib;
 
+        XnaVector3 tint = TintOf(s, opt);
         Effect effect;
         if (s.IsSky)
         {
@@ -312,7 +355,7 @@ public sealed class PreviewRenderer : IDisposable
             // Cutout + lightmap, deux passes : 1) profondeur seule des texels opaques (alpha test), 2) diffuse x lightmap
             // sur exactement ces pixels (profondeur Equal, sans ecriture).
             _alphaTest.World = world; _alphaTest.View = _view; _alphaTest.Projection = _proj;
-            _alphaTest.Texture = b.Diffuse;
+            _alphaTest.Texture = b.Diffuse; _alphaTest.DiffuseColor = tint;
             _gd.BlendState = DepthOnly;
             _gd.DepthStencilState = DepthStencilState.Default;
             foreach (EffectPass pass in _alphaTest.CurrentTechnique.Passes)
@@ -323,25 +366,26 @@ public sealed class PreviewRenderer : IDisposable
             _gd.BlendState = BlendState.Opaque;
             _gd.DepthStencilState = DepthEqual;
             _dual.World = world; _dual.View = _view; _dual.Projection = _proj;
-            _dual.Texture = b.Diffuse; _dual.Texture2 = b.Lightmap;
+            _dual.Texture = b.Diffuse; _dual.Texture2 = b.Lightmap; _dual.DiffuseColor = tint;
             effect = _dual;
         }
         else if (b.Dual)
         {
             _dual.World = world; _dual.View = _view; _dual.Projection = _proj;
-            _dual.Texture = b.Diffuse; _dual.Texture2 = b.Lightmap;
+            _dual.Texture = b.Diffuse; _dual.Texture2 = b.Lightmap; _dual.DiffuseColor = tint;
             effect = _dual;
         }
         else if (s.Blend == PreviewBlend.Cutout)
         {
             _alphaTest.World = world; _alphaTest.View = _view; _alphaTest.Projection = _proj;
-            _alphaTest.Texture = b.Diffuse;
+            _alphaTest.Texture = b.Diffuse; _alphaTest.DiffuseColor = tint;
             effect = _alphaTest;
         }
         else
         {
             _basic.World = world; _basic.View = _view; _basic.Projection = _proj;
-            _basic.Texture = b.Diffuse;
+            _basic.Texture = b.Diffuse; _basic.DiffuseColor = tint;
+            _basic.VertexColorEnabled = b.VertexAlpha;
             effect = _basic;
         }
         foreach (EffectPass pass in effect.CurrentTechnique.Passes)
@@ -499,7 +543,7 @@ public sealed class PreviewRenderer : IDisposable
         foreach (VertexBuffer v in _markerCubes.Values) v.Dispose();
         foreach (VertexBuffer v in _markerLines.Values) v.Dispose();
         _markerCubes.Clear(); _markerCubeCounts.Clear(); _markerLines.Clear(); _markerLineCounts.Clear();
-        _collisionLines?.Dispose(); _collisionLines = null; _collisionCount = 0;
+        _collisionLines?.Dispose(); _collisionLines = null; _collisionCount = 0; _collisionBuilt = false;
         _spawnCube?.Dispose(); _spawnCube = null;
         _spawnLines?.Dispose(); _spawnLines = null;
         _model = null;

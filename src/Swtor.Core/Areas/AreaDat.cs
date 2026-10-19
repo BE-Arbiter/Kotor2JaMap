@@ -91,6 +91,12 @@ public sealed class AreaDat
     /// <summary>Nom interne de la zone ("war_planworking", "tat_main"), lu dans le dernier bloc du fichier ; null si absent.</summary>
     public string? InternalName { get; init; }
 
+    /// <summary>
+    /// Couches de sol du terrain (section 4 : <c>u32</c> nombre, puis <c>u64</c> identifiant et nom) : identifiant (celui des emplacements de
+    /// <c>HeightmapTile.Layers</c>) vers nom de materiau (<c>art/shaders/materials/&lt;nom&gt;.mat</c>, ex. <c>ter_tyt_grass_01</c>). Vide si illisible.
+    /// </summary>
+    public IReadOnlyDictionary<ulong, string> TerrainLayers { get; init; } = new Dictionary<ulong, string>();
+
     public string? ResolveAsset(ulong id) => Assets.TryGetValue(id, out string? s) ? s : null;
 }
 
@@ -142,7 +148,31 @@ public static class AreaDatReader
             Markers = markers,
             SectionOffsets = sections,
             InternalName = ScanInternalName(data, (int)Math.Min(sections[8], (uint)data.Length)),
+            TerrainLayers = ReadTerrainLayers(data, sections[4]),
         };
+    }
+
+    /// <summary>Table des couches de sol (section 4) ; vide si la section est absente ou mal formee (les zones interieures n'en ont pas).</summary>
+    private static Dictionary<ulong, string> ReadTerrainLayers(byte[] data, uint offset)
+    {
+        var layers = new Dictionary<ulong, string>();
+        if (offset == 0 || offset + 4 > data.Length) return layers;
+        try
+        {
+            var r = new ByteCursor(data);
+            r.Seek(offset);
+            int count = r.Count(data.Length);
+            for (int i = 0; i < count; i++)
+            {
+                ulong id = r.U64();
+                layers[id] = r.LengthPrefixedAscii();
+            }
+        }
+        catch (GameFormatException)
+        {
+            layers.Clear();
+        }
+        return layers;
     }
 
     /// <summary>

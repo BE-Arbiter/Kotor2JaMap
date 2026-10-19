@@ -11,8 +11,10 @@ namespace Swtor.Core.Terrain;
 /// <c>u8 version (1 ou 2)</c>, <c>u32 lignes</c>, <c>u32 colonnes</c>, <c>u8 drapeau</c> (0 ou 1), si drapeau = 1 un masque de trous
 /// (un bit par echantillon, <c>lignes*colonnes</c> bits arrondis a l'octet, bit de poids fort d'abord, 1 = echantillon present), puis le
 /// pourtour de la grille en <c>f32</c> (<c>2*(lignes-1) + 2*(colonnes-1)</c> valeurs) puis l'interieur en <c>u16</c>
-/// (<c>(lignes-2) * (colonnes-2)</c> valeurs, rangees le long de Z), hauteur = valeur / 512. Le reste (carte de melange des
-/// materiaux, maillage de rendu, magique 0xABCDEFAB) n'est pas lu.
+/// (<c>(lignes-2) * (colonnes-2)</c> valeurs, rangees le long de Z), hauteur = valeur / 512, puis la carte de melange des couches :
+/// <c>u8 n</c>, <c>n</c> identifiants de couche (table des couches d'area.dat, 0xFF = emplacement vide), puis <c>(2*lignes-1) * (2*colonnes-1)</c> texels
+/// (deux par cellule, rangees le long de X), <c>n</c> poids <c>u8</c> par texel (somme 255). Le reste (carte de teinte, maillage de rendu,
+/// magique 0xABCDEFAB) n'est pas lu.
 /// </summary>
 public sealed class HeightmapTile
 {
@@ -32,6 +34,22 @@ public sealed class HeightmapTile
 
     /// <summary>Hauteurs (unites du monde, relatives a l'origine de l'objet), <c>Rows * Columns</c>, indice <c>ligne * Columns + colonne</c>.</summary>
     public float[] Heights { get; }
+
+    /// <summary>Identifiants de couche de sol des emplacements de la carte de melange (cles de <c>AreaDat.TerrainLayers</c> ; 0xFF = vide). Vide sans carte.</summary>
+    public byte[] Layers { get; init; } = [];
+
+    /// <summary>Poids de la carte de melange : <c>BlendRows * BlendColumns * Layers.Length</c> octets, texel <c>colonne * BlendRows + rangee</c>. Null sans carte.</summary>
+    public byte[]? BlendWeights { get; init; }
+
+    /// <summary>Texels de la carte de melange le long de X : deux par cellule (pas de 0,1 unite).</summary>
+    public int BlendRows => 2 * Rows - 1;
+
+    /// <summary>Texels de la carte de melange le long de Z.</summary>
+    public int BlendColumns => 2 * Columns - 1;
+
+    /// <summary>Poids (0 a 255) de l'emplacement <paramref name="slot"/> au texel fin (<paramref name="blendRow"/>, <paramref name="blendColumn"/>) ; 0 sans carte.</summary>
+    public int BlendWeight(int slot, int blendRow, int blendColumn) =>
+        BlendWeights is null ? 0 : BlendWeights[(blendColumn * BlendRows + blendRow) * Layers.Length + slot];
 
     /// <summary>Masque des echantillons (<c>Rows * Columns</c>, meme indice que <see cref="Heights"/>) : faux = trou ; null = aucun trou.</summary>
     public bool[]? VertexPresent { get; }
@@ -127,7 +145,22 @@ public sealed class HeightmapTile
         foreach (float h in heights)
             if (!float.IsFinite(h) || MathF.Abs(h) > 100000f) throw new GameFormatException("Hauteur de terrain non finie ou aberrante", 10);
 
-        return new HeightmapTile(version, rows, cols, heights, present);
+        pos += 2 * innerRows * innerCols;
+        // Carte de melange (verifie sur Tython : les texels des bords de deux dalles voisines concordent rangees le long de X, pas le long de Z).
+        byte[] layers = [];
+        byte[]? weights = null;
+        if (pos < data.Length)
+        {
+            int n = data[pos];
+            long texels = (2L * rows - 1) * (2L * cols - 1);
+            if (n > 0 && pos + 1 + n + texels * n <= data.Length)
+            {
+                layers = data.AsSpan(pos + 1, n).ToArray();
+                weights = data.AsSpan(pos + 1 + n, (int)(texels * n)).ToArray();
+            }
+        }
+
+        return new HeightmapTile(version, rows, cols, heights, present) { Layers = layers, BlendWeights = weights };
     }
 
     /// <summary>Decompresse le blob : zlib (<c>78</c>), gzip (<c>1F 8B</c>) ou zstd (<c>28 B5 2F FD</c>).</summary>

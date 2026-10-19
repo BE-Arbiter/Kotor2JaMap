@@ -234,13 +234,14 @@ public class ModuleEntitiesReaderTests
 
         int expectedLights = sceneLog.Warnings.Where(w => w.Code == "NODE_LIGHT")
             .Sum(w => int.Parse(Regex.Match(w.Message, @": (\d+) light node").Groups[1].Value));
-        Assert.Equal(71, expectedLights); // somme du journal de la phase 1
+        Assert.Equal(70, expectedLights); // somme du journal de la phase 1 (71) moins la lumiere de m02aa_sky, exclue
         Assert.Equal(expectedLights, ents.Count(e => e.Kind == EntityKind.Light));
 
         var pts = scene.Meshes.SelectMany(m => m.Positions).Concat(scene.Walkmeshes.SelectMany(w => w.Positions)).ToList();
         var mn = pts.Aggregate(new Vector3(float.MaxValue), Vector3.Min) - new Vector3(5);
         var mx = pts.Aggregate(new Vector3(float.MinValue), Vector3.Max) + new Vector3(5);
-        foreach (var e in ents)
+        // Les lumieres peuvent flotter au-dessus de la geometrie (lampes en hauteur) : seul le dome de ciel les faisait entrer dans l'emprise.
+        foreach (var e in ents.Where(e => e.Kind != EntityKind.Light))
         {
             Assert.True(e.Position.X >= mn.X && e.Position.Y >= mn.Y && e.Position.Z >= mn.Z
                      && e.Position.X <= mx.X && e.Position.Y <= mx.Y && e.Position.Z <= mx.Z,

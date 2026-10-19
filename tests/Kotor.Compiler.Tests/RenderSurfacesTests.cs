@@ -215,4 +215,22 @@ public sealed class RenderSurfacesTests
         Assert.Equal(a.Count, b.Count);
         for (int i = 0; i < a.Count; i++) { Assert.Equal(a[i].Positions, b[i].Positions); Assert.Equal(a[i].Indices, b[i].Indices); }
     }
+
+    [Fact]
+    public void Identical_vertices_are_welded_across_inputs()
+    {
+        // Deux entrees identiques (meme shader) : les sommets ne sont ecrits qu'une fois, tous les triangles restent.
+        var surfaces = RenderSurfaces.FromInputs([Grid(10, 10), Grid(10, 10)], BspTree.Build([]));
+        Assert.Single(surfaces);
+        Assert.Equal(100, surfaces[0].Positions.Length);
+        Assert.Equal(2 * 2 * 9 * 9 * 3, surfaces[0].Indices.Length);
+    }
+
+    [Fact]
+    public void Coplanar_triangles_without_normals_share_vertices()
+    {
+        var noNormals = Grid(10, 10) with { Normals = [] };
+        var surfaces = RenderSurfaces.FromInput(noNormals, BspTree.Build([]));
+        Assert.Equal(100, surfaces.Sum(s => s.Positions.Length));
+    }
 }

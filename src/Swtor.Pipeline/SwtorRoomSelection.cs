@@ -76,7 +76,22 @@ public sealed class SwtorRoomSelection
 
     public IReadOnlyList<string> SelectedRooms => [.. Rooms.Where(r => IsChecked(r.Name)).Select(r => r.Name)];
 
-    public int SelectedCount => Rooms.Count(r => IsChecked(r.Name));
+    public SwtorSelectionFile ToFile(string? mapName) => new(AreaId, InternalName, mapName, SelectedRooms);
+
+    /// <summary>Remplace la selection par celle du fichier ; renvoie les rooms du fichier absentes de cette zone (ignorees).</summary>
+    public IReadOnlyList<string> Apply(SwtorSelectionFile file)
+    {
+        SelectAll(false);
+        var unknown = new List<string>();
+        foreach (string r in file.Rooms)
+        {
+            if (_checked.ContainsKey(r)) _checked[r] = true;
+            else unknown.Add(r);
+        }
+        return unknown;
+    }
+
+    public int SelectedCount =>Rooms.Count(r => IsChecked(r.Name));
 
     /// <summary>Total des triangles de rendu des rooms cochees.</summary>
     public long TotalTriangles => Rooms.Where(r => IsChecked(r.Name)).Sum(r => (long)r.Triangles);
@@ -95,4 +110,18 @@ public sealed class SwtorRoomSelection
 
     /// <summary>Texte de module du flux de travail : <c>id</c> (zone entiere) ou <c>id:room1,room2</c> ; null si aucune room n'est cochee.</summary>
     public string? ModuleSpec => SelectedCount == 0 ? null : IsDefault ? AreaId : $"{AreaId}:{string.Join(",", SelectedRooms)}";
+}
+
+/// <summary>Sauvegarde JSON de la selection de rooms d'une zone (export / import : on ne perd pas son travail si l'application plante ou change).</summary>
+public sealed record SwtorSelectionFile(string Area, string InternalName, string? MapName, IReadOnlyList<string> Rooms)
+{
+    private static readonly System.Text.Json.JsonSerializerOptions Options = new() { WriteIndented = true, PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase };
+
+    public string ToJson() => System.Text.Json.JsonSerializer.Serialize(this, Options);
+
+    public static SwtorSelectionFile? FromJson(string json) => System.Text.Json.JsonSerializer.Deserialize<SwtorSelectionFile>(json, Options);
+
+    /// <summary>Chemin par defaut dans le dossier de travail : <c>swtor_rooms_&lt;zone&gt;.json</c>.</summary>
+    public static string DefaultPath(string workDir, string area) =>
+        Path.Combine(workDir, "swtor_rooms_" + string.Concat(area.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_')) + ".json");
 }

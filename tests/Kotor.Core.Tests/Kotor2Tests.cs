@@ -162,10 +162,10 @@ public sealed class Kotor2Tests
             var imported = PipelineSteps.Import(scene, null, opt, log);
             var exported = PipelineSteps.Export(imported, opt, log);
             string pk3 = PipelineSteps.CreatePk3(exported, imported, opt, log).Pk3Path;
-            Assert.Equal(Path.Combine(opt.JaBaseDir, "kotor2_001ebo.pk3"), pk3);
+            Assert.Equal(Path.Combine(opt.JaBaseDir, "001ebo.pk3"), pk3);
             using var z = ZipFile.OpenRead(pk3);
             Assert.Contains(z.Entries, e => e.FullName == "maps/001ebo.bsp");
-            Assert.Contains(z.Entries, e => e.FullName == "shaders/kotor2_001ebo.shader");
+            Assert.Contains(z.Entries, e => e.FullName == "shaders/001ebo.shader");
             Assert.Contains(z.Entries, e => e.FullName.StartsWith("textures/kotor2/") && e.FullName.EndsWith(".tga"));
             Assert.DoesNotContain(z.Entries, e => e.FullName.StartsWith("textures/kotor/"));
         }

@@ -135,6 +135,13 @@ public static class ModuleExporter
 
             string texFile = ShaderNames.PrefixFor(opt.Game) + planned.Texture + ".tga";
             textures.TryAdd(texFile, new ExportTexture(texFile, tex, false));
+            if (planned.Overlay is { } overlay)
+            {
+                scene.Textures.TryGetValue(overlay, out KotorTexture? overTex);
+                if (overTex is null) missing.Add(overlay);
+                string overFile = ShaderNames.PrefixFor(opt.Game) + overlay + ".tga";
+                textures.TryAdd(overFile, new ExportTexture(overFile, overTex, false));
+            }
             if (planned.Lightmap is not null)
             {
                 string lmFile = ShaderNames.LightmapPrefixFor(opt.Game) + planned.Lightmap + ".tga";
@@ -144,7 +151,8 @@ public static class ModuleExporter
             Vector3[] pos = Scaled(mesh.Positions, scale);
             surfaces.Add(new SurfaceInput(planned.Name, pos, mesh.Normals, FlipV(mesh.Uv0),
                 planned.Lightmap is null || mesh.Uv1 is null ? null : FlipV(mesh.Uv1), mesh.Triangles, planned.DoubleSided,
-                useVis ? RoomOf(mesh.Room, roomNames, roomIndex) : -1));
+                useVis ? RoomOf(mesh.Room, roomNames, roomIndex) : -1)
+            { VertexAlpha = planned.Overlay is not null && mesh.VertexAlpha?.Length == mesh.Positions.Length ? mesh.VertexAlpha : null });
             if (scene.RenderMeshesAreSolid && planned.Kind is not (ShaderKind.Additive or ShaderKind.Blend or ShaderKind.Multiply))
                 solid.Add(new SubMesh { MaterialName = planned.Name, Positions = pos, Triangles = mesh.Triangles });
             meshCount++;
@@ -178,9 +186,25 @@ public static class ModuleExporter
         // Un point de depart deathmatch pour que devmap fonctionne aussi en mode FFA.
         entities.Add(new Dictionary<string, string> { ["classname"] = "info_player_deathmatch", ["origin"] = originText, ["angle"] = angle });
 
-        // KOTOR lighting for the surfaces without lightmap, in JA units.
-        // With light nodes: zone ambient + the lights (no sun). Without: zone ambient + a directional sun of the ARE SunDiffuseColor
-        // (default direction); without a readable ARE: the compiler defaults.
+        var (lighting, lights) = SceneLighting(scene, scale);
+
+        var input = new CompileInput(name, entities, surfaces,
+            new ModelMesh { Name = "solid", SubMeshes = solid }, new ModelMesh { Name = "walkable", SubMeshes = walkable },
+            string.IsNullOrWhiteSpace(scene.SkyShader) ? JaDefaults.SkyShader : scene.SkyShader, lighting, lights)
+        {
+            CompactSurfaces = scene.CompactRenderSurfaces,
+            Rooms = useVis && roomNames.Count > 1 ? RoomVisibility.Create(roomNames, scene.RoomVisibility!) : null,
+        };
+        return new ExportPlan(input, [.. shaders.Values], [.. textures.Values], meshCount, (int)triangles, missing.Count);
+    }
+
+    /// <summary>
+    /// KOTOR lighting for the surfaces without lightmap, in JA units.
+    /// With light nodes: zone ambient + the lights (no sun). Without: zone ambient + a directional sun of the ARE SunDiffuseColor
+    /// (default direction); without a readable ARE: the compiler defaults.
+    /// </summary>
+    public static (VertexLighting Lighting, List<PointLight> Lights) SceneLighting(ModuleScene scene, float scale)
+    {
         var lights = scene.Lights
             .Where(l => l.Radius > 0f && float.IsFinite(l.Radius) && l.Multiplier > 0f && float.IsFinite(l.Multiplier))
             .Select(l => new PointLight(l.Position * scale, l.Color, l.Radius * scale, l.Multiplier, l.AmbientOnly))
@@ -193,15 +217,7 @@ public static class ModuleExporter
                 ? VertexLighting.Default with { Ambient = scene.AmbientColor, Sun = scene.SunDiffuseColor }
                 : VertexLighting.Default;
         if (scene.SunDirection is { } sunDir && sunDir.LengthSquared() > 1e-9f) lighting = lighting with { SunDir = Vector3.Normalize(sunDir) };
-
-        var input = new CompileInput(name, entities, surfaces,
-            new ModelMesh { Name = "solid", SubMeshes = solid }, new ModelMesh { Name = "walkable", SubMeshes = walkable },
-            string.IsNullOrWhiteSpace(scene.SkyShader) ? JaDefaults.SkyShader : scene.SkyShader, lighting, lights)
-        {
-            CompactSurfaces = scene.CompactRenderSurfaces,
-            Rooms = useVis && roomNames.Count > 1 ? RoomVisibility.Create(roomNames, scene.RoomVisibility!) : null,
-        };
-        return new ExportPlan(input, [.. shaders.Values], [.. textures.Values], meshCount, (int)triangles, missing.Count);
+        return (lighting, lights);
     }
 
     private static int RoomOf(string room, List<string> names, Dictionary<string, int> index)

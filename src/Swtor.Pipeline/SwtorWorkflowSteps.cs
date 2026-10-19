@@ -42,6 +42,9 @@ public sealed class SwtorWorkflowSteps : IWorkflowSteps
 
     public SwtorAssets Assets { get; }
 
+    /// <summary>Dossier de travail (sauvegardes JSON de la selection de rooms).</summary>
+    public string WorkDir => _opt.WorkDir;
+
     /// <summary>Mode Â« From Game Â» : lit les archives du jeu (cache dans le dossier de travail) au lieu d un dossier extrait.</summary>
     public bool FromGame => _opt.SwtorFromGame;
 
@@ -162,6 +165,7 @@ public sealed class SwtorWorkflowSteps : IWorkflowSteps
             sink?.Invoke(-1d, "Building the 3D preview");
             PreviewModel model = PreviewBuilder.FromScene(prepared.Scene, _opt.Scale);
             _pipeline.UseScene(prepared.Scene, _opt, prepared.MapName);
+            _prepared = prepared;
             MapName = prepared.MapName;
             SwtorSceneStats st = prepared.Stats;
             progress.Report($"Preview: area {prepared.InternalName} -> map {prepared.MapName}, {st.Rooms} room(s), {st.ModelInstances} model instance(s) "
@@ -185,7 +189,28 @@ public sealed class SwtorWorkflowSteps : IWorkflowSteps
     public bool AssemblyUpToDate => false;
     public PreviewModel ApplyAssembly(IProgress<string> log) => throw new InvalidOperationException("SWTOR areas are not assembled.");
 
-    public PreviewModel Import(IProgress<string> log) => _pipeline.Import(log);
+    private SwtorPreparedScene? _prepared;
+
+    /// <summary>
+    /// Rooms gardees a l'import (selection faite sur la carte apres l'apercu d'une grande zone) ; null = tout l'apercu. L'import retire
+    /// les autres rooms de la scene deja construite et nomme la carte d'apres les rooms gardees (sauf nom saisi).
+    /// </summary>
+    public IReadOnlyCollection<string>? ImportRooms { get; set; }
+
+    public PreviewModel Import(IProgress<string> log)
+    {
+        if (ImportRooms is { } rooms && _prepared is { } prepared)
+        {
+            if (rooms.Count == 0) throw new PipelineStepException("SWTOR_NO_ROOM", "Select at least one room on the map before importing.");
+            string name = string.IsNullOrWhiteSpace(MapNameOverride)
+                ? MapNames.Normalize(SwtorMapNames.FromInternalName(prepared.InternalName, rooms))
+                : MapNames.Normalize(MapNameOverride);
+            log.Report($"Keeping {rooms.Count} room(s) of the preview -> map {name}.");
+            _pipeline.UseScene(SwtorSceneFilter.KeepRooms(prepared.Scene, rooms), _opt, name);
+            MapName = name;
+        }
+        return _pipeline.Import(log);
+    }
 
     public PreviewModel SetSpawn(System.Numerics.Vector3 position, float yawDegrees) => _pipeline.SetSpawn(position, yawDegrees);
 

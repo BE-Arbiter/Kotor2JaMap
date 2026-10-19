@@ -84,6 +84,7 @@ public static class Compiler
                 subModels.Add(new BspSubModel(brushesOfModel, input.SubModels[sm].Shader));
             }
             using var ms = new MemoryStream();
+            IReadOnlyList<Brush> finalBrushes = [];
             ImportLog iterLog;
             List<string> iterWarnings;
             for (int attempt = 0; ; attempt++)
@@ -97,10 +98,13 @@ public static class Compiler
                     IReadOnlyList<Brush> brushes = BrushBuilder.FromPolygons(solidPolys, log: solidPolys.Count == 0 ? null : IterWarn);
                     brushes = brushes.Concat(walkBrushes.Take(walkKeep)).ToList();
                     BspTree tree = BspTree.Build(brushes, limits, roomBoxes);
+                    finalBrushes = brushes;
 
                     // Surfaces de rendu.
                     var surfaces = new List<RenderSurface>();
                     surfaces.AddRange(RenderSurfaces.FromInputs(input.Surfaces, tree, iterLog, input.CompactSurfaces));
+                    long drawVerts = surfaces.Sum(s => (long)s.Positions.Length), drawTris = surfaces.Sum(s => (long)s.Indices.Length / 3);
+                    iterLog.Info($"Render geometry: {surfaces.Count} surfaces, {drawVerts} vertices, {drawTris} triangles ({drawVerts * 80 >> 20} MiB of draw vertices).");
 
                     // Boite de ciel : 6 faces autour de toute la geometrie.
                     string sky = input.SkyShader;
@@ -143,6 +147,8 @@ public static class Compiler
             }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(bspPath))!);
             File.WriteAllBytes(bspPath, ms.ToArray());
+            // Le .map source accompagne le .bsp (meme dossier, donc dans le pk3).
+            File.WriteAllText(Path.ChangeExtension(bspPath, ".map"), MapWriter.Write(input.Entities, finalBrushes, subModels), new UTF8Encoding(false));
         }
         catch (BspLimitException ex) { error = ex.Message; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException)

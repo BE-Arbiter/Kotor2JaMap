@@ -58,8 +58,35 @@ public sealed class MainScreen
     /// <summary>Faux tant que la branche SWTOR charge son catalogue ou les rooms d une zone.</summary>
     public bool SwtorIdle => _swtor is not { } p || p.IsIdle;
 
+    /// <summary>Grande zone SWTOR apercue : un clic sur une room de la vue la choisit ou la retire.</summary>
+    public bool CanPickRooms => _swtor is { } p && p.CanPickRooms(_workflow);
+
+    public bool ToggleRoom(string room) => _swtor?.ToggleRoom(room) ?? false;
+
+    /// <summary>Room a laquelle l'utilisateur demande d'amener la camera (consommee a la lecture).</summary>
+    public string? TakeGoToRoom()
+    {
+        string? r = _swtor?.GoToRoom;
+        if (_swtor is not null) _swtor.GoToRoom = null;
+        return r;
+    }
+
+    /// <summary>Rooms choisies a surligner dans la vue (null : pas de selection sur la carte).</summary>
+    public HashSet<string>? HighlightedRooms => _swtor?.HighlightedRooms(_workflow);
+
     /// <summary>Branche SWTOR de l arbre (remplacee quand les reglages sont enregistres).</summary>
     public void SetSwtor(Swtor.Pipeline.SwtorWorkflowSteps steps) => _swtor = new SwtorPanel(steps, AddLog);
+
+    /// <summary>Etapes KOTOR 1 / 2 : recoivent le nom de carte saisi (remplacees quand les reglages sont enregistres).</summary>
+    public void SetKotor(KotorWorkflowSteps steps)
+    {
+        _kotor = steps;
+        steps.MapNameOverride = _kotorNameEdited ? _kotorName : null;
+    }
+
+    private KotorWorkflowSteps? _kotor;
+    private string _kotorName = "";
+    private bool _kotorNameEdited;   // faux : le champ suit le nom par defaut de la selection
 
     /// <summary>Liste des modules (appelable depuis un autre fil).</summary>
     public void SetModules(IReadOnlyList<ModuleListItem> modules)
@@ -111,6 +138,7 @@ public sealed class MainScreen
         _swtor?.Draw(_workflow, busy, height * 0.16f);
         ImGui.TextDisabled("Ctrl+click: select several modules of one game.");
         DrawAssemblySelection(busy);
+        DrawKotorMapName(busy);
 
         ImGui.BeginDisabled(!_workflow.CanPreview || (_workflow.SelectedGame == KotorGame.Swtor && _swtor is { NoRoomSelected: true }));
         if (ImGui.Button("Preview", new Vector2(-1, 0))) _ = _workflow.PreviewAsync();
@@ -348,6 +376,32 @@ public sealed class MainScreen
             ImGui.SetTooltip("Sky, ambient light and spawn point come from the reference module.");
     }
 
+    /// <summary>
+    /// Nom de la carte KOTOR (module ou assemblage) : nom du .bsp, du .shader, du dossier des modeles et du .pk3. Pre-rempli avec le nom
+    /// par defaut ; vide : retour au nom par defaut.
+    /// </summary>
+    private void DrawKotorMapName(bool busy)
+    {
+        IReadOnlyList<string> selection = _workflow.SelectedModules;
+        if (_kotor is null || _workflow.SelectedGame == KotorGame.Swtor || selection.Count == 0) return;
+        if (!_kotorNameEdited) _kotorName = KotorWorkflowSteps.DefaultMapName(selection, _workflow.Assembly?.ReferenceIndex ?? 0);
+
+        ImGui.TextUnformatted("Map name");
+        ImGui.SetNextItemWidth(-1);
+        ImGui.BeginDisabled(busy);
+        if (ImGui.InputText("##kotormap", ref _kotorName, (uint)MapNames.MaxLength)) _kotorNameEdited = !string.IsNullOrWhiteSpace(_kotorName);
+        ImGui.EndDisabled();
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip($"Name of the map and of its files (<name>.pk3, maps/<name>.bsp, shaders/<name>.shader): a-z, 0-9, _ ; {MapNames.MaxLength} characters max.");
+        if (_kotorNameEdited && MapNames.Validate(MapNames.Normalize(_kotorName)) is { } bad)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, Red);
+            ImGui.TextWrapped(bad);
+            ImGui.PopStyleColor();
+        }
+        _kotor.MapNameOverride = _kotorNameEdited ? _kotorName : null;
+    }
+
     /// <summary>Assemblage previsualise : « Link modules » quand il faut lier ou appliquer, « Edit placement » sinon.</summary>
     private void DrawLinkButton(bool busy)
     {
@@ -427,7 +481,7 @@ public sealed class MainScreen
                 ImGui.EndDisabled();
                 ImGui.SameLine();
             }
-            ImGui.BeginDisabled(!_workflow.CanNext);
+            ImGui.BeginDisabled(!_workflow.CanNext || (_swtor is { } swtor && swtor.ImportBlocked(_workflow)));
             if (ImGui.Button((busy ? "..." : label) + "###next", new Vector2(180, 40) * UiScale)) _ = _workflow.NextAsync();
             ImGui.EndDisabled();
         }

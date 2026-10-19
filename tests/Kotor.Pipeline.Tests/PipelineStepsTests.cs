@@ -49,11 +49,11 @@ public sealed class PipelineStepsTests : IDisposable
         Assert.True(File.Exists(exp.BspPath));
         Assert.Contains("info_player_start", exp.Bsp.Entities);
         Assert.Contains(exp.Bsp.Surfaces, s => s.Shader == "textures/kotor/t");
-        Assert.True(File.Exists(Path.Combine(exp.StagingDir, "shaders", "kotor_demo.shader")));
-        Assert.False(File.Exists(Path.Combine(opt.JaBaseDir, "kotor_demo.pk3"))); // pas encore de pk3
+        Assert.True(File.Exists(Path.Combine(exp.StagingDir, "shaders", "demo.shader")));
+        Assert.False(File.Exists(Path.Combine(opt.JaBaseDir, "demo.pk3"))); // pas encore de pk3
 
         Pk3StepResult pk3 = PipelineSteps.CreatePk3(exp, imp, opt, log);
-        Assert.Equal(Path.Combine(opt.JaBaseDir, "kotor_demo.pk3"), pk3.Pk3Path);
+        Assert.Equal(Path.Combine(opt.JaBaseDir, "demo.pk3"), pk3.Pk3Path);
         using var z = ZipFile.OpenRead(pk3.Pk3Path);
         Assert.Contains(z.Entries, e => e.FullName == "maps/demo.bsp");
     }
@@ -106,6 +106,57 @@ public sealed class PipelineStepsTests : IDisposable
         Assert.Contains(log.Warnings, w => w.Code == "BSP_READBACK_FAILED");
     }
 
+    private static void WriteZip(string path, string entry)
+    {
+        using var z = ZipFile.Open(path, ZipArchiveMode.Create);
+        z.CreateEntry(entry);
+    }
+
+    [Fact]
+    public void CreatePk3_never_replaces_a_pk3_of_another_map()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        ImportStepResult imp = PipelineSteps.Import(SmallScene(), "assets0", opt, log);
+        ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
+        string pk3 = Path.Combine(opt.JaBaseDir, "assets0.pk3");
+        WriteZip(pk3, "textures/x.jpg");
+        byte[] original = File.ReadAllBytes(pk3);
+
+        var ex = Assert.Throws<PipelineStepException>(() => PipelineSteps.CreatePk3(exp, imp, opt, log));
+        Assert.Equal("MAP_NAME_TAKEN", ex.Code);
+        Assert.Equal(original, File.ReadAllBytes(pk3));
+    }
+
+    [Fact]
+    public void CreatePk3_refuses_a_shader_file_already_in_another_pk3()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        ImportStepResult imp = PipelineSteps.Import(SmallScene(), "common", opt, log);
+        ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
+        WriteZip(Path.Combine(opt.JaBaseDir, "assets1.pk3"), "shaders/common.shader");
+
+        var ex = Assert.Throws<PipelineStepException>(() => PipelineSteps.CreatePk3(exp, imp, opt, log));
+        Assert.Equal("MAP_NAME_TAKEN", ex.Code);
+        Assert.False(File.Exists(Path.Combine(opt.JaBaseDir, "common.pk3")));
+    }
+
+    [Fact]
+    public void CreatePk3_replaces_its_own_map_and_warns_about_the_old_prefixed_pk3()
+    {
+        var opt = Opt();
+        var log = new ImportLog();
+        ImportStepResult imp = PipelineSteps.Import(SmallScene(), "demo", opt, log);
+        ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
+        PipelineSteps.CreatePk3(exp, imp, opt, log);
+        File.WriteAllBytes(Path.Combine(opt.JaBaseDir, "kotor_demo.pk3"), [1]);
+
+        Pk3StepResult again = PipelineSteps.CreatePk3(exp, imp, opt, log);
+        Assert.Equal(Path.Combine(opt.JaBaseDir, "demo.pk3"), again.Pk3Path);
+        Assert.Contains(log.Warnings, w => w.Code == "LEGACY_PK3");
+    }
+
     [Fact]
     public void CreatePk3_locked_target_fails_cleanly()
     {
@@ -114,7 +165,7 @@ public sealed class PipelineStepsTests : IDisposable
         ImportStepResult imp = PipelineSteps.Import(SmallScene(), "locked", opt, log);
         ExportStepResult exp = PipelineSteps.Export(imp, opt, log);
         Directory.CreateDirectory(opt.JaBaseDir);
-        string pk3 = Path.Combine(opt.JaBaseDir, "kotor_locked.pk3");
+        string pk3 = Path.Combine(opt.JaBaseDir, "locked.pk3");
         byte[] original = [1, 2, 3, 4, 5];
         File.WriteAllBytes(pk3, original);
 

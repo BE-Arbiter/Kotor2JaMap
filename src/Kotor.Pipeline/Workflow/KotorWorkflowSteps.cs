@@ -93,6 +93,17 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         _mapName = mapName;
     }
 
+    /// <summary>Nom de carte saisi pour un module KOTOR ou un assemblage (null ou vide : nom par defaut, comme la CLI).</summary>
+    public string? MapNameOverride { get; set; }
+
+    /// <summary>Nom par defaut : le module, ou <c>&lt;reference&gt;_&lt;nombre&gt;</c> pour un assemblage.</summary>
+    public static string DefaultMapName(IReadOnlyList<string> modules, int referenceIndex) => modules.Count > 1
+        ? ModuleSelection.DefaultMapName(modules[Math.Clamp(referenceIndex, 0, modules.Count - 1)], modules.Count)
+        : MapNames.Normalize(modules[0]);
+
+    private string? KotorMapName => !string.IsNullOrWhiteSpace(MapNameOverride) ? MapNames.Normalize(MapNameOverride)
+        : Assembly is { } a ? DefaultMapName(a.Modules, a.ReferenceIndex) : null;
+
     public AssemblySession? Assembly { get; private set; }
     private int _builtRevision = -1;
     public bool AssemblyUpToDate => Assembly is { } a && a.Revision == _builtRevision;
@@ -173,7 +184,7 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         var log = new ImportLog();
         try
         {
-            ImportStepResult imported = PipelineSteps.Import(scene, _mapName, _opt, log);
+            ImportStepResult imported = PipelineSteps.Import(scene, _mapName ?? KotorMapName, _opt, log);
             PreviewModel model = PreviewBuilder.FromImport(imported, _entities, _opt.Scale, _opt.LightmapBrightness, log);
             _imported = imported; _exported = null;
             _importModel = model;

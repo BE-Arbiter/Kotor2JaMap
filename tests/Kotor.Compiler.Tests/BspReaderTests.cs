@@ -59,6 +59,20 @@ public sealed class BspReaderTests : IDisposable
         Assert.Contains(bsp.Surfaces, s => s.Shader == "textures/skies/test");
     }
 
+    [Fact]
+    public void Vertex_alpha_reaches_the_drawverts()
+    {
+        SurfaceInput floor = TestScenes.FloorSurface("textures/swtor/a__b");
+        byte[] alpha = [.. Enumerable.Range(0, floor.Positions.Length).Select(i => (byte)(i * 60))];
+        BspFile bsp = BspReader.Read(CompileBytes(TestScenes.Input([floor with { VertexAlpha = alpha }], sky: "textures/skies/test")));
+        BspSurface got = Assert.Single(bsp.Surfaces, s => s.Shader == "textures/swtor/a__b");
+        for (int i = 0; i < floor.Positions.Length; i++)
+        {
+            int j = Array.IndexOf(got.Positions, floor.Positions[i]);
+            Assert.Equal(alpha[i], got.Colors[j * 4 + 3]);
+        }
+    }
+
     private static string[] VertexSet(Vector3[] p, Vector2[] uv0, Vector2[]? uv1) =>
         [.. p.Select((v, i) => $"{v}|{uv0[i]}|{(uv1 is null ? "-" : uv1[i].ToString())}").Order(StringComparer.Ordinal)];
 

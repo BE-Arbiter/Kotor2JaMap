@@ -17,7 +17,7 @@ public static class SyntheticArea
         Vector3? Euler = null, Vector3? Scale = null, Action<List<byte>>? Extra = null, int ExtraFields = 0);
 
     public static byte[] Area(string[] rooms, Dictionary<ulong, string> assets, string areaProperties = "~0|1|10|is_outdoor|5|false|",
-        string[]? markers = null)
+        string[]? markers = null, Dictionary<ulong, string>? terrainLayers = null)
     {
         var body = new List<byte>();
         var offsets = new int[9];
@@ -42,7 +42,10 @@ public static class SyntheticArea
         Int(body, 1);
         Ascii(body, "Area");
         Ascii(body, areaProperties);
-        for (int i = 4; i < 9; i++) { offsets[i] = headerSize + body.Count; Int(body, 0); }
+        offsets[4] = headerSize + body.Count;
+        Int(body, terrainLayers?.Count ?? 0);
+        foreach (var (id, name) in terrainLayers ?? []) { Long(body, id); Ascii(body, name); }
+        for (int i = 5; i < 9; i++) { offsets[i] = headerSize + body.Count; Int(body, 0); }
 
         var file = new List<byte>();
         Ascii(file, "AREA_DAT_BINARY_FORMAT_");

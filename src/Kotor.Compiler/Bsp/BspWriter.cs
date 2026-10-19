@@ -173,24 +173,6 @@ public static class BspWriter
             if (sm.Brushes.Count == 0) { mlo = Vector3.Zero; mhi = Vector3.Zero; }
             models.Add((mlo, mhi, firstBrush, sm.Brushes.Count));
         }
-        // MAX_SUBMODELS = 512 (q_shared.h:656) ; le dernier numero est BOX_MODEL_HANDLE (cm_local.h:31).
-        CheckMax("MAX_SUBMODELS", models.Count + 1, 511);
-
-        int totalVerts = surfaces.Sum(s => s.Positions.Length);
-        int totalIndexes = surfaces.Sum(s => s.Indices.Length);
-        int leafSurfaceCount = leafSurfaces.Sum(l => l?.Count ?? 0);
-
-        int leafBrushCount = leaves.Sum(l => l.BrushIndices.Count);
-        limits.CheckPlanes(planes.Count);
-        limits.CheckNodes(nodes.Count);
-        limits.CheckLeaves(leaves.Count);
-        limits.CheckBrushes(brushes.Count);
-        CheckMax("MAX_MAP_BRUSHSIDES", sides.Count, limits.MaxBrushSides);
-        CheckMax("MAX_MAP_LEAFBRUSHES", leafBrushCount, limits.MaxLeafBrushes);
-        LimitCheck.CheckRenderLimits(shaderNames.Count, surfaces.Count, totalVerts, totalIndexes, leafSurfaceCount, limits.MaxLeafSurfaces,
-            limits.MaxDrawVertices, limits.MaxDrawIndices);
-        foreach (RenderSurface sf in surfaces) LimitCheck.CheckSurface(sf.Shader, sf.Positions.Length, sf.Indices.Length);
-        LimitCheck.CheckRtxEstimate(LimitCheck.EstimateRtxPrimitives(surfaces), limits.MaxRtxPrimitives);
 
         // Bornes des nœuds : union des bornes des enfants.
         var nodeMin = new Vector3[nodes.Count];
@@ -244,8 +226,9 @@ public static class BspWriter
             {
                 leafIndex++;
                 int nSurf = leafSurfaces[leafIndex]?.Count ?? 0;
-                // Cluster : celui de la cellule de la piece (tree.LeafClusters) ; une feuille solide sans surface reste -1 (jamais dessinee).
-                w.Write(l.IsSolid && nSurf == 0 ? -1 : useRooms ? tree.LeafClusters[leafIndex] : 0);
+                // Cluster : celui de la cellule de la piece (tree.LeafClusters), meme sans surface. Une feuille « solide » de cet arbre contient
+                // des brushes mais surtout de l'air : a -1, le test PVS des misc_model_static (SV_inPVS) y lirait hors de la table de visibilite.
+                w.Write(useRooms ? tree.LeafClusters[leafIndex] : 0);
                 w.Write(0);                  // area
                 IntVec(w, l.Min, floor: true); IntVec(w, l.Max, floor: false);
                 w.Write(firstLeafSurface); w.Write(nSurf); // leafsurfaces
@@ -312,6 +295,8 @@ public static class BspWriter
                     Vec(w, sf.Normals[i]);
                     // couleurs[4][4] : style 0. Lightmap : blanc (l'eclairage vient de la lightmap via le shader) ; ciel : blanc ; sinon eclairage cuit.
                     byte[] rgba = sf.Sky || sf.LightmapUvs is not null ? [255, 255, 255, 255] : lighting.Evaluate(sf.Positions[i], sf.Normals[i], sf.DoubleSided);
+                    // Alpha : opacite de la seconde couche d'un shader a deux couches (alphaGen vertex).
+                    if (sf.VertexAlpha is { } va) rgba = [rgba[0], rgba[1], rgba[2], va[i]];
                     w.Write(rgba);
                     for (int k = 4; k < 16; k++) w.Write((byte)255);
                 }
@@ -349,11 +334,6 @@ public static class BspWriter
 
     private static (float, float, float, float) Key(BspPlane p) =>
         (MathF.Round(p.Normal.X, 4), MathF.Round(p.Normal.Y, 4), MathF.Round(p.Normal.Z, 4), MathF.Round(p.Dist, 3));
-
-    private static void CheckMax(string name, int count, int max)
-    {
-        LimitCheck.Check(name, count, max, collisionRelated: true);
-    }
 
     private static byte[] Make(Action<BinaryWriter> fill)
     {

@@ -183,7 +183,8 @@ public class WorkflowUiTests
             Assert.Null(ctl.LastError);
             Assert.Equal(WorkflowStage.Previewed, ctl.Stage);
             Assert.True(ctl.Preview!.TriangleCount > 10_000);
-            Assert.Equal("imperial_fleet_station_dark_council_chamber", swtor.MapName);
+            Assert.Equal(SwtorMapNames.FromInternalName("imperial_fleet", [CouncilRoom]), swtor.MapName);
+            Assert.True(swtor.MapName!.Length <= MapNames.MaxLength);
             ctl.NextAsync().Wait();
             Assert.Null(ctl.LastError);
             ctl.NextAsync().Wait();
@@ -191,7 +192,7 @@ public class WorkflowUiTests
             Assert.Equal(WorkflowStage.Exported, ctl.Stage);
 
             // pk3 verrouille (jeu ouvert) : erreur claire, pas de plantage ; une fois libere, l'etape reussit.
-            string pk3 = Path.Combine(opt.JaBaseDir, "swtor_imperial_fleet_station_dark_council_chamber.pk3");
+            string pk3 = Path.Combine(opt.JaBaseDir, swtor.MapName + ".pk3");
             using (var held = new FileStream(pk3, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
             {
                 ctl.NextAsync().Wait();

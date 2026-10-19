@@ -5,6 +5,7 @@ using Kotor.Core.Gff;
 using Kotor.Core.Layout;
 using Kotor.Core.Mdl;
 using Kotor.Core.Modules;
+using Kotor.Core.Scene;
 
 namespace Kotor.Core.Entities;
 
@@ -209,6 +210,7 @@ public static class ModuleEntitiesReader
     {
         foreach (var room in layout.Rooms)
         {
+            if (ModuleSceneBuilder.IsSkyRoom(room.Model)) continue;   // meme exclusion que la scene : le dome de ciel n'est pas importe
             byte[]? mdl = res.Find(room.Model, ResourceType.Mdl);
             byte[]? mdx = res.Find(room.Model, ResourceType.Mdx);
             if (mdl is null || mdx is null)

@@ -20,6 +20,16 @@ public class AreaDatReaderTests
     }
 
     [Fact]
+    public void Reads_terrain_layer_table()
+    {
+        byte[] data = Area(["a"], StandardAssets(), terrainLayers: new() { [1] = "ter_tyt_grass_01", [0x32] = "ter_rep_metal_gray01" });
+        AreaDat area = AreaDatReader.Read(data);
+        Assert.Equal("ter_tyt_grass_01", area.TerrainLayers[1]);
+        Assert.Equal("ter_rep_metal_gray01", area.TerrainLayers[0x32]);
+        Assert.Empty(AreaDatReader.Read(Area(["a"], StandardAssets())).TerrainLayers);
+    }
+
+    [Fact]
     public void Wrong_magic_throws()
     {
         byte[] data = Area([], []);

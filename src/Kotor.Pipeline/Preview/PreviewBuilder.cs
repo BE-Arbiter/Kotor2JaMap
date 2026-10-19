@@ -23,7 +23,7 @@ public static partial class PreviewBuilder
         ArgumentNullException.ThrowIfNull(scene);
         var textures = NewTextures();
         var batches = new List<PreviewBatch>();
-        foreach (SceneMesh src in scene.Meshes)
+        foreach (SceneMesh src in scene.AllMeshes())
         {
             if (src.Triangles.Length < 3 || src.Positions.Length == 0) continue;
             scene.Textures.TryGetValue(src.Texture, out KotorTexture? tex);
@@ -50,8 +50,13 @@ public static partial class PreviewBuilder
                 Vector3 n = i < mesh.Normals.Length ? mesh.Normals[i] : Vector3.UnitZ;
                 verts[i] = new PreviewVertex(mesh.Positions[i] * scale, n, uv0, uv1);
             }
-            batches.Add(new PreviewBatch($"{mesh.Room}/{mesh.Node}", tex is null ? Key : planned.Texture, lmKey, BlendOf(planned.Kind),
-                planned.DoubleSided, verts, mesh.Triangles));
+            var batch = new PreviewBatch($"{mesh.Room}/{mesh.Node}", tex is null ? Key : planned.Texture, lmKey, BlendOf(planned.Kind),
+                planned.DoubleSided, verts, mesh.Triangles, Room: mesh.Room);
+            batches.Add(batch);
+            if (planned.Overlay is { } over && scene.Textures.TryGetValue(over, out KotorTexture? overTex) && overTex is not null)
+                textures.TryAdd(over, ToTexture(overTex.Width, overTex.Height, overTex.Rgba));
+            if (OverlayBatch(batch, planned, textures, i => mesh.VertexAlpha is { } va && i < va.Length ? va[i] : (byte)0) is { } overlay)
+                batches.Add(overlay);
         }
 
         var collision = new List<Vector3>();
@@ -90,8 +95,11 @@ public static partial class PreviewBuilder
             for (int i = 0; i < verts.Length; i++)
                 verts[i] = new PreviewVertex(s.Positions[i], i < s.Normals.Length ? s.Normals[i] : Vector3.UnitZ,
                     i < s.Uv0.Length ? s.Uv0[i] : Vector2.Zero, lm is not null && i < s.Uv1!.Length ? s.Uv1[i] : Vector2.Zero);
-            batches.Add(new PreviewBatch(s.Shader, diffuse, lm, ps is null ? PreviewBlend.Opaque : BlendOf(ps.Kind), s.DoubleSided,
-                verts, s.Indices));
+            var batch = new PreviewBatch(s.Shader, diffuse, lm, ps is null ? PreviewBlend.Opaque : BlendOf(ps.Kind), s.DoubleSided,
+                verts, s.Indices);
+            batches.Add(batch);
+            if (ps is not null && OverlayBatch(batch, ps, textures, i => s.VertexAlpha is { } va && i < va.Length ? va[i] : (byte)0) is { } overlay)
+                batches.Add(overlay);
         }
 
         var collision = new List<Vector3>();
@@ -157,8 +165,11 @@ public static partial class PreviewBuilder
             // des autres vues (KOTOR, face avant = antihoraire).
             var idx = (int[])s.Indices.Clone();
             for (int i = 0; i + 2 < idx.Length; i += 3) (idx[i + 1], idx[i + 2]) = (idx[i + 2], idx[i + 1]);
-            batches.Add(new PreviewBatch(s.Shader, diffuse, lm, ps is null ? PreviewBlend.Opaque : BlendOf(ps.Kind),
-                ps?.DoubleSided ?? false, verts, idx, isSky));
+            var batch = new PreviewBatch(s.Shader, diffuse, lm, ps is null ? PreviewBlend.Opaque : BlendOf(ps.Kind),
+                ps?.DoubleSided ?? false, verts, idx, isSky);
+            batches.Add(batch);
+            if (ps is not null && OverlayBatch(batch, ps, tex, i => 4 * i + 3 < s.Colors.Length ? s.Colors[4 * i + 3] : (byte)0) is { } overlay)
+                batches.Add(overlay);
         }
 
         (Vector3? spawn, float yaw) = SpawnOf(ParseEntities(bsp.Entities));
@@ -203,6 +214,23 @@ public static partial class PreviewBuilder
     private static PreviewTexture ToTexture(int w, int h, byte[] rgba) => new(w, h, rgba);
 
     private static Vector2 FlipV(Vector2 uv) => new(uv.X, 1f - uv.Y);
+
+    /// <summary>
+    /// Seconde couche d'un shader <see cref="ShaderKind.Overlay"/> : memes sommets que le lot de base, texture <see cref="PlannedShader.Overlay"/>,
+    /// UV multipliees par <see cref="PlannedShader.OverlayScale"/> (comme <c>tcMod scale</c>), opacite par sommet. Null pour les autres shaders.
+    /// </summary>
+    private static PreviewBatch? OverlayBatch(PreviewBatch baseBatch, PlannedShader ps, IReadOnlyDictionary<string, PreviewTexture> textures, Func<int, byte> alpha)
+    {
+        if (ps.Kind != ShaderKind.Overlay || ps.Overlay is null) return null;
+        var verts = new PreviewVertex[baseBatch.Vertices.Length];
+        for (int i = 0; i < verts.Length; i++)
+            verts[i] = baseBatch.Vertices[i] with { Uv0 = baseBatch.Vertices[i].Uv0 * ps.OverlayScale, Alpha = alpha(i) };
+        return baseBatch with
+        {
+            Name = baseBatch.Name + "+" + ps.Overlay, DiffuseKey = textures.ContainsKey(ps.Overlay) ? ps.Overlay : Key, LightmapKey = null,
+            Blend = PreviewBlend.Alpha, Vertices = verts,
+        };
+    }
 
     private static PreviewBlend BlendOf(ShaderKind k) => k switch
     {

@@ -11,7 +11,7 @@ public sealed class BspLimitException(string message, bool collisionRelated = fa
 /// <summary>Limites BSP du moteur JA (RBSP v1).</summary>
 public sealed record Limits(int MaxBrushes, int MaxPlanes, int MaxNodes, int MaxLeaves,
     int MaxBrushSides = 0x20000, int MaxLeafBrushes = 0x40000, int MaxLeafSurfaces = 0x20000, long MaxRtxPrimitives = long.MaxValue,
-    int MaxDrawVertices = 0x80000, int MaxDrawIndices = 0x80000)
+    int MaxDrawVertices = 0x80000, int MaxDrawIndices = 0x80000, int MaxDrawSurfaces = 0x20000)
 {
     public const int MaxDrawIndexes = 0x80000;
 
@@ -36,11 +36,11 @@ public sealed record Limits(int MaxBrushes, int MaxPlanes, int MaxNodes, int Max
     /// (code/qcommon/cm_load.cpp) allouent count entrees d apres la taille du lump, sans borne ; MAX_MAP_LEAFFACES de qfiles.h n y est pas utilise.
     /// Necessaire a l assemblage end_m01aa + end_m01ab (1 242 104 leaf faces), essaye en jeu.
     /// Le reste (shaders, surfaces, modeles) reste a la valeur vanilla.
-    /// Sommets et index de rendu (MAX_MAP_DRAW_VERTS / MAX_MAP_DRAW_INDEXES, 0x80000 chacun) : ces constantes de qfiles.h ne servent qu au compilateur q3map2 ;
+    /// Surfaces, sommets et index de rendu (MAX_MAP_DRAW_SURFS 0x20000, MAX_MAP_DRAW_VERTS / MAX_MAP_DRAW_INDEXES 0x80000) : ces constantes de qfiles.h ne servent qu au compilateur q3map2 ;
     /// les chargeurs de rendu d OpenJK (rd-vanilla et rd-rend2, R_LoadSurfaces) tirent le nombre de sommets et d index de la taille du lump et allouent par surface,
     /// sans les utiliser. Le profil swgl ne les applique donc pas (bornes larges : le lump doit tenir dans un int32). Les limites par surface (SHADER_MAX_VERTEXES / INDEXES) restent verifiees.</summary>
-    public static Limits Swgl { get; } = new(0x100000, 0x100000, 0x100000, 0x100000, 0x100000, 0x100000, 0x200000, MaxRtxPrimitives: RtxPrimitiveCrashThreshold,
-        MaxDrawVertices: 0x1000000, MaxDrawIndices: 0x4000000);
+    public static Limits Swgl { get; } = new(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue / 4,MaxRtxPrimitives: RtxPrimitiveCrashThreshold,
+        MaxDrawVertices: int.MaxValue / 80, MaxDrawIndices: int.MaxValue / 4,MaxDrawSurfaces: int.MaxValue / 104);
 
     /// <summary>"swgl" (defaut) ou "vanilla", insensible a la casse.</summary>
     public static Limits FromName(string? name) => (name ?? "swgl").Trim().ToLowerInvariant() switch
@@ -49,15 +49,4 @@ public sealed record Limits(int MaxBrushes, int MaxPlanes, int MaxNodes, int Max
         "vanilla" => Vanilla,
         _ => throw new ArgumentException($"Unknown BSP limits profile: {name} (expected: swgl or vanilla).", nameof(name)),
     };
-
-    public void CheckBrushes(int count) => Check("MAX_MAP_BRUSHES", count, MaxBrushes);
-    public void CheckPlanes(int count) => Check("MAX_MAP_PLANES", count, MaxPlanes);
-    public void CheckNodes(int count) => Check("MAX_MAP_NODES", count, MaxNodes);
-    public void CheckLeaves(int count) => Check("MAX_MAP_LEAFS", count, MaxLeaves);
-
-    private static void Check(string name, int count, int max)
-    {
-        if (count > max)
-            throw new BspLimitException($"BSP limit exceeded: {name} = {max}, {count} required. Reduce the collision geometry; no partial BSP is written.", collisionRelated: true);
-    }
 }

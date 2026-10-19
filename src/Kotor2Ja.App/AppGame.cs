@@ -55,6 +55,7 @@ public sealed class AppGame : Game
 
     private PreviewModel? _failedPreview;
     private Swtor.Pipeline.SwtorWorkflowSteps? _swtorSteps;
+    private KotorWorkflowSteps? _kotorSteps;
 
     // The back buffer follows the window when it is resized, maximized or the screen resolution changes.
     private void OnClientSizeChanged(object? sender, EventArgs e)
@@ -99,6 +100,7 @@ public sealed class AppGame : Game
         _workflow = NewWorkflow(options);
         _screen = new MainScreen(_workflow, _options);
         _screen.SetSwtor(_swtorSteps!);
+        _screen.SetKotor(_kotorSteps!);
         _screen.SaveSettings = SaveSettings;
         _screen.DetectSettings = () => GameLocator.Detect();
         if (_auto is not null) _screen.LogSink = Console.WriteLine;
@@ -114,8 +116,10 @@ public sealed class AppGame : Game
     private WorkflowController NewWorkflow(ExportOptions options)
     {
         var swtor = _swtorSteps = new Swtor.Pipeline.SwtorWorkflowSteps(options);
+        var kotor = _kotorSteps = new KotorWorkflowSteps(options);
         _screen?.SetSwtor(swtor);
-        return new WorkflowController(new Swtor.Pipeline.GameWorkflowSteps(new KotorWorkflowSteps(options), swtor));
+        _screen?.SetKotor(kotor);
+        return new WorkflowController(new Swtor.Pipeline.GameWorkflowSteps(kotor, swtor));
     }
 
     private void LogFolders(ExportOptions options)
@@ -226,7 +230,14 @@ public sealed class AppGame : Game
             _camera.Update((float)gameTime.ElapsedGameTime.TotalSeconds, kb, mouse, _lastWheel,
                 io.WantCaptureMouse && !_looking, io.WantTextInput, IsActive, center, out _looking);
         _lastWheel = mouse.ScrollWheelValue;
-        if (!editor.IsOpen) UpdateSpawnPlacement(io, mouse, kb);
+        if (!editor.IsOpen)
+        {
+            UpdateSpawnPlacement(io, mouse, kb);
+            UpdateRoomPicking(io, mouse);
+            if (_screen.TakeGoToRoom() is { } goRoom && _workflow.Preview is { } goModel && PreviewPicker.RoomBounds(goModel, goRoom) is var (gmin, gmax))
+                _camera.Frame(new Vector3(gmin.X, gmin.Y, gmin.Z), new Vector3(gmax.X, gmax.Y, gmax.Z));
+            _options.SelectedRooms = _screen.HighlightedRooms;
+        }
         _wasLeftDown = mouse.LeftButton == ButtonState.Pressed;
         IsMouseVisible = !_looking;
         base.Update(gameTime);
@@ -266,7 +277,28 @@ public sealed class AppGame : Game
         }
     }
 
-    private const float SpawnHeight = 25f;   // comme ModuleExporter.SpawnHeight : hauteur du point au-dessus du sol
+    // Grande zone SWTOR apercue : un clic gauche sur la vue tire un rayon ; la room touchee est choisie ou retiree (surbrillance).
+    private void UpdateRoomPicking(ImGuiIOPtr io, MouseState mouse)
+    {
+        if (!_screen.CanPickRooms) return;
+        bool click = mouse.LeftButton == ButtonState.Pressed && !_wasLeftDown;
+        PreviewModel? model = _workflow.Preview;
+        if (!click || io.WantCaptureMouse || _looking || model is null || !IsActive) return;
+
+        PresentationParameters pp = GraphicsDevice.PresentationParameters;
+        int left = (int)MainScreen.LeftWidth;
+        var viewport = new Viewport(left, 0, Math.Max(1, pp.BackBufferWidth - left), Math.Max(1, pp.BackBufferHeight)) { MinDepth = 0f, MaxDepth = 1f };
+        if (mouse.X < left) return;
+        Matrix view = _camera.View, proj = _camera.Projection(viewport.AspectRatio);
+        Vector3 near = viewport.Unproject(new Vector3(mouse.X, mouse.Y, 0f), proj, view, Matrix.Identity);
+        Vector3 far = viewport.Unproject(new Vector3(mouse.X, mouse.Y, 1f), proj, view, Matrix.Identity);
+        var origin = new System.Numerics.Vector3(_camera.Position.X, _camera.Position.Y, _camera.Position.Z);
+        var dir = new System.Numerics.Vector3(far.X - near.X, far.Y - near.Y, far.Z - near.Z);
+        if (PreviewPicker.RaycastRoom(model, origin, dir) is not { Room: { } room }) return;
+        _screen.ToggleRoom(room);
+    }
+
+    private const float SpawnHeight = 25f;  // comme ModuleExporter.SpawnHeight : hauteur du point au-dessus du sol
 
     // Camera sur le point d'apparition, sinon sur les bornes. Les etapes suivantes d'un meme module gardent la position du joueur
     // quand les bornes ne changent pas ; un autre module ou d'autres bornes recadrent.

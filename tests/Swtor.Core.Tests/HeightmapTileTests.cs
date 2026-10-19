@@ -7,7 +7,11 @@ namespace Swtor.Core.Tests;
 public class HeightmapTileTests
 {
     /// <summary>Flux decompresse synthetique : hauteur(r, c) = r + c / 10 (en unites), pourtour compris.</summary>
-    internal static byte[] Synthetic(int rows, int cols, bool[]? vertexPresent = null, int version = 2)
+    /// <summary>
+    /// Avec <paramref name="layers"/> : carte de melange apres les hauteurs, <c>(2*rows-1) x (2*cols-1)</c> texels, le long de X d'abord,
+    /// un poids <c>u8</c> par couche ; <paramref name="weight"/>(rangee fine, colonne fine, emplacement) donne le poids.
+    /// </summary>
+    internal static byte[] Synthetic(int rows, int cols, bool[]? vertexPresent = null, int version = 2, byte[]? layers = null, Func<int, int, int, byte>? weight = null)
     {
         float H(int r, int c) => r + c / 10f;
         var ms = new MemoryStream();
@@ -24,6 +28,15 @@ public class HeightmapTileTests
         for (int k = 0; k < cols - 1; k++) { w.Write(H(0, k)); w.Write(H(rows - 1, k)); }
         for (int r = 1; r < rows - 1; r++)
             for (int c = 1; c < cols - 1; c++) w.Write((ushort)Math.Round(H(r, c) * 512f));
+        if (layers is not null)
+        {
+            w.Write((byte)layers.Length);
+            w.Write(layers);
+            for (int fc = 0; fc < 2 * cols - 1; fc++)
+                for (int fr = 0; fr < 2 * rows - 1; fr++)
+                    for (int s = 0; s < layers.Length; s++) w.Write(weight!(fr, fc, s));
+            w.Write((byte)1); // carte de teinte (non lue)
+        }
         w.Write(0xABCDEFABu);
         return ms.ToArray();
     }
@@ -67,6 +80,29 @@ public class HeightmapTileTests
         Assert.False(t.IsCellPresent(1, 1)); // touche le sommet troue
         Assert.False(t.IsCellPresent(2, 2));
         Assert.True(t.IsCellPresent(3, 3));
+    }
+
+    [Fact]
+    public void Read_decodes_layer_blend_map_along_X_first()
+    {
+        // Emplacement 0 (couche 0x0C) plein a gauche de X, emplacement 1 (0x01) plein a droite ; l'emplacement 2 (0xFF) est vide.
+        HeightmapTile t = HeightmapTile.Read(Synthetic(5, 4, layers: [0x0C, 0x01, 0xFF],
+            weight: (fr, fc, s) => s == 2 ? (byte)0 : (fr < 5) == (s == 0) ? (byte)255 : (byte)0));
+        Assert.Equal([0x0C, 0x01, 0xFF], t.Layers);
+        Assert.Equal(9, t.BlendRows);
+        Assert.Equal(7, t.BlendColumns);
+        Assert.Equal(255, t.BlendWeight(0, 4, 6));
+        Assert.Equal(0, t.BlendWeight(1, 4, 6));
+        Assert.Equal(255, t.BlendWeight(1, 8, 0));
+        Assert.Equal(0, t.BlendWeight(2, 8, 0));
+    }
+
+    [Fact]
+    public void Read_without_blend_map_has_no_layers()
+    {
+        HeightmapTile t = HeightmapTile.Read(Synthetic(6, 6));
+        Assert.Empty(t.Layers);
+        Assert.Null(t.BlendWeights);
     }
 
     [Fact]

@@ -16,6 +16,9 @@ public interface ISwtorModelSource
 
     /// <summary>Image DDS (chemin avec ou sans extension) decodee en RGBA, ou null si absente. Format non gere : <see cref="GameFormatException"/>.</summary>
     DdsImage? LoadTexture(string resourcePath);
+
+    /// <summary>Noms des fichiers d'un dossier de ressources (vide si la source ne sait pas lister).</summary>
+    IReadOnlyList<string> ListFiles(string resourceDir) => [];
 }
 
 /// <summary>Source reelle : dossier de ressources extraites (<see cref="SwtorAssets"/>).</summary>
@@ -33,5 +36,11 @@ public sealed class SwtorAssetsModelSource(SwtorAssets assets) : ISwtorModelSour
     {
         string p = resourcePath.EndsWith(".dds", StringComparison.OrdinalIgnoreCase) ? resourcePath : resourcePath + ".dds";
         return assets.ReadBytes(p) is { } b ? DdsReader.Decode(b) : null;
+    }
+
+    public IReadOnlyList<string> ListFiles(string resourceDir)
+    {
+        string dir = Path.Combine(assets.Root, SwtorAssets.Normalize(resourceDir).Replace('/', Path.DirectorySeparatorChar));
+        return Directory.Exists(dir) ? [.. Directory.EnumerateFiles(dir).Select(f => Path.GetFileName(f))] : [];
     }
 }

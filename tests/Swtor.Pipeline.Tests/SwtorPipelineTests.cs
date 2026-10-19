@@ -288,7 +288,7 @@ public class SwtorPipelineTests
         Assert.DoesNotContain(log.Warnings, w => w.Code is "SWTOR_MODEL_MISSING" or "SWTOR_MATERIAL_MISSING" or "SWTOR_TEXTURE_MISSING" or "SWTOR_NO_FLOOR");
         // Chaque triangle reste anti-horaire par rapport a sa normale : la conversion d'axes n'inverse rien.
         int bad = 0, total = 0;
-        foreach (var m in r.Scene.Meshes)
+        foreach (var m in r.Scene.AllMeshes())
             for (int i = 0; i + 2 < m.Triangles.Length; i += 3)
             {
                 int a = m.Triangles[i], b = m.Triangles[i + 1], c = m.Triangles[i + 2];
@@ -338,7 +338,7 @@ public class SwtorPipelineTests
             var r = SwtorExporter.Export(Path.Combine(root!, "world", "areas", ShipAreaId), new SwtorAreaSpec(ShipAreaId, []), null, assets, opt, null, log);
             Assert.True(r.Export.Ok, r.Export.Error);
             Assert.Equal("war_planworking", r.MapName);
-            Assert.Equal(Path.Combine(opt.JaBaseDir, "swtor_war_planworking.pk3"), r.Export.Pk3Path);
+            Assert.Equal(Path.Combine(opt.JaBaseDir, "war_planworking.pk3"), r.Export.Pk3Path);
             Assert.True(File.Exists(r.Export.Pk3Path));
             Assert.DoesNotContain(log.Warnings, w => w.Code is "COLLISION_CAPPED" or "WALKABLE_CAPPED" or "BSP_ERROR"); // collision des .gr2 : sous les limites
             Assert.True(r.Stats!.CollisionInstances > 300);

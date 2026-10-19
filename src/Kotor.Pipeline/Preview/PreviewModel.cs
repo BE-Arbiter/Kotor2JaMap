@@ -3,8 +3,8 @@ using Kotor.Core.Entities;
 
 namespace Kotor.Pipeline.Preview;
 
-/// <summary>Sommet de la vue, en unites JA. UV « haut-gauche » (t = 0 en haut), comme les images.</summary>
-public readonly record struct PreviewVertex(Vector3 Position, Vector3 Normal, Vector2 Uv0, Vector2 Uv1);
+/// <summary>Sommet de la vue, en unites JA. UV « haut-gauche » (t = 0 en haut), comme les images. <c>Alpha</c> : opacite du sommet (seconde couche d un sol a deux couches).</summary>
+public readonly record struct PreviewVertex(Vector3 Position, Vector3 Normal, Vector2 Uv0, Vector2 Uv1, byte Alpha = 255);
 
 public enum PreviewBlend { Opaque, Cutout, Additive, Alpha, Multiply }
 
@@ -12,7 +12,7 @@ public enum PreviewBlend { Opaque, Cutout, Additive, Alpha, Multiply }
 public sealed record PreviewTexture(int Width, int Height, byte[] Rgba);
 
 public sealed record PreviewBatch(string Name, string DiffuseKey, string? LightmapKey, PreviewBlend Blend, bool DoubleSided,
-    PreviewVertex[] Vertices, int[] Indices, bool IsSky = false);
+    PreviewVertex[] Vertices, int[] Indices, bool IsSky = false, string? Room = null);
 
 /// <summary>Repere d'entite. Position et Polygon en unites JA ; Yaw en degres autour de Z.</summary>
 public sealed record PreviewMarker(EntityKind Kind, string Label, Vector3 Position, float Yaw, Vector3[]? Polygon);

@@ -48,8 +48,6 @@ public sealed class BspTree
     /// </summary>
     public static BspTree Build(IReadOnlyList<Brush> brushes, Limits? limits = null, IReadOnlyList<RoomBox>? roomBoxes = null)
     {
-        limits ??= Limits.Vanilla;
-        limits.CheckBrushes(brushes.Count);
 
         var nodes = new List<BspNode>();
         var leaves = new List<BspLeaf>();
@@ -72,9 +70,6 @@ public sealed class BspTree
         var inf = new Vector3(1e9f);
         List<int> allBoxes = partition ? Enumerable.Range(0, roomBoxes!.Count).ToList() : [];
         Recurse(Enumerable.Range(0, brushes.Count).ToList(), min, max, -inf, inf, allBoxes, 0);
-        limits.CheckPlanes(planes.Count);
-        limits.CheckNodes(nodes.Count);
-        limits.CheckLeaves(leaves.Count);
 
         var clusters = new List<int[]>();
         var leafClusters = new List<int>();

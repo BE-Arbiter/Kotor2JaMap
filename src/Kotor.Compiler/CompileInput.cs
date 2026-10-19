@@ -7,7 +7,11 @@ namespace Kotor.Compiler;
 
 /// <summary>Surface de rendu fournie au compilateur, en unités JA. <c>Uv1</c> = UV de lightmap (optionnels). <c>Room</c> : indice dans <see cref="CompileInput.Rooms"/> (-1 = aucune piece).</summary>
 public sealed record SurfaceInput(string Shader, Vector3[] Positions, Vector3[] Normals, Vector2[] Uv0, Vector2[]? Uv1,
-    int[] Indices, bool DoubleSided = false, int Room = -1);
+    int[] Indices, bool DoubleSided = false, int Room = -1)
+{
+    /// <summary>Alpha des couleurs de sommet (0 a 255, meme indice que <see cref="Positions"/>) lu par <c>alphaGen vertex</c> ; null = 255.</summary>
+    public byte[]? VertexAlpha { get; init; }
+}
 
 /// <summary>Scène complète en mémoire, en unités JA. <c>Entities</c>[0] est le worldspawn.</summary>
 public sealed record CompileInput(string MapName, IReadOnlyList<IReadOnlyDictionary<string, string>> Entities,

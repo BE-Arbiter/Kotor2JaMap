@@ -45,6 +45,37 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
     /// <summary>Visibilite par piece : nom de piece (<see cref="SceneMesh.Room"/>) -> pieces visibles depuis elle. Null = pas de donnees (un seul cluster toujours visible). Une piece absente du dictionnaire voit tout et est vue de tout.</summary>
     public IReadOnlyDictionary<string, IReadOnlyCollection<string>>? RoomVisibility { get; init; }
 
+    /// <summary>Modeles places plusieurs fois (SWTOR), hors de <see cref="Meshes"/> : exportes en MD3 + <c>misc_model_static</c> (voir <see cref="SceneModel"/>).</summary>
+    public IReadOnlyList<SceneModel> Models { get; init; } = [];
+
+    /// <summary>Instances de <see cref="Models"/>.</summary>
+    public IReadOnlyList<SceneModelInstance> ModelInstances { get; init; } = [];
+
+    /// <summary>
+    /// <see cref="Meshes"/> plus les instances de modeles remises en repere de scene (apercu), fusionnees par piece et materiau
+    /// comme le sont les maillages de la scene.
+    /// </summary>
+    public IEnumerable<SceneMesh> AllMeshes()
+    {
+        if (ModelInstances.Count == 0) return Meshes;
+        var merged = ModelInstances
+            .SelectMany(i => Models[i.Model].Bake(i.Transform, i.Room))
+            .GroupBy(m => (m.Room, m.Texture, m.Alpha))
+            .Select(g =>
+            {
+                SceneMesh first = g.First();
+                var pos = new List<Vector3>(); var nrm = new List<Vector3>(); var uv = new List<Vector2>(); var tri = new List<int>();
+                foreach (SceneMesh m in g)
+                {
+                    int b = pos.Count;
+                    pos.AddRange(m.Positions); nrm.AddRange(m.Normals); uv.AddRange(m.Uv0);
+                    foreach (int t in m.Triangles) tri.Add(b + t);
+                }
+                return first with { Positions = [.. pos], Normals = [.. nrm], Uv0 = [.. uv], Uv1 = null, Triangles = [.. tri] };
+            });
+        return Meshes.Concat(merged);
+    }
+
     /// <summary>Copie de la scene transformee : positions, normales (rotation seule), lumieres et entree ; textures partagees.</summary>
     public ModuleScene Transformed(RigidTransform t)
     {
@@ -63,6 +94,10 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
             Meshes = meshes,
             Walkmeshes = walkmeshes,
             Lights = Lights.Select(l => l with { Position = t.Apply(l.Position) }).ToList(),
+            ModelInstances = ModelInstances.Select(i => i with
+            {
+                Transform = i.Transform * Matrix4x4.CreateRotationZ(t.YawDegrees * MathF.PI / 180f) * Matrix4x4.CreateTranslation(t.Translation),
+            }).ToList(),
         };
     }
 }

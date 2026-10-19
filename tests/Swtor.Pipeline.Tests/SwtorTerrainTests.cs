@@ -69,6 +69,75 @@ public class SwtorTerrainTests
         Assert.Empty(SwtorTerrain.BuildMesh([(Flat(5, 1f, new bool[25]), Matrix4x4.Identity)], 1, ZUp, false, 1f).Triangles);
     }
 
+    private static HeightmapTile WithBlend(HeightmapTile t, byte[] layers, Func<int, int, int, byte> weight)
+    {
+        int br = 2 * t.Rows - 1, bc = 2 * t.Columns - 1;
+        var w = new byte[br * bc * layers.Length];
+        for (int fc = 0; fc < bc; fc++)
+            for (int fr = 0; fr < br; fr++)
+                for (int s = 0; s < layers.Length; s++) w[(fc * br + fr) * layers.Length + s] = weight(fr, fc, s);
+        return new HeightmapTile(t.Version, t.Rows, t.Columns, t.Heights, t.VertexPresent) { Layers = layers, BlendWeights = w };
+    }
+
+    // Emplacements 0x0C -> couche 1, 0x01 -> couche 2 ; 0xFF (vide) -> aucune ; la couche 0 est le repli.
+    private static int[]? Slots(HeightmapTile t) => t.BlendWeights is null ? null : [.. t.Layers.Select(id => id switch { 0x0C => 1, 0x01 => 2, _ => -1 })];
+
+    [Fact]
+    public void Vertex_layer_weights_come_from_the_blend_texel_under_the_vertex()
+    {
+        // Couche 2 pleine sur les deux premieres rangees de sommets (rangees fines 0 a 2), couche 1 ailleurs.
+        HeightmapTile t = WithBlend(Flat(4), [0x0C, 0x01, 0xFF], (fr, fc, s) => s == 2 ? (byte)0 : (fr <= 2) == (s == 1) ? (byte)255 : (byte)0);
+        SwtorTerrainMesh m = SwtorTerrain.BuildMesh([(t, Matrix4x4.Identity)], 1, ZUp, false, 1f, Slots, 0);
+        Assert.NotNull(m.VertexLayers);
+        for (int v = 0; v < m.Positions.Length; v++)
+        {
+            bool firstRows = m.Positions[v].X < -0.05f; // rangees 0 et 1 : X = -0,3 et -0,1
+            Assert.Equal(firstRows ? 2 : 1, m.VertexLayers![4 * v]);
+            Assert.Equal(255, m.VertexWeights![4 * v]);
+        }
+    }
+
+    [Fact]
+    public void Tile_without_blend_map_uses_the_fallback_layer()
+    {
+        SwtorTerrainMesh m = SwtorTerrain.BuildMesh([(Flat(3), Matrix4x4.Identity)], 1, ZUp, false, 1f, Slots, 0);
+        var parts = SwtorTerrain.SplitByLayers(m);
+        SwtorTerrainPart p = Assert.Single(parts);
+        Assert.Equal(0, p.Base);
+        Assert.Equal(-1, p.Overlay);
+        Assert.Null(p.Alpha);
+        Assert.Equal(m.Triangles.Length, p.Triangles.Length);
+    }
+
+    [Fact]
+    public void Split_gives_single_layer_parts_and_a_blended_pair_with_vertex_alpha()
+    {
+        // Rangees de sommets 0-1 : couche 1 seule ; rangee 2 : moitie/moitie ; rangees 3-4 : couche 2 seule.
+        HeightmapTile t = WithBlend(Flat(5), [0x0C, 0x01], (fr, fc, s) =>
+        {
+            int over = fr < 4 ? 0 : fr == 4 ? 128 : 255;
+            return (byte)(s == 1 ? over : 255 - over);
+        });
+        SwtorTerrainMesh m = SwtorTerrain.BuildMesh([(t, Matrix4x4.Identity)], 1, ZUp, false, 1f, Slots, 0);
+        var parts = SwtorTerrain.SplitByLayers(m);
+        Assert.Equal(m.Triangles.Length, parts.Sum(p => p.Triangles.Length));
+        SwtorTerrainPart one = Assert.Single(parts, p => p.Base == 1 && p.Overlay == -1);
+        SwtorTerrainPart two = Assert.Single(parts, p => p.Base == 2 && p.Overlay == -1);
+        SwtorTerrainPart pair = Assert.Single(parts, p => p.Overlay >= 0);
+        Assert.Equal((1, 2), (pair.Base, pair.Overlay));
+        Assert.Equal(4 * 2, one.Triangles.Length / 3);   // cellules de la rangee 0 seulement (la rangee 1 touche la rangee 2, melangee)
+        Assert.Equal(4 * 2, two.Triangles.Length / 3);
+        Assert.Equal(4 * 2 * 2, pair.Triangles.Length / 3);
+        Assert.NotNull(pair.Alpha);
+        for (int v = 0; v < pair.Positions.Length; v++)
+        {
+            float x = pair.Positions[v].X; // -0,2 / 0 / 0,2 pour les rangees 1 / 2 / 3
+            int expected = x < -0.1f ? 0 : x > 0.1f ? 255 : 128;
+            Assert.InRange(pair.Alpha![v], expected - 1, expected + 1);
+        }
+        Assert.All(parts, p => Assert.Equal(p.Positions.Length, p.Uv.Length));
+    }
+
     [Fact]
     public void Ground_texture_is_the_up_facing_material_lying_on_the_terrain()
     {

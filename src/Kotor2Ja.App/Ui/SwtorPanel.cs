@@ -48,8 +48,42 @@ public sealed class SwtorPanel
         if (steps.IsInstalled(KotorGame.Swtor)) StartCatalog();
     }
 
-    /// <summary>Vrai quand la zone affichee n a aucune room cochee : pas d apercu possible.</summary>
-    public bool NoRoomSelected => _selection is { SelectedCount: 0 };
+    /// <summary>Au-dela de ce nombre de rooms, la zone est apercue en entier puis les rooms se choisissent sur la carte (en dessous : tout est coche, on decoche).</summary>
+    public const int MapSelectThreshold = 32;
+
+    /// <summary>Grande zone : Preview (toute la zone), choix des rooms sur la carte, puis Import. Les rooms demandees par le module (automatisation) gardent le flux classique.</summary>
+    public bool MapSelectMode => _selection is { } s && s.Rooms.Count > MapSelectThreshold && _pendingRooms.Count == 0;
+
+    /// <summary>Vrai quand la zone affichee n a aucune room cochee : pas d apercu possible (en mode carte, l apercu prend toute la zone).</summary>
+    public bool NoRoomSelected => !MapSelectMode && _selection is { SelectedCount: 0 };
+
+    /// <summary>Le clic sur une room de la vue change la selection : mode carte, apercu fait, rien en cours.</summary>
+    public bool CanPickRooms(WorkflowController workflow) =>
+        MapSelectMode && workflow.SelectedGame == KotorGame.Swtor && workflow.Stage == WorkflowStage.Previewed && !workflow.IsBusy;
+
+    /// <summary>Import impossible : mode carte, apercu fait, aucune room choisie.</summary>
+    public bool ImportBlocked(WorkflowController workflow) =>
+        MapSelectMode && workflow.Stage == WorkflowStage.Previewed && _selection is { SelectedCount: 0 };
+
+    /// <summary>Rooms choisies, a surligner dans la vue ; null hors mode carte ou hors etape Apercu.</summary>
+    public HashSet<string>? HighlightedRooms(WorkflowController workflow) =>
+        MapSelectMode && workflow.SelectedGame == KotorGame.Swtor && workflow.Stage == WorkflowStage.Previewed
+            ? new HashSet<string>(_selection!.SelectedRooms, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+    /// <summary>Room dont le bouton « Go to » vient d'etre presse (la vue y amene la camera) ; lue une fois puis effacee.</summary>
+    public string? GoToRoom { get; set; }
+
+    /// <summary>Coche ou decoche la room cliquee dans la vue ; faux si elle n'est pas dans la liste de la zone.</summary>
+    public bool ToggleRoom(string room)
+    {
+        if (_selection is not { } sel || !sel.Rooms.Any(r => r.Name.Equals(room, StringComparison.OrdinalIgnoreCase))) return false;
+        string name = sel.Rooms.First(r => r.Name.Equals(room, StringComparison.OrdinalIgnoreCase)).Name;
+        sel.Set(name, !sel.IsChecked(name));
+        if (!_nameEdited) _mapName = sel.DefaultMapName;
+        _log($"SWTOR: room {name} {(sel.IsChecked(name) ? "selected" : "deselected")} ({sel.SelectedCount}/{sel.Rooms.Count}).");
+        return true;
+    }
 
     /// <summary>Catalogue lu et analyse de zone terminee et affichee (mode automatise : attendre avant la capture).</summary>
     public bool IsIdle => _catalog is not null && _loadingArea is null && _analysisDone is null;
@@ -172,6 +206,7 @@ public sealed class SwtorPanel
                     _selection.SelectAll(false);
                     foreach (string r in _pendingRooms) _selection.Set(r, true);
                 }
+                else if (_selection.Rooms.Count > MapSelectThreshold) _selection.SelectAll(false);   // grande zone : on choisit sur la carte
                 _selectedArea = a.AreaId;
                 _mapName = _selection.DefaultMapName;
                 _steps.MapNameOverride = null;
@@ -192,25 +227,47 @@ public sealed class SwtorPanel
         if (_selection is not { } sel) { ImGui.TextDisabled("Select an area."); return; }
 
         bool changed = false;
+        bool mapMode = MapSelectMode;
+        // Mode carte : la liste suit la vue, modifiable avant l'apercu et pendant l'etape Preview ; ensuite elle est figee (refaire Preview pour changer).
+        bool editable = !busy && (!mapMode || workflow.Stage is WorkflowStage.None or WorkflowStage.Previewed);
+        _steps.ImportRooms = mapMode ? sel.SelectedRooms : null;
         ImGui.TextUnformatted($"Rooms ({sel.SelectedCount}/{sel.Rooms.Count})");
-        ImGui.SameLine();
-        ImGui.BeginDisabled(busy);
+        if (mapMode)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Text, Orange);
+            ImGui.TextWrapped($"More than {MapSelectThreshold} rooms: Preview shows the whole area, then click rooms in the view (green = kept) or tick them here, then Import.");
+            ImGui.PopStyleColor();
+        }
+        ImGui.BeginDisabled(!editable);
         if (ImGui.SmallButton("Default")) { sel.SelectDefault(); changed = true; }
         ImGui.SameLine();
         if (ImGui.SmallButton("All")) { sel.SelectAll(true); changed = true; }
         ImGui.SameLine();
         if (ImGui.SmallButton("None")) { sel.SelectAll(false); changed = true; }
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Export JSON")) ExportSelection(sel);
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Saves the selected rooms and map name to " + SwtorSelectionFile.DefaultPath(_steps.WorkDir, sel.AreaId));
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Import JSON") && ImportSelection(sel)) changed = true;
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Loads the rooms from " + SwtorSelectionFile.DefaultPath(_steps.WorkDir, sel.AreaId));
         ImGui.EndDisabled();
         if (ImGui.BeginChild("##swtorrooms", new Vector2(-1, height), ImGuiChildFlags.Borders))
         {
-            ImGui.BeginDisabled(busy);
             foreach (SwtorRoomInfo room in sel.Rooms)
             {
                 bool on = sel.IsChecked(room.Name);
                 string label = $"{room.Triangles:N0}  {room.Name}{(room.IsSpace ? "  [space]" : "")}###swr{room.Name}";
+                ImGui.BeginDisabled(!editable);
                 if (ImGui.Checkbox(label, ref on)) { sel.Set(room.Name, on); changed = true; }
+                ImGui.EndDisabled();
+                // Bouton colle a droite de la ligne (« float: right »).
+                float goWidth = ImGui.CalcTextSize("Go to").X + ImGui.GetStyle().FramePadding.X * 2f;
+                ImGui.SameLine();
+                ImGui.SetCursorPosX(MathF.Max(ImGui.GetCursorPosX(), ImGui.GetCursorPosX() + ImGui.GetContentRegionAvail().X - goWidth));
+                ImGui.BeginDisabled(workflow.Preview is null);
+                if (ImGui.SmallButton($"Go to##go{room.Name}")) GoToRoom = room.Name;
+                ImGui.EndDisabled();
             }
-            ImGui.EndDisabled();
         }
         ImGui.EndChild();
 
@@ -220,15 +277,15 @@ public sealed class SwtorPanel
         ImGui.TextWrapped($"Total: {sel.TotalTriangles:N0} / {SwtorBudget.MaxRenderTriangles:N0} render triangles (~{sel.EstimatedDrawIndexes:N0} / {SwtorBudget.MaxDrawIndexes:N0} draw indexes)");
         if (sel.BudgetMessage is { } msg) ImGui.TextWrapped((level == SwtorBudgetLevel.Exceeded ? "WARNING: " : "") + msg);
         ImGui.PopStyleColor();
-        if (sel.SelectedCount == 0)
+        if (sel.SelectedCount == 0 && (!mapMode || workflow.Stage == WorkflowStage.Previewed))
         {
             ImGui.PushStyleColor(ImGuiCol.Text, Red);
-            ImGui.TextWrapped("Check at least one room.");
+            ImGui.TextWrapped(mapMode ? "Select at least one room on the map." : "Check at least one room.");
             ImGui.PopStyleColor();
         }
 
         if (changed && !_nameEdited) _mapName = sel.DefaultMapName;
-        if (changed && !busy)
+        if (changed && !busy && !mapMode)
         {
             if (sel.ModuleSpec is { } spec) workflow.SelectModules(KotorGame.Swtor, [spec]);
             else workflow.Reset();   // plus de preview ni d'etape suivante tant qu'aucune room n'est cochee
@@ -237,11 +294,43 @@ public sealed class SwtorPanel
         ImGui.TextUnformatted("Map name");
         ImGui.SetNextItemWidth(-1);
         ImGui.BeginDisabled(busy);
-        if (ImGui.InputText("##swtormap", ref _mapName, 40)) _nameEdited = true;
+        if (ImGui.InputText("##swtormap", ref _mapName, (uint)MapNames.MaxLength)) _nameEdited = true;
         ImGui.EndDisabled();
         string? bad = _nameEdited && !string.IsNullOrWhiteSpace(_mapName) ? MapNames.Validate(MapNames.Normalize(_mapName)) : null;
         if (bad is not null) { ImGui.PushStyleColor(ImGuiCol.Text, Red); ImGui.TextWrapped(bad); ImGui.PopStyleColor(); }
         _steps.MapNameOverride = _nameEdited && !string.IsNullOrWhiteSpace(_mapName) ? _mapName : null;
+    }
+
+    private void ExportSelection(SwtorRoomSelection sel)
+    {
+        string path = SwtorSelectionFile.DefaultPath(_steps.WorkDir, sel.AreaId);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, sel.ToFile(_nameEdited ? _mapName : null).ToJson());
+            _log($"SWTOR: {sel.SelectedCount} room(s) saved to {path}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log("ERROR: cannot save the room selection: " + e.Message); }
+    }
+
+    private bool ImportSelection(SwtorRoomSelection sel)
+    {
+        string path = SwtorSelectionFile.DefaultPath(_steps.WorkDir, sel.AreaId);
+        try
+        {
+            if (!File.Exists(path)) { _log("ERROR: no saved room selection: " + path); return false; }
+            SwtorSelectionFile? file = SwtorSelectionFile.FromJson(File.ReadAllText(path));
+            if (file is null) { _log("ERROR: empty room selection file: " + path); return false; }
+            IReadOnlyList<string> unknown = sel.Apply(file);
+            if (!string.IsNullOrWhiteSpace(file.MapName)) { _mapName = file.MapName; _nameEdited = true; }
+            _log($"SWTOR: {sel.SelectedCount} room(s) loaded from {path}" + (unknown.Count > 0 ? $" ({unknown.Count} unknown room(s) ignored: {string.Join(", ", unknown)})." : "."));
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            _log("ERROR: cannot load the room selection: " + e.Message);
+            return false;
+        }
     }
 
     private static int CategoryOrder(string c) => Array.IndexOf(CategoryOrderList, c) is var i and >= 0 ? i : CategoryOrderList.Length;

@@ -44,6 +44,12 @@ public static class ShaderNames
 
     public static string LightmapPrefixFor(KotorGame game) => PrefixFor(game) + "lm/";
 
+    /// <summary>
+    /// Nom du fichier de shaders de la carte, <c>&lt;carte&gt;.shader</c> : meme nom que la carte. Le moteur lit <c>shaders/&lt;fichier&gt;</c>
+    /// dans un tampon MAX_QPATH (64, ScanAndLoadShaderFiles de rd-vulkan tr_shader.cpp) ; avec <see cref="MapNames.MaxLength"/> le chemin tient.
+    /// </summary>
+    public static string ShaderFileName(string mapName) => mapName + ".shader";
+
     /// <summary>Removes the texture folder prefix of either game (null if the name has none).</summary>
     public static string? StripPrefix(string fullName)
     {

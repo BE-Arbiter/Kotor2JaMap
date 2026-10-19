@@ -4,13 +4,18 @@ using Kotor.Core.Textures;
 
 namespace Kotor.Core.Export;
 
-public enum ShaderKind { Lightmapped, LightmappedCutout, Additive, Blend, Unlit, UnlitCutout, Multiply }
+public enum ShaderKind { Lightmapped, LightmappedCutout, Additive, Blend, Unlit, UnlitCutout, Multiply, Overlay }
 
 /// <summary>Shader prevu pour un maillage. <paramref name="Name"/> est le nom complet (<c>textures/kotor/...</c>).</summary>
 public sealed record PlannedShader(string Name, ShaderKind Kind, string Texture, string? Lightmap)
 {
     /// <summary>Les types qui ecrivent <c>cull none</c> : leurs surfaces sont double face.</summary>
     public bool DoubleSided => Kind is ShaderKind.LightmappedCutout or ShaderKind.UnlitCutout or ShaderKind.Additive or ShaderKind.Blend or ShaderKind.Multiply;
+
+    /// <summary><see cref="ShaderKind.Overlay"/> : seconde texture fondue par l alpha des sommets, et sa repetition relative a la premiere.</summary>
+    public string? Overlay { get; init; }
+
+    public System.Numerics.Vector2 OverlayScale { get; init; } = System.Numerics.Vector2.One;
 }
 
 public static class ShaderPlanner
@@ -42,6 +47,11 @@ public static class ShaderPlanner
         string plain = ShaderNames.PrefixFor(game) + tex;
         string lit = lm is null ? plain : plain + "__" + lm;
 
+        // Deux couches de sol fondues (terrain SWTOR) : opaque, la seconde par-dessus selon l'alpha des sommets.
+        if (mesh.OverlayTexture is { } over)
+            return new PlannedShader(ShaderNames.PrefixFor(game) + ShaderNames.Short(tex + "__" + over, game), ShaderKind.Overlay, tex, null)
+            { Overlay = over, OverlayScale = mesh.OverlayUvScale };
+
         // Opacity declared by the source game (SWTOR material alpha mode): not deduced from the texture alpha.
         switch (mesh.Alpha)
         {
@@ -61,6 +71,8 @@ public static class ShaderPlanner
         if (lm is not null && (punch || (alpha && mesh.TransparencyHint == 0)))
             return new PlannedShader(lit, ShaderKind.LightmappedCutout, tex, lm);
         if (lm is not null) return new PlannedShader(lit, ShaderKind.Lightmapped, tex, lm);
+        // Sans lightmap (feuillages, grilles) : meme regle de decoupe par l'alpha, sinon les feuilles restent des quads opaques.
+        if (punch || (alpha && mesh.TransparencyHint == 0)) return new PlannedShader(plain, ShaderKind.UnlitCutout, tex, null);
         return new PlannedShader(plain, ShaderKind.Unlit, tex, null);
     }
 
@@ -91,7 +103,8 @@ public static class ShaderPlanner
                 b.Append("\t{\n\t\t").Append(map).Append("\n\t\talphaFunc GE128\n\t\tdepthWrite\n\t\trgbGen vertex\n\t}\n");
                 break;
             case ShaderKind.Additive:
-                b.Append("\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tcull none\n");
+                // polygonOffset : ecrans et lueurs colles a leur cadre opaque (SWTOR : a 0,0003 unite pres) ; sans decalage ils scintillent.
+                b.Append("\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tpolygonOffset\n\tcull none\n");
                 b.Append("\t{\n\t\t").Append(map).Append("\n\t\tblendFunc GL_ONE GL_ONE\n\t\trgbGen identity\n\t}\n");
                 break;
             case ShaderKind.Multiply:
@@ -100,8 +113,17 @@ public static class ShaderPlanner
                 b.Append("\t{\n\t\t").Append(map).Append("\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\trgbGen identity\n\t}\n");
                 break;
             case ShaderKind.Blend:
-                b.Append("\tsurfaceparm trans\n\tcull none\n");
+                // polygonOffset : vitres posees sur l'ecran ou le cadre (meme raison que les additifs).
+                b.Append("\tsurfaceparm trans\n\tpolygonOffset\n\tcull none\n");
                 b.Append("\t{\n\t\t").Append(map).Append("\n\t\tblendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA\n\t\trgbGen vertex\n\t}\n");
+                break;
+            case ShaderKind.Overlay:
+                b.Append("\t{\n\t\t").Append(map).Append("\n\t\trgbGen vertex\n\t}\n");
+                b.Append("\t{\n\t\tmap ").Append(ShaderNames.PrefixFor(game)).Append(s.Overlay).Append(".tga\n");
+                if (s.OverlayScale != System.Numerics.Vector2.One)
+                    b.Append("\t\ttcMod scale ").Append(s.OverlayScale.X.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))
+                     .Append(' ').Append(s.OverlayScale.Y.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+                b.Append("\t\tblendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA\n\t\trgbGen vertex\n\t\talphaGen vertex\n\t}\n");
                 break;
             default:
                 b.Append("\t{\n\t\t").Append(map).Append("\n\t\trgbGen vertex\n\t}\n");

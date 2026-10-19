@@ -327,7 +327,7 @@ public sealed class PlaceableConverterTests : IDisposable
         var md3 = names.Where(n => n.StartsWith("models/kotor/", StringComparison.Ordinal) && n.EndsWith(".md3", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(md3);
 
-        string shader = new StreamReader(z.GetEntry("shaders/kotor_tar_m02aa.shader")!.Open()).ReadToEnd();
+        string shader = new StreamReader(z.GetEntry("shaders/tar_m02aa.shader")!.Open()).ReadToEnd();
         var maps = Regex.Matches(shader, @"map\s+(textures/\S+\.tga)").Select(m => m.Groups[1].Value).Distinct().ToList();
         Assert.Contains("models/kotor/", shader);
         Assert.All(maps, m => Assert.Contains(m, names));

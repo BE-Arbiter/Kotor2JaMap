@@ -61,8 +61,8 @@ public sealed class FinalReviewFixTests : IDisposable
     [Fact]
     public void Import_rejects_too_long_name_and_accepts_the_limit()
     {
-        Assert.Throws<PipelineStepException>(() => PipelineSteps.Import(Scene(), new string('a', 49), Opt(), new ImportLog()));
-        Assert.Equal(new string('a', 48), PipelineSteps.Import(Scene(), new string('a', 48), Opt(), new ImportLog()).MapName);
+        Assert.Throws<PipelineStepException>(() => PipelineSteps.Import(Scene(), new string('a', 33), Opt(), new ImportLog()));
+        Assert.Equal(new string('a', 32), PipelineSteps.Import(Scene(), new string('a', 32), Opt(), new ImportLog()).MapName);
     }
 
     [Fact]

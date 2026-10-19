@@ -62,6 +62,60 @@ public class WorldScaleTests
 
 
     [SkippableFact]
+    public void WarPlanworking_model_instances_rebuild_exactly_the_geometry_of_the_room_meshes()
+    {
+        string? root = TestEnv.SwtorAssetsDir;
+        Skip.If(root is null || !Directory.Exists(Path.Combine(root, "world", "areas", ShipAreaId)), "SWTOR assets not available");
+        var layout = AreaLayout.Load(Path.Combine(root!, "world", "areas", ShipAreaId));
+        var source = new SwtorAssetsModelSource(new SwtorAssets(root));
+        ModuleScene inRooms = SwtorSceneBuilder.Build(layout, source, "war_planworking", new SwtorBuildOptions { StaticModelMinTriangles = 0 }, new ImportLog()).Scene;
+        ModuleScene split = SwtorSceneBuilder.Build(layout, source, "war_planworking", null, new ImportLog()).Scene;
+        Assert.Empty(inRooms.ModelInstances);
+        Assert.NotEmpty(split.ModelInstances);
+
+        // Memes triangles avec ou sans instances : par piece et texture, meme nombre, meme somme des centres et des carres des centres
+        // (a 1 mm pres en moyenne ; les arrondis flottants different, l'echelle etant appliquee avant la rotation dans le modele).
+        static Dictionary<string, (int N, Vector3 Sum, Vector3 Sq)> Stats(IEnumerable<SceneMesh> meshes)
+        {
+            var d = new Dictionary<string, (int N, Vector3 Sum, Vector3 Sq)>(StringComparer.Ordinal);
+            foreach (SceneMesh m in meshes)
+                for (int t = 0; t + 2 < m.Triangles.Length; t += 3)
+                {
+                    Vector3 c = (m.Positions[m.Triangles[t]] + m.Positions[m.Triangles[t + 1]] + m.Positions[m.Triangles[t + 2]]) / 3f;
+                    var (n, s, q) = d.GetValueOrDefault(m.Room + "|" + m.Texture);
+                    d[m.Room + "|" + m.Texture] = (n + 1, s + c, q + c * c);
+                }
+            return d;
+        }
+        var expected = Stats(inRooms.Meshes);
+        var actual = Stats(split.AllMeshes());
+        Assert.Equal(expected.Keys.Order(), actual.Keys.Order());
+        foreach (var (key, (n, sum, sq)) in expected)
+        {
+            var (n2, sum2, sq2) = actual[key];
+            Assert.Equal(n, n2);
+            Assert.True(Vector3.Distance(sum / n, sum2 / n) < 1e-3f, $"{key}: mean centre {sum / n} vs {sum2 / n}");
+            Assert.True(Vector3.Distance(sq / n, sq2 / n) < 1e-3f * MathF.Max(1f, (sq / n).Length()), $"{key}: spread {sq / n} vs {sq2 / n}");
+        }
+
+        // Placement moteur (origin, angles, modelscale_vec) = position de l'instance, en unites JA.
+        const float scale = 40f;
+        foreach (SceneModelInstance inst in split.ModelInstances.Take(300))
+        {
+            Matrix4x4 m = inst.Transform;
+            m.Translation *= scale;
+            MiscModelPlacement p = MiscModelTransform.FromMatrix(m)!;
+            Assert.NotNull(p);
+            Assert.True(Vector3.Distance(p.Scale, Vector3.One) < 1e-3f, $"instance scale {p.Scale}: must be in the model, not in modelscale");
+            foreach (Vector3 v in split.Models[inst.Model].Meshes[0].Positions.Take(20))
+            {
+                Vector3 expectedJa = Vector3.Transform(v, inst.Transform) * scale, actualJa = MiscModelTransform.Place(p, v * scale);
+                Assert.True((expectedJa - actualJa).Length() < 0.5f, $"{split.Models[inst.Model].Name}: {expectedJa} vs {actualJa}");
+            }
+        }
+    }
+
+    [SkippableFact]
     public void WarPlanworking_has_human_scale_in_the_scene()
     {
         string? root = TestEnv.SwtorAssetsDir;
@@ -72,7 +126,7 @@ public class WorldScaleTests
 
         // Plafond au-dessus du point d apparition : 1,4 unite GR2 x 7,8 = ~10,9 m (salle de vaisseau capital, pas un couloir humain).
         float ceiling = float.MaxValue;
-        foreach (SceneMesh m in r.Scene.Meshes)
+        foreach (SceneMesh m in r.Scene.AllMeshes())
             for (int i = 0; i + 2 < m.Triangles.Length; i += 3)
             {
                 Vector3 a = m.Positions[m.Triangles[i]], b = m.Positions[m.Triangles[i + 1]], c = m.Positions[m.Triangles[i + 2]];
@@ -85,7 +139,40 @@ public class WorldScaleTests
         Assert.InRange(ceiling - spawn.Z, 4f, 16f);
 
         // Les dalles de 3,2 m du kit sont a l'echelle du monde : le vaisseau entier fait plus de 100 m de long.
-        Assert.True(r.Scene.Meshes.Max(m => m.Positions.Max(p => p.X)) - r.Scene.Meshes.Min(m => m.Positions.Min(p => p.X)) > 100f);
+        Assert.True(r.Scene.AllMeshes().Max(m => m.Positions.Max(p => p.X)) - r.Scene.AllMeshes().Min(m => m.Positions.Min(p => p.X)) > 100f);
+    }
+
+    [SkippableFact]
+    public void WarPlanworking_heavy_models_become_misc_model_static_within_the_engine_limit()
+    {
+        string? root = TestEnv.SwtorAssetsDir;
+        Skip.If(root is null || !Directory.Exists(Path.Combine(root, "world", "areas", ShipAreaId)), "SWTOR assets not available");
+        string tmp = Path.Combine(Path.GetTempPath(), "swtor_md3_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var opt = new ExportOptions("", Path.Combine(tmp, "base"), Path.Combine(tmp, "work"), Game: Kotor.Core.KotorGame.Swtor);
+            Directory.CreateDirectory(opt.JaBaseDir);
+            var log = new ImportLog();
+            var r = SwtorExporter.Export(Path.Combine(root!, "world", "areas", ShipAreaId), new SwtorAreaSpec(ShipAreaId, []), null, new SwtorAssets(root), opt, null, log);
+            Assert.True(r.Export.Ok, r.Export.Error);
+            string ents = r.Bsp!.Entities;
+            var blocks = System.Text.RegularExpressions.Regex.Matches(ents, @"\{[^}]*\}").Select(x => x.Value).Where(b => b.Contains("\"misc_model_static\"")).ToList();
+            Assert.NotEmpty(blocks);
+            Assert.InRange(blocks.Count, 1, MiscModelBudget.EngineMaxEntities);
+            Assert.DoesNotContain(blocks, b => b.Contains("modelscale")); // modelscale fausse l eclairage du moteur
+            Assert.Contains(log.Warnings, w => w.Code == "STATIC_MODELS");
+            string stage = Path.Combine(opt.WorkDir, r.MapName, "pk3");
+            string shaders = File.ReadAllText(Path.Combine(stage, "shaders", ShaderNames.ShaderFileName(r.MapName)));
+            foreach (string block in blocks)
+            {
+                string model = System.Text.RegularExpressions.Regex.Match(block, @"""model""\s+""([^""]+)""").Groups[1].Value;
+                Assert.True(model.Length is > 4 and < 64, model);
+                byte[] md3 = File.ReadAllBytes(Path.Combine(stage, model.Replace('/', Path.DirectorySeparatorChar)));
+                Assert.Equal("IDP3", System.Text.Encoding.ASCII.GetString(md3, 0, 4));
+            }
+            Assert.Contains("rgbGen lightingDiffuse", shaders);
+        }
+        finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
     }
 
     [SkippableFact]
@@ -98,7 +185,8 @@ public class WorldScaleTests
         {
             var opt = new ExportOptions("", Path.Combine(tmp, "base"), Path.Combine(tmp, "work"), Game: Kotor.Core.KotorGame.Swtor);
             Directory.CreateDirectory(opt.JaBaseDir);
-            var r = SwtorExporter.Export(Path.Combine(root!, "world", "areas", ShipAreaId), new SwtorAreaSpec(ShipAreaId, []), null, new SwtorAssets(root), opt, null, new ImportLog());
+            var r = SwtorExporter.Export(Path.Combine(root!, "world", "areas", ShipAreaId), new SwtorAreaSpec(ShipAreaId, []), null, new SwtorAssets(root), opt,
+                new SwtorBuildOptions { StaticModelMinTriangles = 0 }, new ImportLog()); // tout dans le BSP : on mesure l echelle du BSP
             Assert.True(r.Export.Ok, r.Export.Error);
             var verts = r.Bsp!.Surfaces.Where(s => !s.Shader.StartsWith("textures/skies", StringComparison.OrdinalIgnoreCase)).SelectMany(s => s.Positions).ToArray();
             Vector3 mins = verts.Aggregate(new Vector3(float.MaxValue), Vector3.Min), maxs = verts.Aggregate(new Vector3(float.MinValue), Vector3.Max);

@@ -9,6 +9,18 @@ public sealed record SceneMesh(string Room, string Node, string Texture, string?
 {
     /// <summary>Opacity chosen by the source game. <see cref="SurfaceAlpha.Auto"/> (KOTOR): deduced from the texture and the TXI.</summary>
     public SurfaceAlpha Alpha { get; init; } = SurfaceAlpha.Auto;
+
+    /// <summary>
+    /// Seconde texture fondue sur <see cref="Texture"/> (sol SWTOR : deux couches de la carte de melange), opacite par sommet <see cref="VertexAlpha"/>.
+    /// Null : une seule texture.
+    /// </summary>
+    public string? OverlayTexture { get; init; }
+
+    /// <summary>Repetition de <see cref="OverlayTexture"/> relative a Uv0 (1 = memes UV).</summary>
+    public Vector2 OverlayUvScale { get; init; } = Vector2.One;
+
+    /// <summary>Opacite de <see cref="OverlayTexture"/> par sommet (0 a 255, meme indice que <see cref="Positions"/>) ; null sans seconde texture.</summary>
+    public byte[]? VertexAlpha { get; init; }
 }
 
 /// <summary>Opacity of a mesh declared by its source (SWTOR material alpha mode) instead of deduced from the texture alpha.</summary>

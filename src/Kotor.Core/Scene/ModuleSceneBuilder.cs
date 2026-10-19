@@ -44,6 +44,11 @@ public static class ModuleSceneBuilder
         var stats = new RepairStats();
         foreach (var room in layout.Rooms)
         {
+            if (IsSkyRoom(room.Model))
+            {
+                log.Warn("SKY_ROOM_SKIPPED", $"{room.Model}: KOTOR sky dome not imported, the compiler's sky box replaces it.");
+                continue;
+            }
             AddRoomMeshes(res, room, textures, meshes, lights, stats, log);
             AddRoomWalkmesh(res, room, surfaceMat, walks, log);
         }
@@ -58,6 +63,35 @@ public static class ModuleSceneBuilder
             AreaLightingKnown = area.Readable,
             RoomVisibility = ReadVisibility(res, info.AreaResRef, layout, log),
         };
+    }
+
+    /// <summary>
+    /// Sky dome room of the layout (<c>m02aa_sky</c>). As plain geometry it would double the compiler's SURF_SKY box and vanish
+    /// beyond the far clip, so it is left out.
+    /// </summary>
+    internal static bool IsSkyRoom(string model) => model.EndsWith("_sky", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Sky box room whose name does not end with <c>_sky</c> (Dantooine <c>m14aa_01h</c>: 5 faces <c>lda_sky0001..5</c>): every rendered mesh
+    /// uses a <c>*_sky&lt;digits&gt;</c> texture. Imported as geometry it shows as a white wall inside the compiler's own sky.
+    /// </summary>
+    internal static bool IsSkyModel(KotorModel model)
+    {
+        bool any = false;
+        foreach (var (node, _) in model.Walk())
+        {
+            if (node.Mesh is not { Render: true } m || m.Triangles.Length == 0) continue;
+            if (!IsSkyTexture(m.Texture0)) return false;
+            any = true;
+        }
+        return any;
+    }
+
+    internal static bool IsSkyTexture(string? texture)
+    {
+        if (string.IsNullOrEmpty(texture)) return false;
+        int i = texture.LastIndexOf("_sky", StringComparison.OrdinalIgnoreCase);
+        return i > 0 && texture.Length > i + 4 && texture.AsSpan(i + 4).ToString().All(char.IsAsciiDigit);
     }
 
     /// <summary>
@@ -160,6 +194,11 @@ public static class ModuleSceneBuilder
         Dictionary<string, KotorTexture?> textures, List<SceneMesh> meshes, ImportLog log,
         List<SceneLight>? sceneLights = null, RepairStats? stats = null)
     {
+        if (IsSkyModel(model))
+        {
+            log.Warn("SKY_ROOM_SKIPPED", $"{room.Model}: only sky textures (sky box room), KOTOR sky not imported, the compiler's sky box replaces it.");
+            return;
+        }
         int defaulted = 0, notRendered = 0, lights = 0, emitters = 0, refs = 0, cams = 0, animated = 0, empty = 0;
         var offset = Matrix4x4.CreateTranslation(room.Position);
         foreach (var (node, modelTransform) in model.Walk())

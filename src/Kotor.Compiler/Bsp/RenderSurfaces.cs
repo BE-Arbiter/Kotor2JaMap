@@ -10,7 +10,11 @@ namespace Kotor.Compiler.Bsp;
 /// <paramref name="LightmapUvs"/> : UV de lightmap par sommet (null = pas de lightmap, éclairage par sommet).
 /// </summary>
 public sealed record RenderSurface(string Shader, Vector3[] Positions, Vector2[] Uvs, Vector3[] Normals, int[] Indices, IReadOnlyList<int> Leaves,
-    bool Sky = false, bool DoubleSided = false, Vector2[]? LightmapUvs = null);
+    bool Sky = false, bool DoubleSided = false, Vector2[]? LightmapUvs = null)
+{
+    /// <summary>Alpha des couleurs de sommet (0 a 255) ; null = 255 partout.</summary>
+    public byte[]? VertexAlpha { get; init; }
+}
 
 public static class RenderSurfaces
 {
@@ -57,7 +61,6 @@ public static class RenderSurfaces
         var groups = new Dictionary<(string Shader, bool DoubleSided, bool Lm, int Room), List<Builder>>();
         var order = new List<(string Shader, bool DoubleSided, bool Lm, int Room)>();
         var pending = new Dictionary<(string Shader, bool DoubleSided, bool Lm, int Room), List<Tri>>();
-        int uniqueKey = 0;
         for (int si = 0; si < inputs.Count; si++)
         {
             SurfaceInput s = inputs[si];
@@ -118,9 +121,9 @@ public static class RenderSurfaces
             // Enroulement JA (mesure etape 15) : ordre inverse de l'entree, on emet v0, v2, v1.
             foreach (int i in new[] { tr.I0, tr.I2, tr.I1 })
             {
-                // Sans normale en entrée la normale dépend de la face : pas de partage de sommet.
-                long key = tr.HasN ? ((long)tr.Input << 32) | (uint)i : -1 - uniqueKey++;
-                bl.Add(key, s.Positions[i], tr.HasUv0 ? s.Uv0[i] : Vector2.Zero, tr.HasN ? s.Normals[i] : faceN, tr.HasUv1 ? s.Uv1![i] : null);
+                // Sommets soudés par valeur (position, UV, normale, UV de lightmap) : les doublons exacts, même entre entrées, ne sont écrits qu'une fois.
+                bl.Add(s.Positions[i], tr.HasUv0 ? s.Uv0[i] : Vector2.Zero, tr.HasN ? s.Normals[i] : faceN, tr.HasUv1 ? s.Uv1![i] : null,
+                    s.VertexAlpha is { } va && va.Length == s.Positions.Length ? va[i] : (byte)255);
             }
         }
 
@@ -169,7 +172,8 @@ public static class RenderSurfaces
                 if (b.Indices.Count == 0) continue;
                 Vector3[] pos = b.Positions.ToArray();
                 result.Add(new RenderSurface(gk.Shader, pos, b.Uvs.ToArray(), b.Normals.ToArray(), b.Indices.ToArray(),
-                    LeavesTouching(tree, pos, gk.Room), DoubleSided: gk.DoubleSided, LightmapUvs: gk.Lm ? b.Uv1.ToArray() : null));
+                    LeavesTouching(tree, pos, gk.Room), DoubleSided: gk.DoubleSided, LightmapUvs: gk.Lm ? b.Uv1.ToArray() : null)
+                { VertexAlpha = b.Alphas.Exists(a => a != 255) ? b.Alphas.ToArray() : null });
             }
         return result;
     }
@@ -235,20 +239,22 @@ public static class RenderSurfaces
 
     private sealed class Builder
     {
-        private readonly Dictionary<long, int> _map = [];
+        private readonly Dictionary<(Vector3 P, Vector2 St, Vector3 N, Vector2 Lm, byte A), int> _map = [];
         public List<Vector3> Positions { get; } = [];
         public List<Vector2> Uvs { get; } = [];
         public List<Vector2> Uv1 { get; } = [];
         public List<Vector3> Normals { get; } = [];
+        public List<byte> Alphas { get; } = [];
         public List<int> Indices { get; } = [];
 
-        public void Add(long key, Vector3 p, Vector2 st, Vector3 n, Vector2? lm)
+        public void Add(Vector3 p, Vector2 st, Vector3 n, Vector2? lm, byte alpha = 255)
         {
+            var key = (p, st, n, lm ?? Vector2.Zero, alpha);
             if (!_map.TryGetValue(key, out int i))
             {
                 i = Positions.Count;
                 _map[key] = i;
-                Positions.Add(p); Uvs.Add(st); Normals.Add(n);
+                Positions.Add(p); Uvs.Add(st); Normals.Add(n); Alphas.Add(alpha);
                 if (lm is { } v) Uv1.Add(v);
             }
             Indices.Add(i);

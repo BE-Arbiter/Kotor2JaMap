@@ -14,6 +14,30 @@ public class ShaderPlannerTests
     private static KotorTexture Tex(bool alpha) => new(1, 1, [0, 0, 0, 255], alpha, TxiInfo.Empty);
 
     [Fact]
+    public void Alpha_texture_without_lightmap_is_cutout()
+    {
+        Assert.Equal(ShaderKind.UnlitCutout, ShaderPlanner.Plan(Mesh(null), Tex(true)).Kind);
+        Assert.Equal(ShaderKind.Blend, ShaderPlanner.Plan(Mesh(null, hint: 1), Tex(true)).Kind);
+    }
+
+    [Fact]
+    public void Overlay_mesh_gets_a_two_layer_vertex_alpha_shader()
+    {
+        SceneMesh m = Mesh(null) with { Alpha = SurfaceAlpha.Opaque, OverlayTexture = "g", OverlayUvScale = new Vector2(2f, 0.5f), VertexAlpha = [128] };
+        PlannedShader s = ShaderPlanner.Plan(m, Tex(false), KotorGame.Swtor);
+        Assert.Equal(ShaderKind.Overlay, s.Kind);
+        Assert.Equal("textures/swtor/a__g", s.Name);
+        Assert.Equal("g", s.Overlay);
+        Assert.False(s.DoubleSided);
+        Assert.Equal(
+            "textures/swtor/a__g\n{\n\t{\n\t\tmap textures/swtor/a.tga\n\t\trgbGen vertex\n\t}\n" +
+            "\t{\n\t\tmap textures/swtor/g.tga\n\t\ttcMod scale 2 0.5\n\t\tblendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA\n\t\trgbGen vertex\n\t\talphaGen vertex\n\t}\n}\n",
+            ShaderPlanner.Write(s, KotorGame.Swtor));
+        // Meme repetition : pas de tcMod.
+        Assert.DoesNotContain("tcMod", ShaderPlanner.Write(ShaderPlanner.Plan(m with { OverlayUvScale = Vector2.One }, Tex(false), KotorGame.Swtor), KotorGame.Swtor));
+    }
+
+    [Fact]
     public void Planner_picks_kind_per_table()
     {
         var add = ShaderPlanner.Plan(Mesh("b", "additive"), Tex(false));
@@ -66,10 +90,10 @@ public class ShaderPlannerTests
             "\t{\n\t\tmap $lightmap\n\t\tblendFunc GL_ZERO GL_ONE\n\t}\n}\n",
             ShaderPlanner.Write(new PlannedShader("textures/kotor/a__b", ShaderKind.LightmappedCutout, "a", "b")));
         Assert.Equal(
-            "textures/kotor/a\n{\n\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_ONE GL_ONE\n\t\trgbGen identity\n\t}\n}\n",
+            "textures/kotor/a\n{\n\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tpolygonOffset\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_ONE GL_ONE\n\t\trgbGen identity\n\t}\n}\n",
             ShaderPlanner.Write(new PlannedShader("textures/kotor/a", ShaderKind.Additive, "a", null)));
         Assert.Equal(
-            "textures/kotor/a\n{\n\tsurfaceparm trans\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA\n\t\trgbGen vertex\n\t}\n}\n",
+            "textures/kotor/a\n{\n\tsurfaceparm trans\n\tpolygonOffset\n\tcull none\n\t{\n\t\tmap textures/kotor/a.tga\n\t\tblendFunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA\n\t\trgbGen vertex\n\t}\n}\n",
             ShaderPlanner.Write(new PlannedShader("textures/kotor/a", ShaderKind.Blend, "a", null)));
         Assert.Equal(
             "textures/kotor/a\n{\n\t{\n\t\tmap textures/kotor/a.tga\n\t\trgbGen vertex\n\t}\n}\n",

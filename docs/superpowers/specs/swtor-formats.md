@@ -160,7 +160,8 @@ blob compresse : **zlib** (`78 ..`, ~80 %), **zstd** (`28 B5 2F FD`) ou **gzip**
 | 10 | si drapeau = 1 : masque, `ceil(R*C/8)` octets, un bit par echantillon (indice `r*C+c`, **bit de poids fort d'abord**), 1 = present |
 | ensuite | pourtour : `2*(R-1) + 2*(C-1)` `f32` (hauteurs en unites du monde) |
 | ensuite | interieur : `(R-2)*(C-2)` `u16` little-endian, indice `r*(C-2)+c`, **hauteur = valeur / 512** |
-| ensuite | donnees non lues : carte de melange des materiaux (4 x `u16` par texel, valeurs multiples de 256, sommes 0xFF00 : 2 a 4 couches), maillage de rendu (sommets + index `u16` d'un TIN), magique `AB EF CD AB` en fin de flux |
+| ensuite | carte de melange : `u8 n` (8 ou 12 observes), `n` identifiants de couche (`0xFF` = emplacement vide), puis `(2R-1) x (2C-1)` texels (deux par cellule, pas de 0,1), **le long de X d abord** (texel `fc * (2R-1) + fr`), `n` poids `u8` par texel (somme 255) |
+| ensuite | donnees non lues : `u8 1` puis une carte de teinte RGB (3 octets par texel, ~(190, 200, 210)), maillage de rendu (sommets + index `u16` d un TIN), magique `AB EF CD AB` en fin de flux |
 
 Pourtour : quatre bords de `R-1` ou `C-1` elements, stockes par **paires entrelacees** : d'abord `(bord -Z, bord +Z)` pour `k = 0..R-2` (le long de X),
 puis `(bord -X, bord +X)` pour `k = 0..C-2` (le long de Z). L'element `k` est l'echantillon de la grille complete `R x C` a l'indice `k` le long du bord ;
@@ -180,10 +181,13 @@ Non gere (rejete avec le code `SWTOR_TERRAIN_UNSUPPORTED`, ~5 % des dalles) : **
 differentes), versions 8, dalles de 2 x 2 a 3 x n (fictives), et toute dalle tronquee. Orientation des dalles non carrees : la grille a `C-2` colonnes
 par rangee (verifie par lissage sur ~3 000 dalles), `R` = premier `u32`.
 
-**Textures du sol : non decodees.** Le terrain n'a aucun champ de materiau lisible (les champs texte de l'objet sont vides sauf `STANDARD`) ; la carte
-de melange indexe des couches dont les noms n'ont pas ete retrouves (ni dans le blob, ni dans area.dat, ni dans `art/shaders/materials`). L'export
-prend donc comme texture du sol le materiau le plus represente parmi les surfaces tournees vers le haut posees sur le terrain (roches, dalles), sinon
-une couleur de sable unie.
+**Textures du sol (Haute, verifie sur Tython).** Les identifiants des emplacements renvoient a la **section 4 d area.dat** : `u32` nombre, puis
+`u64` identifiant + chaine (comme la table des assets) ; chaque nom est un `.mat` ordinaire (`ter_tyt_grass_01`, `ter_rep_metal_gray01`, `tyt_arch_jedi_temple_hall_floor01`...,
+DiffuseMap + `UvScaling`). L identifiant `0x00` apparait parfois (poids faibles) sans etre dans la table : ignore. Orientation verifiee par les bords de
+dalles voisines (ecart moyen 7/255 le long de X d abord, 255 dans l autre sens). Conversion : poids du texel sous chaque sommet, chaque triangle
+va a ses deux couches les plus lourdes (shader a deux etages, la seconde par `alphaGen vertex`), une seule si la seconde pese moins de 2 %. Les
+dalles sans carte gardent l ancien repli (couche de sol de la planete, sinon materiau pose sur le sol, sinon sable). Textures de couche eclaircies
+d un meme gain (moyenne ~110) : la carte de teinte qui les module en jeu n est pas lue.
 
 Conversion (Swtor.Pipeline `SwtorTerrain`, `SwtorSceneBuilder.AddTerrain`) : meme matrice, recentrage et echelle que les modeles ; grille decimee au pas entier
 (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 21, 32, 64 ; dernier echantillon toujours garde pour que les dalles se raccordent sans fente) qui tient dans

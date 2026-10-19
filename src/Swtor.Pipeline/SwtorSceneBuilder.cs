@@ -1,5 +1,8 @@
+using Swtor.Core.Dds;
+using System.Globalization;
 using System.Numerics;
 using Kotor.Core.Diagnostics;
+using Kotor.Core.Export;
 using Kotor.Core.Modules;
 using Kotor.Core.Scene;
 using Kotor.Core.Textures;
@@ -55,6 +58,9 @@ public sealed record SwtorBuildOptions
 
     /// <summary>Triangles de rendu au plus pour tout le terrain de la zone ; 0 = aucune limite (pleine resolution, 0,2 unite par cellule) : le PVS par room evite de tout dessiner, le budget BSP ne s applique pas au sol. Sinon le pas de la grille est choisi pour tenir dedans.</summary>
     public int TerrainMaxTriangles { get; init; } = 0;
+
+    /// <summary>Triangles de rendu au moins pour qu'un modele place sorte du BSP en MD3 + misc_model_static (voir <see cref="SceneModel"/>) ; 0 = tout reste dans le BSP.</summary>
+    public int StaticModelMinTriangles { get; init; } = 200;
 }
 
 /// <summary>Comptes de la construction, pour le rapport et les tests.</summary>
@@ -117,8 +123,16 @@ public static class SwtorSceneBuilder
         long triangles = 0;
         var missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var terrainTiles = new List<SwtorTerrainTile>();
+        var planetCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var terrainErrors = new Dictionary<string, int>(StringComparer.Ordinal);
         int terrainSkipped = 0;
+        var localModels = new List<SceneModel>();
+        var localModelIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); // -1 : reste dans le BSP
+        var modelInstances = new List<SceneModelInstance>();
+        var roomInstanceTriangles = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        // Repere local des modeles : axes de la scene (Z haut), sans transformation d'instance. instM = zUp^-1 * world * zUp.
+        Matrix4x4 zUp = AxisMatrix(options.Axes);
+        Matrix4x4.Invert(zUp, out Matrix4x4 zUpInverse);
 
         // Total pour la barre de progression : toutes les instances des rooms retenues.
         bool Included(string roomName) =>
@@ -186,6 +200,7 @@ public static class SwtorSceneBuilder
                     continue;
                 }
                 instances++;
+                if (PlanetFolder(inst.AssetPath) is { } planet) planetCount[planet] = planetCount.GetValueOrDefault(planet) + 1;
                 if (!TryGetModel(inst.AssetPath, source, models, missing, log, out Gr2Model? model)) continue;
 
                 Matrix4x4 world = layout.World(inst) * Matrix4x4.CreateTranslation(-options.OriginOffset) * Matrix4x4.CreateScale(worldScale);
@@ -204,6 +219,38 @@ public static class SwtorSceneBuilder
                         if (collisionMeshes[0].Name.Contains("collision_override", StringComparison.OrdinalIgnoreCase)) overrideInstances++;
                         foreach (Gr2Mesh cm in collisionMeshes)
                             AddCollision(cm, model!, materials, collAcc, world, normalM, flip, options.Axes, inst.AssetPath, log);
+                    }
+                }
+
+                // Objet assez lourd, sans miroir : rendu par un MD3 pose en misc_model_static (l'export choisit sous le plafond du moteur
+                // et remet le reste dans le BSP). La collision reste celle de l'instance.
+                // L'echelle (monde et instance) est mise dans les sommets du modele, un modele par echelle : l'entite ne porte qu'une rotation et
+                // une position. Un modelscale fausse l'eclairage du moteur (modelLightDir = lightDir . axes mis a l'echelle, rd-vulkan tr_light.cpp:378).
+                bool asModel = false;
+                if (options.StaticModelMinTriangles > 0 && world.GetDeterminant() > 0f
+                    && Matrix4x4.Decompose(world, out Vector3 instScale, out Quaternion instRot, out Vector3 instPos)
+                    && instScale.X > 0f && instScale.Y > 0f && instScale.Z > 0f)
+                {
+                    Matrix4x4 rigid = Matrix4x4.CreateFromQuaternion(instRot) * Matrix4x4.CreateTranslation(instPos);
+                    Matrix4x4 rebuilt = Matrix4x4.CreateScale(instScale) * rigid;
+                    string key = string.Create(CultureInfo.InvariantCulture, $"{inst.AssetPath}|{instScale.X:0.###}|{instScale.Y:0.###}|{instScale.Z:0.###}");
+                    if (!localModelIndex.TryGetValue(key, out int mi))
+                    {
+                        SceneModel local = BuildLocalModel(inst.AssetPath, model!, materials, options.Axes, instScale);
+                        mi = local.Triangles >= options.StaticModelMinTriangles ? localModels.Count : -1;
+                        if (mi >= 0) localModels.Add(local);
+                        localModelIndex[key] = mi;
+                    }
+                    Matrix4x4 instM = zUpInverse * rigid * zUp;
+                    // Pas de cisaillement : la decomposition doit redonner la matrice.
+                    bool exact = Enumerable.Range(0, 16).All(k => MathF.Abs(rebuilt[k / 4, k % 4] - world[k / 4, k % 4]) <= 1e-3f * MathF.Max(1f, MathF.Abs(world[k / 4, k % 4])));
+                    if (mi >= 0 && exact && MiscModelTransform.FromMatrix(instM) is not null)
+                    {
+                        modelInstances.Add(new SceneModelInstance(mi, roomName, instM));
+                        long t = localModels[mi].Triangles;
+                        triangles += t;
+                        roomInstanceTriangles[roomName] = roomInstanceTriangles.GetValueOrDefault(roomName) + t;
+                        asModel = true;
                     }
                 }
 
@@ -231,6 +278,7 @@ public static class SwtorSceneBuilder
                         // Pas de mesh de collision dans le .gr2 : la geometrie visible (et les pieces de collision seule) sert de collision, hors additifs.
                         if (fallback && !mat.NoCollision && mat.Alpha is not (SurfaceAlpha.Additive or SurfaceAlpha.Multiply)) collAcc.Add(mesh, null, Vector2.One, world, normalM, flip, options.Axes, first, end);
                         if (mat.Hidden) { skippedHidden++; continue; }
+                        if (asModel) continue;
 
                         if (!acc.TryGetValue(mat.Key, out MeshAccumulator? a))
                         {
@@ -256,6 +304,8 @@ public static class SwtorSceneBuilder
             roomMeshes[roomName] = list;
             log.Info($"Room {roomIndex}/{plannedRooms} '{roomName}' done in {roomClock.Elapsed.TotalSeconds:0.0}s: {list.Count} mesh(es), {triangles - roomTrianglesAtStart:N0} triangle(s), {models.Count - roomModelsAtStart:N0} new model(s).");
         }
+        if (modelInstances.Count > 0)
+            log.Info($"Static models: {modelInstances.Count:N0} instance(s) of {localModels.Count:N0} model(s) with at least {options.StaticModelMinTriangles:N0} triangles kept apart for misc_model_static ({roomInstanceTriangles.Values.Sum():N0} triangle(s)).");
         log.Info($"Rooms built in {clock.Elapsed.TotalSeconds:0.0}s: {instances:N0} model instance(s), {models.Count:N0} distinct model(s) ({missing.Count:N0} missing), {materials.Textures.Count:N0} texture(s), {triangles:N0} triangle(s).");
 
         int terrainTriangles = 0, terrainStep = 0;
@@ -263,7 +313,7 @@ public static class SwtorSceneBuilder
         {
             log.Progress(0.86, $"Terrain: {terrainTiles.Count} tile(s)");
             log.Info($"Converting {terrainTiles.Count} terrain tile(s)...");
-            terrainTriangles = AddTerrain(terrainTiles, options, worldScale, triangles, materials, meshes, roomMeshes, roomCollision, log, out terrainStep);
+            terrainTriangles = AddTerrain(terrainTiles, layout.Area.TerrainLayers, options, worldScale, triangles, materials, source, planetCount.Where(kv => kv.Key != "all_all" && kv.Key != "_test").OrderByDescending(kv => kv.Value).Select(kv => kv.Key).ToList(), meshes, roomMeshes, roomCollision, log, out terrainStep);
         }
         triangles += terrainTriangles;
         foreach (var (error, count) in terrainErrors.OrderBy(k => k.Key, StringComparer.Ordinal))
@@ -286,7 +336,12 @@ public static class SwtorSceneBuilder
         var walks = options.UseCollisionMeshes ? BuildWalkmeshes(roomCollision, options, out walkableTris, out solidTris)
             : BuildWalkmeshes(roomMeshes, options, out walkableTris, out solidTris);
         log.Info($"Walkmeshes: {walkableTris:N0} walkable + {solidTris:N0} solid triangle(s).");
-        ModuleEntry entry = ChooseEntry(walks, meshes, roomMeshes, log);
+        // Geometrie visible d'une room, instances de modeles comprises (hauteur de reference du point d'apparition).
+        IEnumerable<Vector3> RoomPositions(string room) =>
+            (roomMeshes.TryGetValue(room, out var list) ? list.SelectMany(m => m.Positions) : [])
+            .Concat(modelInstances.Where(i => string.Equals(i.Room, room, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(i => localModels[i.Model].Bake(i.Transform, room)).SelectMany(m => m.Positions));
+        ModuleEntry entry = ChooseEntry(walks, RoomPositions, log);
         log.Progress(0.95, "Computing room visibility");
         log.Info("Computing room visibility...");
 
@@ -299,6 +354,8 @@ public static class SwtorSceneBuilder
             RenderMeshesAreSolid = !options.UseCollisionMeshes,
             CompactRenderSurfaces = true,
             RoomVisibility = SwtorVisibility.Build(layout, roomMeshes.Keys, log),
+            Models = localModels,
+            ModelInstances = modelInstances,
             SkyShader = hasSpace ? SpaceSkyShader : null,
         }, areaLighting, options, lights.Count > 0);
         var stats = new SwtorSceneStats(roomsUsed, instances, models.Count, missing.Count, meshes.Count, triangles, skippedCollision, lights.Count,
@@ -307,7 +364,7 @@ public static class SwtorSceneBuilder
             CollisionInstances = collisionInstances,
             FallbackInstances = fallbackInstances,
             OverrideInstances = overrideInstances,
-            RoomTriangles = roomMeshes.ToDictionary(kv => kv.Key, kv => kv.Value.Sum(m => m.Triangles.Length / 3), StringComparer.OrdinalIgnoreCase),
+            RoomTriangles = roomMeshes.ToDictionary(kv => kv.Key, kv => kv.Value.Sum(m => m.Triangles.Length / 3) + (int)roomInstanceTriangles.GetValueOrDefault(kv.Key), StringComparer.OrdinalIgnoreCase),
             TerrainTiles = terrainTiles.Count,
             TerrainTriangles = terrainTriangles,
             TerrainStep = terrainStep,
@@ -336,11 +393,95 @@ public static class SwtorSceneBuilder
         }
     }
 
+    /// <summary>Dossier de planete (art/static/area/<c>dossier</c>/...) d'un chemin de modele, null si le chemin n'est pas range par planete.</summary>
+    internal static string? PlanetFolder(string? path)
+    {
+        if (path is null) return null;
+        string[] parts = path.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        int i = Array.FindIndex(parts, p => p.Equals("area", StringComparison.OrdinalIgnoreCase));
+        return i >= 0 && i + 2 < parts.Length ? parts[i + 1] : null;
+    }
+
+    private static readonly string[] GroundKinds = ["grass", "moss", "dirt", "mud", "ground", "swamp", "sand", "rock", "rubble"];
+    private static readonly string[] BadGroundLayer = ["metal", "debris", "snow", "path", "cliff", "ember", "puddle", "trash", "mask", "alpha", "ruin", "city", "tech", "foundation", "kolto", "wave"];
+    private static readonly string[] GroundSuffixes = ["01", "_01", "02", "_02", ""];
+
     /// <summary>
-    /// Ajoute le sol : une grille par dalle, decimee au pas qui tient dans le budget, un mesh par room avec la texture de sol retenue
-    /// (<see cref="SwtorTerrain.ChooseGroundTexture"/>, sinon une texture unie), et sa collision dans le walkmesh de la room.
+    /// Vraie texture de sol de la planete : <c>art/static/area/&lt;planete&gt;/terrain_map/ter_&lt;code&gt;_&lt;sorte&gt;&lt;n&gt;_d.dds</c>, la premiere trouvee dans l'ordre herbe, mousse, terre, boue...
+    /// (repli des dalles sans carte de melange lisible : une seule couche pour ces dalles). Null si la planete n'est pas connue ou n'a rien de tel.
     /// </summary>
-    private static int AddTerrain(List<SwtorTerrainTile> tiles, SwtorBuildOptions options, float worldScale, long modelTriangles, SwtorMaterials materials,
+    private static KotorTexture? LoadPlanetGround(ISwtorModelSource source, List<string> planets, ImportLog log)
+    {
+        foreach (string planet in planets)
+        {
+            string[] listed = [.. source.ListFiles($"art/static/area/{planet}/terrain_map").Where(f => f.StartsWith("ter_", StringComparison.OrdinalIgnoreCase) && f.EndsWith("_d.dds", StringComparison.OrdinalIgnoreCase) && !f.Contains("tiny", StringComparison.OrdinalIgnoreCase) && !BadGroundLayer.Any(b => f.Contains(b, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(f => { int k = Array.FindIndex(GroundKinds, w => f.Contains(w, StringComparison.OrdinalIgnoreCase)); return k < 0 ? 99 : k; }).ThenBy(f => f, StringComparer.OrdinalIgnoreCase)];
+        string code = planet.Contains('_') ? planet[..planet.IndexOf('_')] : planet;
+            IEnumerable<string> names = listed.Length > 0 ? listed.Select(f => f[..^4]) : GroundKinds.SelectMany(k => GroundSuffixes.Select(s => $"ter_{code}_{k}{s}_d"));
+            // Plusieurs couches d'herbe existent (ex. Tython : grass_01 olive sombre, grass_04 vert franc) : on garde la plus verte de la premiere sorte trouvee.
+            var candidates = new List<(string Name, DdsImage Img, double Score)>();
+            int bestKind = int.MaxValue;
+            foreach (string name in names)
+            {
+                int kind = Array.FindIndex(GroundKinds, w => name.Contains(w, StringComparison.OrdinalIgnoreCase));
+                if (kind < 0) kind = 99;
+                if (candidates.Count > 0 && kind > bestKind) break;
+                DdsImage? loaded;
+                try { loaded = source.LoadTexture($"art/static/area/{planet}/terrain_map/{name}"); }
+                catch (GameFormatException) { continue; }
+                if (loaded is null) continue;
+                bestKind = kind;
+                long r = 0, g = 0, b = 0, n = 0;
+                byte[] px = loaded.Rgba;
+                for (int i = 0; i + 3 < px.Length; i += 16) { r += px[i]; g += px[i + 1]; b += px[i + 2]; n++; }
+                double score = n == 0 ? 0 : (g - 0.5 * (r + b)) / n;
+                candidates.Add((name, loaded, score));
+            }
+            foreach (var (name, img, _) in candidates.OrderByDescending(c => c.Score))
+            {
+                byte[] rgba = img.Rgba;
+                int w = img.Width, h = img.Height;
+                while (w > 512 && h > 512 && w % 2 == 0 && h % 2 == 0)
+                {
+                    var half = new byte[w / 2 * (h / 2) * 4];
+                    for (int y = 0; y < h / 2; y++)
+                        for (int x = 0; x < w / 2; x++)
+                            for (int c = 0; c < 4; c++)
+                                half[(y * (w / 2) + x) * 4 + c] = (byte)((rgba[((2 * y) * w + 2 * x) * 4 + c] + rgba[((2 * y) * w + 2 * x + 1) * 4 + c] + rgba[((2 * y + 1) * w + 2 * x) * 4 + c] + rgba[((2 * y + 1) * w + 2 * x + 1) * 4 + c]) / 4);
+                    rgba = half; w /= 2; h /= 2;
+                }
+                // Les couches de terrain sont tres sombres (moyenne ~70/255) : on remonte la luminosite moyenne vers ~110 pour que l'herbe se lise en jeu.
+                long sum = 0;
+                for (int i = 0; i + 2 < rgba.Length; i += 4) sum += rgba[i] + rgba[i + 1] + rgba[i + 2];
+                double mean = sum / (3.0 * (rgba.Length / 4));
+                double gain = mean > 1 ? Math.Clamp(110.0 / mean, 1.0, 1.8) : 1.0;
+                if (gain > 1.01)
+                    for (int i = 0; i + 2 < rgba.Length; i += 4)
+                        for (int c = 0; c < 3; c++) rgba[i + c] = (byte)Math.Min(255, (int)(rgba[i + c] * gain));
+                for (int i = 3; i < rgba.Length; i += 4) rgba[i] = 255;
+                log.Warn("SWTOR_TERRAIN_TEXTURE", $"Terrain textured with the planet ground layer '{name}' (fallback for tiles without a readable blend map).");
+                return new KotorTexture(w, h, rgba, false, TxiInfo.Empty);
+            }
+        }
+        log.Warn("SWTOR_TERRAIN_TEXTURE", $"No ground layer texture found in the planet folders used by the models ({string.Join(", ", planets)}).");
+        return null;
+    }
+
+    private static readonly string[] GroundWords = ["dirt", "grass", "ground", "moss", "mud", "soil", "sand", "rock", "stone", "gravel", "swamp", "earth", "rubble", "cliff"];
+
+    private static readonly string[] NotGroundWords = ["glow", "acid", "emis", "lava", "fire", "water", "neon", "holo", "screen", "light", "lamp", "fx_", "sky", "liquid", "slime", "toxic", "gel", "glass", "metal", "tech", "panel", "wall", "trim", "floor", "door", "stair"];
+
+    /// <summary>Faux pour les materiaux qui ne peuvent pas etre un sol (lumineux, liquides, metal...) : la couleur de sol empruntee ne doit pas etre un acide vert fluo.</summary>
+    private static bool NotGroundLike(string key) =>
+        NotGroundWords.Any(w => key.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Ajoute le sol : une grille par dalle, decimee au pas qui tient dans le budget, et sa collision dans le walkmesh de la room. Les couches de la
+    /// carte de melange (<see cref="SwtorTerrainLayers"/>) donnent, par room, un mesh par couche seule et un par paire de couches fondues
+    /// (<see cref="SwtorTerrain.SplitByLayers"/>) ; les dalles sans carte prennent le sol de repli (<see cref="ChooseFallbackGround"/>).
+    /// </summary>
+    private static int AddTerrain(List<SwtorTerrainTile> tiles, IReadOnlyDictionary<ulong, string> layerNames, SwtorBuildOptions options, float worldScale, long modelTriangles,
+        SwtorMaterials materials, ISwtorModelSource source, List<string> planets,
         List<SceneMesh> meshes, Dictionary<string, List<SceneMesh>> roomMeshes, Dictionary<string, MeshAccumulator> roomCollision, ImportLog log, out int step)
     {
         long cap = options.TerrainMaxTriangles > 0
@@ -348,44 +489,91 @@ public static class SwtorSceneBuilder
             : long.MaxValue;
         step = SwtorTerrain.ChooseStep([.. tiles.Select(t => t.Tile)], cap);
         float uvPeriod = 3.2f * worldScale;
+        var layers = new SwtorTerrainLayers(materials, layerNames, log);
         var perRoom = new Dictionary<string, SwtorTerrainMesh>(StringComparer.OrdinalIgnoreCase);
         foreach (IGrouping<string, SwtorTerrainTile> g in tiles.GroupBy(t => t.Room, StringComparer.OrdinalIgnoreCase))
-            perRoom[g.Key] = SwtorTerrain.BuildMesh(g.Select(t => (t.Tile, t.World)), step, p => SwtorAxes.ToZUp(p, options.Axes), SwtorAxes.FlipsWinding(options.Axes), uvPeriod);
+            perRoom[g.Key] = SwtorTerrain.BuildMesh(g.Select(t => (t.Tile, t.World)), step, p => SwtorAxes.ToZUp(p, options.Axes), SwtorAxes.FlipsWinding(options.Axes), uvPeriod,
+                layers.Slots, SwtorTerrainLayers.Fallback);
+        layers.Finish();
+        var parts = perRoom.ToDictionary(kv => kv.Key, kv => SwtorTerrain.SplitByLayers(kv.Value), StringComparer.OrdinalIgnoreCase);
 
-        string? ground = SwtorTerrain.ChooseGroundTexture(meshes, perRoom.Values.SelectMany(m => m.Positions), 0.25f * worldScale,
-            key => materials.Textures.TryGetValue(key, out var tex) && tex is not null, out SurfaceAlpha alpha);
-        if (ground is null)
+        string ground = FlatGroundTexture;
+        SurfaceAlpha alpha = SurfaceAlpha.Opaque;
+        int fallbackTriangles = parts.Values.Sum(ps => ps.Where(p => p.Base == SwtorTerrainLayers.Fallback).Sum(p => p.Triangles.Length / 3));
+        if (fallbackTriangles > 0)
+        {
+            if (layers.Count > 1) log.Warn("SWTOR_TERRAIN_TEXTURE", $"{fallbackTriangles:N0} terrain triangle(s) without a readable blend map layer use the fallback ground.");
+            (ground, alpha) = ChooseFallbackGround(perRoom, worldScale, materials, source, planets, meshes, log);
+        }
+
+        int total = 0, blended = 0;
+        foreach (var (room, mesh) in perRoom)
+        {
+            if (mesh.Triangles.Length == 0) continue;
+            if (!roomMeshes.TryGetValue(room, out var list)) roomMeshes[room] = list = [];
+            foreach (SwtorTerrainPart part in parts[room])
+            {
+                bool fallback = part.Base == SwtorTerrainLayers.Fallback;
+                Vector2 scale = layers.Scale(part.Base);
+                Vector2[] uv = [.. part.Uv.Select(u => u * scale)];
+                var sm = new SceneMesh(room, TerrainNode, fallback ? ground : layers.Key(part.Base), null, TxiInfo.Empty, 0, part.Positions, part.Normals, uv, null, part.Triangles)
+                {
+                    Alpha = fallback ? alpha : SurfaceAlpha.Opaque,
+                    OverlayTexture = part.Overlay >= 0 ? layers.Key(part.Overlay) : null,
+                    OverlayUvScale = part.Overlay >= 0 ? layers.Scale(part.Overlay) / scale : Vector2.One,
+                    VertexAlpha = part.Alpha,
+                };
+                meshes.Add(sm);
+                list.Add(sm);
+                if (part.Overlay >= 0) blended += part.Triangles.Length / 3;
+            }
+            if (roomCollision.TryGetValue(room, out MeshAccumulator? coll)) coll.AddRaw(mesh);
+            total += mesh.Triangles.Length / 3;
+        }
+        int pairs = parts.Values.SelectMany(ps => ps).Where(p => p.Overlay >= 0).Select(p => (p.Base, p.Overlay)).Distinct().Count();
+        log.Warn("SWTOR_TERRAIN", $"{tiles.Count} terrain tile(s) converted to {total:N0} triangles (grid step {step} = {step * HeightmapTile.CellSize:0.##} GR2 units per cell, budget {cap:N0}); "
+            + $"{layers.Count - 1} ground layer(s), {blended:N0} triangle(s) blending two layers ({pairs} pair shader(s)).");
+        return total;
+    }
+
+    /// <summary>
+    /// Sol de repli (dalles sans carte de melange) : vraie couche de sol de la planete (<see cref="LoadPlanetGround"/>), sinon le materiau le plus
+    /// represente parmi les surfaces tournees vers le haut posees sur le terrain (<see cref="SwtorTerrain.ChooseGroundTexture"/>), sinon une couleur de sable.
+    /// </summary>
+    private static (string Ground, SurfaceAlpha Alpha) ChooseFallbackGround(Dictionary<string, SwtorTerrainMesh> perRoom, float worldScale, SwtorMaterials materials,
+        ISwtorModelSource source, List<string> planets, List<SceneMesh> meshes, ImportLog log)
+    {
+        KotorTexture? real = LoadPlanetGround(source, planets, log);
+        Func<string,bool> has = k => materials.Textures.TryGetValue(k, out var tex) && tex is not null;
+        IEnumerable<Vector3> tv = perRoom.Values.SelectMany(m => m.Positions);
+        SurfaceAlpha alpha = SurfaceAlpha.Opaque;
+        string? ground = real is not null ? FlatGroundTexture : SwtorTerrain.ChooseGroundTexture(meshes, tv, 0.25f * worldScale, k => has(k) && !NotGroundLike(k) && GroundWords.Any(w => k.Contains(w, StringComparison.OrdinalIgnoreCase)), out alpha)
+            ?? SwtorTerrain.ChooseGroundTexture(meshes, tv, 0.25f * worldScale, k => has(k) && !NotGroundLike(k), out alpha);
+        if (real is not null)
+        {
+            materials.Textures[FlatGroundTexture] = real;
+            alpha = SurfaceAlpha.Opaque;
+        }
+        else
+        if (real is null && ground is null)
         {
             ground = FlatGroundTexture;
             alpha = SurfaceAlpha.Opaque;
             byte[] rgba = new byte[4 * 4 * 4];
             for (int i = 0; i < rgba.Length; i += 4) { rgba[i] = 150; rgba[i + 1] = 132; rgba[i + 2] = 105; rgba[i + 3] = 255; }
             materials.Textures[ground] = new KotorTexture(4, 4, rgba, false, TxiInfo.Empty);
-            log.Warn("SWTOR_TERRAIN_TEXTURE", "No ground-level surface found to borrow a texture from: terrain drawn with a flat sand colour (the terrain blend map is not decoded).");
+            log.Warn("SWTOR_TERRAIN_TEXTURE", "No ground-level surface found to borrow a texture from: terrain drawn with a flat sand colour (tiles without a readable blend map).");
         }
-        else
+        else if (real is null)
         {
-            // La texture d'une roche etiree en projection plane sur des pentes donne des stries : on n'en garde que les basses frequences (8 x 8, tirees vers la moyenne).
-            KotorTexture src = materials.Textures[ground]!;
+            // La texture d'une roche etiree en projection plane sur des pentes donne des stries : on n'en garde que les basses frequences (16 x 16, tirees vers la moyenne).
+            KotorTexture src = materials.Textures[ground!]!;
             materials.Textures[FlatGroundTexture] = SwtorTerrain.SmoothGroundTexture(src);
-            log.Warn("SWTOR_TERRAIN_TEXTURE", $"Terrain coloured from '{ground}', the material most used by up-facing surfaces lying on the ground, reduced to a smooth 8x8 tile (the terrain blend map and layer textures are not decoded).");
+            log.Warn("SWTOR_TERRAIN_TEXTURE", $"Terrain coloured from '{ground}', the material most used by up-facing surfaces lying on the ground, reduced to a smooth 16x16 tile (tiles without a readable blend map).");
             ground = FlatGroundTexture;
             alpha = SurfaceAlpha.Opaque;
         }
-
-        int total = 0;
-        foreach (var (room, mesh) in perRoom)
-        {
-            if (mesh.Triangles.Length == 0) continue;
-            var sm = new SceneMesh(room, TerrainNode, ground, null, TxiInfo.Empty, 0, mesh.Positions, mesh.Normals, mesh.Uv, null, mesh.Triangles) { Alpha = alpha };
-            meshes.Add(sm);
-            if (!roomMeshes.TryGetValue(room, out var list)) roomMeshes[room] = list = [];
-            list.Add(sm);
-            if (roomCollision.TryGetValue(room, out MeshAccumulator? coll)) coll.AddRaw(mesh);
-            total += mesh.Triangles.Length / 3;
-        }
-        log.Warn("SWTOR_TERRAIN", $"{tiles.Count} terrain tile(s) converted to {total:N0} triangles (grid step {step} = {step * HeightmapTile.CellSize:0.##} GR2 units per cell, budget {cap:N0}).");
-        return total;
+        return (ground ?? FlatGroundTexture, alpha);
     }
 
     /// <summary>Cle de la texture unie de repli du sol.</summary>
@@ -587,8 +775,7 @@ public static class SwtorSceneBuilder
     /// Point d'apparition : au milieu du sol de la plus grande room marchable (hors SPACE), sur un triangle de sol avec un degagement
     /// de 2 m au-dessus (joueur JA : 64 unites = 1,6 m a l echelle 40) ; direction vers le centre de la room marchable suivante, sinon +X.
     /// </summary>
-    internal static ModuleEntry ChooseEntry(IReadOnlyList<SceneWalkmesh> walks, IReadOnlyList<SceneMesh> meshes,
-        Dictionary<string, List<SceneMesh>> roomMeshes, ImportLog log)
+    internal static ModuleEntry ChooseEntry(IReadOnlyList<SceneWalkmesh> walks, Func<string, IEnumerable<Vector3>> roomPositions, ImportLog log)
     {
         var rooms = new List<(string Room, float Area, Vector2 Center, SceneWalkmesh W)>();
         foreach (SceneWalkmesh w in walks)
@@ -628,9 +815,9 @@ public static class SwtorSceneBuilder
         // Niveau principal : hauteur (tranches de 10 cm) qui porte le plus de surface marchable, parmi celles proches de la geometrie visible de la room
         // (mediane des Z des sommets, +-4 m scene = 160 u JA) : evite un plan de collision geant tres bas, un toit ou une passerelle.
         int mainLevel = levelArea.OrderByDescending(kv => kv.Value).First().Key;
-        if (roomMeshes.TryGetValue(best.Room, out var bestMeshes) && bestMeshes.Sum(m => m.Positions.Length) > 0)
+        float[] zs = [.. roomPositions(best.Room).Select(p => p.Z).Order()];
+        if (zs.Length > 0)
         {
-            float[] zs = [.. bestMeshes.SelectMany(m => m.Positions).Select(p => p.Z).Order()];
             float refZ = zs[zs.Length / 2];
             var near = levelArea.Where(kv => Math.Abs(kv.Key / 10f - refZ) <= 4f).ToList();
             if (near.Count > 0) mainLevel = near.OrderByDescending(kv => kv.Value).First().Key;
@@ -702,6 +889,50 @@ public static class SwtorSceneBuilder
     }
 
     /// <summary>Cumule les sommets d'un meme materiau dans une room (positions monde, Z haut).</summary>
+    /// <summary>Matrice de <see cref="SwtorAxes.ToZUp"/> (convention p * M).</summary>
+    private static Matrix4x4 AxisMatrix(AxisConvention axes)
+    {
+        Vector3 x = SwtorAxes.ToZUp(Vector3.UnitX, axes), y = SwtorAxes.ToZUp(Vector3.UnitY, axes), z = SwtorAxes.ToZUp(Vector3.UnitZ, axes);
+        return new Matrix4x4(x.X, x.Y, x.Z, 0, y.X, y.Y, y.Z, 0, z.X, z.Y, z.Z, 0, 0, 0, 0, 1);
+    }
+
+    /// <summary>
+    /// Maillages de rendu d'un modele a l echelle de l instance (<paramref name="scale"/>, echelle du monde comprise), axes de la scene, sans rotation ni position, un par materiau,
+    /// avec les memes regles que les pieces (collision, pieces cachees et materiaux hors limites ignores ; journalises par l'instance).
+    /// </summary>
+    private static SceneModel BuildLocalModel(string path, Gr2Model model, SwtorMaterials materials, AxisConvention axes, Vector3 scale)
+    {
+        Matrix4x4 scaleM = Matrix4x4.CreateScale(scale);
+        Matrix4x4 normalM = Matrix4x4.CreateScale(1f / scale.X, 1f / scale.Y, 1f / scale.Z);
+        var acc = new Dictionary<string, MeshAccumulator>(StringComparer.Ordinal);
+        var order = new List<MeshAccumulator>();
+        bool flip = SwtorAxes.FlipsWinding(axes);
+        foreach (Gr2Mesh mesh in model.Meshes)
+        {
+            if (mesh.Name.Contains("collision", StringComparison.OrdinalIgnoreCase)) continue;
+            if (mesh.Positions.Length == 0 || mesh.Indices.Length < 3 || mesh.Indices.Any(i => i >= mesh.Positions.Length)) continue;
+            Vector2[]? uv = mesh.UvSets.Count > 0 && mesh.UvSets[0].Length == mesh.Positions.Length ? mesh.UvSets[0] : null;
+            IReadOnlyList<Gr2Piece> pieces = mesh.Pieces.Count > 0
+                ? mesh.Pieces
+                : [new Gr2Piece(0, mesh.Indices.Length / 3, 0, Vector3.Zero, Vector3.Zero)];
+            foreach (Gr2Piece piece in pieces)
+            {
+                if (piece.MaterialIndex < 0 || piece.MaterialIndex >= model.Materials.Count) continue;
+                SwtorMaterialInfo mat = materials.Resolve(model.Materials[piece.MaterialIndex]);
+                int first = piece.StartTriangle * 3, end = Math.Min(mesh.Indices.Length, (piece.StartTriangle + piece.TriangleCount) * 3);
+                if (first < 0 || first >= end || mat.Hidden) continue;
+                if (!acc.TryGetValue(mat.Key, out MeshAccumulator? a))
+                {
+                    a = new MeshAccumulator(mat);
+                    acc[mat.Key] = a;
+                    order.Add(a);
+                }
+                a.Add(mesh, uv, mat.UvScale, scaleM, normalM, flip, axes, first, end);
+            }
+        }
+        return new SceneModel(path, [.. order.Where(a => a.Triangles.Count > 0).Select(a => a.ToSceneMesh(""))]);
+    }
+
     private sealed class MeshAccumulator(SwtorMaterialInfo? material)
     {
         public readonly List<Vector3> Positions = [];

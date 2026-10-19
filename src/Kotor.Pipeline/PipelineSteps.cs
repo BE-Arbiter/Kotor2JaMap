@@ -60,8 +60,11 @@ public static class PipelineSteps
         }
         string name = MapNames.Normalize(mapName ?? scene.Info.Module);
         if (MapNames.Validate(name) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
-        ExportPlan plan = ModuleExporter.BuildPlan(scene, mapName, opt, log);
+        // Modeles places (SWTOR) : MD3 + misc_model_static sous le plafond du moteur, le reste remis dans les maillages du BSP.
+        (ConvertedEntities statics, ModuleScene compiled) = StaticModelConverter.Convert(scene, name, opt, log);
+        ExportPlan plan = ModuleExporter.BuildPlan(compiled, mapName, opt, log);
         (ConvertedEntities converted, IReadOnlyList<SubModelInput> subModels) = ConvertObjects(scene, opt, log);
+        converted = statics.Merge(converted);
         return new ImportStepResult(scene, ApplyObjects(plan, converted, subModels, opt.Game), name, converted);
     }
 
@@ -218,7 +221,7 @@ public static class PipelineSteps
             // Shaders du BSP, puis ceux des modeles MD3 (models/<dossier>/<texture>) dans le meme fichier.
             IEnumerable<string> shaderBlocks = plan.Shaders.Select(s => ShaderPlanner.Write(s, opt.Game))
                 .Concat(imported.Converted?.ModelShaders ?? []);
-            File.WriteAllText(Path.Combine(stage, "shaders", KotorGames.MapPrefix(opt.Game) + "_" + name + ".shader"),
+            File.WriteAllText(Path.Combine(stage, "shaders", ShaderNames.ShaderFileName(name)),
                 string.Join("\n", shaderBlocks));
             foreach (Md3Asset md3 in imported.Converted?.Models ?? [])
             {
@@ -268,24 +271,53 @@ public static class PipelineSteps
         return parsed;
     }
 
-    /// <summary>Zippe le staging en <c>&lt;JaBaseDir&gt;\&lt;prefix&gt;_&lt;carte&gt;.pk3</c> (le pk3 existant n'est remplace que si tout reussit).</summary>
+    /// <summary>
+    /// Zippe le staging en <c>&lt;JaBaseDir&gt;\&lt;carte&gt;.pk3</c> (le pk3 existant n'est remplace que si tout reussit). Le nom etant libre,
+    /// refuse de remplacer un pk3 qui n'est pas cette carte (ex. <c>assets0</c>) et un <c>shaders/&lt;carte&gt;.shader</c> deja fourni par un
+    /// autre pk3 de base (le moteur n'en garderait qu'un : les shaders du jeu ou de la carte seraient perdus).
+    /// </summary>
     public static Pk3StepResult CreatePk3(ExportStepResult exported, ImportStepResult imported, ExportOptions opt, ImportLog log)
     {
         ArgumentNullException.ThrowIfNull(exported);
         ArgumentNullException.ThrowIfNull(imported);
         ArgumentNullException.ThrowIfNull(opt);
-        if (MapNames.Validate(imported.MapName) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
+        string name = imported.MapName;
+        if (MapNames.Validate(name) is { } badName) throw Fail(log, "MAP_NAME_INVALID", badName);
         RequireJaBaseDir(opt, log);
         try
         {
-            string pk3 = Path.Combine(opt.JaBaseDir, KotorGames.MapPrefix(opt.Game) + "_" + imported.MapName + ".pk3");
+            string pk3 = Path.Combine(opt.JaBaseDir, name + ".pk3");
+            if (File.Exists(pk3) && Pk3Contains(pk3, "maps/" + name + ".bsp") == false)
+                throw Fail(log, "MAP_NAME_TAKEN", $"{pk3} exists and is not the map {name}: choose another map name.");
+            string shader = "shaders/" + ShaderNames.ShaderFileName(name);
+            if (File.Exists(Path.Combine(opt.JaBaseDir, shader.Replace('/', Path.DirectorySeparatorChar))))
+                throw Fail(log, "MAP_NAME_TAKEN", $"{Path.Combine(opt.JaBaseDir, shader)} already exists: choose another map name.");
+            foreach (string other in Directory.EnumerateFiles(opt.JaBaseDir, "*.pk3"))
+                if (!string.Equals(Path.GetFullPath(other), Path.GetFullPath(pk3), StringComparison.OrdinalIgnoreCase) && Pk3Contains(other, shader) == true)
+                    throw Fail(log, "MAP_NAME_TAKEN", $"{Path.GetFileName(other)} already provides {shader}: choose another map name.");
+
+            string legacy = Path.Combine(opt.JaBaseDir, KotorGames.MapPrefix(opt.Game) + "_" + name + ".pk3");
+            if (File.Exists(legacy))
+                log.Warn("LEGACY_PK3", $"{legacy} (old naming) also contains maps/{name}.bsp and is loaded after {name}.pk3: delete it.");
+
             Pk3Builder.Build(exported.StagingDir, pk3);
             return new Pk3StepResult(pk3);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             throw Fail(log, "EXPORT_IO_ERROR", ex.Message);
         }
+    }
+
+    /// <summary>Le pk3 contient-il <paramref name="entry"/> (chemin a '/', casse ignoree) ? null si ce n'est pas un zip lisible (vide, tronque).</summary>
+    private static bool? Pk3Contains(string pk3, string entry)
+    {
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(pk3);
+            return zip.Entries.Any(e => string.Equals(e.FullName.Replace('\\', '/'), entry, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (InvalidDataException) { return null; }
     }
 
     /// <summary>Le dossier <c>base</c> du jeu doit exister : on ne cree jamais d'arborescence fantome.</summary>

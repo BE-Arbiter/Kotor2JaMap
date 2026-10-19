@@ -57,7 +57,9 @@ public class ModuleSceneBuilderTests
     {
         Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
         var (scene, log, lyt) = LoadReal();
-        int layoutRooms = lyt.Rooms.Select(r => r.Model).Distinct().Count();
+        int layoutRooms = lyt.Rooms.Select(r => r.Model).Where(m => !ModuleSceneBuilder.IsSkyRoom(m)).Distinct().Count();
+        Assert.Contains(log.Warnings, w => w.Code == "SKY_ROOM_SKIPPED");
+        Assert.DoesNotContain(scene.Meshes, m => ModuleSceneBuilder.IsSkyRoom(m.Room));
         int missing = log.Warnings.Count(w => w.Code is "ROOM_MODEL_MISSING" or "ROOM_MODEL_UNREADABLE");
         int roomsWithMeshes = scene.Meshes.Select(m => m.Room).Distinct().Count();
         Assert.Equal(layoutRooms - missing, roomsWithMeshes);
@@ -229,6 +231,24 @@ public class ModuleSceneBuilderTests
         Assert.Contains("1 walkmesh triangle", w.Message);
     }
 
+    [Theory]
+    [InlineData("lda_sky0001", true)]
+    [InlineData("LDA_SKY0005", true)]
+    [InlineData("lda_sky", false)]
+    [InlineData("lda_skylight01", false)]
+    [InlineData("lda_grass07", false)]
+    [InlineData(null, false)]
+    public void Sky_texture_is_recognised_by_name(string? texture, bool sky)
+        => Assert.Equal(sky, ModuleSceneBuilder.IsSkyTexture(texture));
+
+    [Theory]
+    [InlineData("m02aa_sky", true)]
+    [InlineData("M02AA_SKY", true)]
+    [InlineData("m02aa_01a", false)]
+    [InlineData("m02aa_skyline", false)]
+    public void Sky_dome_room_is_recognised_by_name(string model, bool sky)
+        => Assert.Equal(sky, ModuleSceneBuilder.IsSkyRoom(model));
+
     [Fact]
     public void Ambient_colour_is_read_as_bgr()
     {
@@ -261,7 +281,7 @@ public class ModuleSceneBuilderTests
     {
         Skip.If(TestEnv.KotorDir is null, "KOTOR absent");
         var (scene, log, _) = LoadReal();
-        Assert.Equal(71, scene.Lights.Count);
+        Assert.Equal(70, scene.Lights.Count);   // 71 avant l'exclusion de la room m02aa_sky (1 lumiere)
         // Controllers 76/88/140 are really decoded: no light fell back to the defaults, none was rejected.
         Assert.DoesNotContain(log.Warnings, w => w.Code == "LIGHT_DEFAULTS");
         Assert.DoesNotContain(log.Warnings, w => w.Code == "LIGHT_INVALID");

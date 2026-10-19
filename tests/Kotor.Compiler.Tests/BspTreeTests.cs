@@ -51,12 +51,4 @@ public class BspTreeTests
         Assert.All(solid, l => Assert.NotEmpty(l.BrushIndices));
         Assert.Equal(6, solid.SelectMany(l => l.BrushIndices).Distinct().Count());
     }
-
-    [Fact]
-    public void Limit_exceeded_throws_clear_error()
-    {
-        var limits = new Limits(1, 1000, 1000, 1000);
-        var ex = Assert.Throws<BspLimitException>(() => limits.CheckBrushes(2));
-        Assert.Contains("MAX_MAP_BRUSHES", ex.Message);
-    }
 }

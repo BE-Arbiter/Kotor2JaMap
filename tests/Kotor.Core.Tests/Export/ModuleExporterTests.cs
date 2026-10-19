@@ -188,7 +188,7 @@ public sealed class ModuleExporterTests : IDisposable
         Assert.False(r.Ok);
         Assert.Null(r.Pk3Path);
         Assert.Contains(log.Warnings, w => w.Code == "SHADER_LIMIT");
-        Assert.False(File.Exists(Path.Combine(_root, "base", "kotor_big.pk3")));
+        Assert.False(File.Exists(Path.Combine(_root, "base", "big.pk3")));
     }
 
     [Fact]
@@ -198,12 +198,12 @@ public sealed class ModuleExporterTests : IDisposable
         var log = new ImportLog();
         var r = ModuleExporter.Export(scene, "MyMap", Opt(), log);
         Assert.True(r.Ok, r.Error);
-        Assert.Equal(Path.Combine(_root, "base", "kotor_mymap.pk3"), r.Pk3Path);
+        Assert.Equal(Path.Combine(_root, "base", "mymap.pk3"), r.Pk3Path);
         using (var z = ZipFile.OpenRead(r.Pk3Path!))
         {
             var names = z.Entries.Select(e => e.FullName).ToList();
             Assert.Contains("maps/mymap.bsp", names);
-            Assert.Contains("shaders/kotor_mymap.shader", names);
+            Assert.Contains("shaders/mymap.shader", names);
             Assert.Contains("textures/kotor/t.tga", names);
             Assert.Contains("textures/kotor/lm/l.tga", names);
         }
