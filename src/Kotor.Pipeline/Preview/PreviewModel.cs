@@ -6,7 +6,7 @@ namespace Kotor.Pipeline.Preview;
 /// <summary>Sommet de la vue, en unites JA. UV « haut-gauche » (t = 0 en haut), comme les images.</summary>
 public readonly record struct PreviewVertex(Vector3 Position, Vector3 Normal, Vector2 Uv0, Vector2 Uv1);
 
-public enum PreviewBlend { Opaque, Cutout, Additive, Alpha }
+public enum PreviewBlend { Opaque, Cutout, Additive, Alpha, Multiply }
 
 /// <summary>Texture RGBA 8 bits, ligne 0 = haut.</summary>
 public sealed record PreviewTexture(int Width, int Height, byte[] Rgba);

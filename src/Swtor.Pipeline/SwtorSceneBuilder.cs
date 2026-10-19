@@ -6,6 +6,7 @@ using Kotor.Core.Textures;
 using Swtor.Core;
 using Swtor.Core.Areas;
 using Swtor.Core.Gr2;
+using Swtor.Core.Terrain;
 
 namespace Swtor.Pipeline;
 
@@ -48,6 +49,12 @@ public sealed record SwtorBuildOptions
 
     /// <summary>Decalage de l origine (unites GR2, plan X/Z) soustrait aux positions ; calcule automatiquement par <c>Build</c> quand la zone exportee est trop loin de l origine pour les limites du monde JA (131072).</summary>
     public Vector3 OriginOffset { get; init; } = Vector3.Zero;
+
+    /// <summary>Convertit le terrain (objets heightmap des zones exterieures) en sol ; faux = zones sans sol comme avant.</summary>
+    public bool TerrainEnabled { get; init; } = true;
+
+    /// <summary>Triangles de rendu au plus pour tout le terrain de la zone ; 0 = aucune limite (pleine resolution, 0,2 unite par cellule) : le PVS par room evite de tout dessiner, le budget BSP ne s applique pas au sol. Sinon le pas de la grille est choisi pour tenir dedans.</summary>
+    public int TerrainMaxTriangles { get; init; } = 0;
 }
 
 /// <summary>Comptes de la construction, pour le rapport et les tests.</summary>
@@ -62,6 +69,12 @@ public sealed record SwtorSceneStats(int Rooms, int ModelInstances, int Distinct
     public int OverrideInstances { get; init; }
     /// <summary>Triangles de rendu par room exportee (pour choisir un sous-ensemble quand les limites BSP sont depassees).</summary>
     public IReadOnlyDictionary<string, int> RoomTriangles { get; init; } = new Dictionary<string, int>();
+    /// <summary>Dalles de terrain converties en sol.</summary>
+    public int TerrainTiles { get; init; }
+    /// <summary>Triangles de rendu du sol (inclus dans <c>Triangles</c>).</summary>
+    public int TerrainTriangles { get; init; }
+    /// <summary>Pas d'echantillonnage de la grille de terrain (1 = 0,2 unite par cellule, sans decimation).</summary>
+    public int TerrainStep { get; init; }
 }
 
 public sealed record SwtorSceneResult(ModuleScene Scene, SwtorSceneStats Stats);
@@ -84,6 +97,8 @@ public static class SwtorSceneBuilder
         float worldScale = SwtorWorldScale.Resolve(options.WorldScale);
         log.Warn("SWTOR_WORLD_SCALE", $"World scale {worldScale:0.###} m per GR2 unit ({worldScale * SwtorWorldScale.JaUnitsPerMetre:0.#} JA units, calibrated on JA stairs, seats and doors; SWTOR human {SwtorWorldScale.HumanHeightGr2} units = {SwtorWorldScale.HumanHeightGr2 * SwtorWorldScale.JaUnitsPerGr2Unit:0.#} JA units; manual multiplier --world-scale = {(options.WorldScale > 0f ? options.WorldScale : 1f):0.###}). Not verified in game.");
         options = options with { WorldScale = worldScale };
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        log.Progress(0.02, "Centering the area");
         options = options with { OriginOffset = ComputeOriginOffset(layout, options, worldScale, log) };
         string skyRoom = layout.Area.AreaProperties.Get("skyscene_room") is { Length: > 0 } sr ? sr : "skyscene_room";
 
@@ -101,22 +116,67 @@ public static class SwtorSceneBuilder
         var skippedByKind = new Dictionary<InstanceKind, int>();
         long triangles = 0;
         var missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var terrainTiles = new List<SwtorTerrainTile>();
+        var terrainErrors = new Dictionary<string, int>(StringComparer.Ordinal);
+        int terrainSkipped = 0;
+
+        // Total pour la barre de progression : toutes les instances des rooms retenues.
+        bool Included(string roomName) =>
+            !(string.Equals(roomName, skyRoom, StringComparison.OrdinalIgnoreCase) || roomName.Equals("skyscene", StringComparison.OrdinalIgnoreCase))
+            && (filter is not null ? filter.Contains(roomName) : options.IncludeSpaceRoom || !IsSpaceRoom(roomName));
+        int plannedRooms = 0, plannedInstances = 0;
+        foreach (var (roomName, room) in layout.Rooms)
+        {
+            if (!Included(roomName)) continue;
+            plannedRooms++;
+            plannedInstances += room.Instances.Count;
+        }
+        log.Info($"Building the scene: {plannedRooms} room(s), {plannedInstances:N0} instance(s) to place (the first load of models and textures is the slow part).");
+        int processed = 0, roomIndex = 0, nextReport = 0;
+        const int ReportEvery = 20;
+        double RoomsFraction() => 0.05 + 0.80 * (plannedInstances > 0 ? (double)processed / plannedInstances : 1d);
 
         foreach (var (roomName, room) in layout.Rooms)
         {
-            if (string.Equals(roomName, skyRoom, StringComparison.OrdinalIgnoreCase) || roomName.Equals("skyscene", StringComparison.OrdinalIgnoreCase)) continue;
-            if (filter is not null ? !filter.Contains(roomName) : !options.IncludeSpaceRoom && IsSpaceRoom(roomName)) continue;
+            if (!Included(roomName)) continue;
             roomsUsed++;
+            roomIndex++;
+            var roomClock = System.Diagnostics.Stopwatch.StartNew();
+            int roomModelsAtStart = models.Count;
+            long roomTrianglesAtStart = triangles;
+            log.Info($"Room {roomIndex}/{plannedRooms} '{roomName}': {room.Instances.Count:N0} instance(s)...");
+            log.Progress(RoomsFraction(), $"Room {roomIndex}/{plannedRooms} '{roomName}'");
             var acc = new Dictionary<string, MeshAccumulator>(StringComparer.Ordinal);
             var order = new List<MeshAccumulator>();
             var collAcc = new MeshAccumulator(null);
             roomCollision[roomName] = collAcc;
+            int roomInstance = 0;
 
             foreach (RoomInstance inst in room.Instances)
             {
+                processed++;
+                roomInstance++;
+                if (roomInstance % 250 == 0)
+                    log.Info($"  '{roomName}': {roomInstance:N0}/{room.Instances.Count:N0} instances, {models.Count:N0} model(s) loaded ({missing.Count:N0} missing), {materials.Textures.Count:N0} texture(s), {clock.Elapsed.TotalSeconds:0}s elapsed.");
+                if (processed >= nextReport)
+                {
+                    nextReport = processed + ReportEvery;
+                    log.Progress(RoomsFraction(), $"Room {roomIndex}/{plannedRooms} '{roomName}': {roomInstance:N0}/{room.Instances.Count:N0} instances, {models.Count:N0} models, {materials.Textures.Count:N0} textures");
+                }
                 if (inst.Kind == InstanceKind.Light)
                 {
                     AddLight(inst, layout, options, lights);
+                    continue;
+                }
+                if (inst.Kind == InstanceKind.Heightmap && options.TerrainEnabled)
+                {
+                    if (TryReadTerrain(inst, out HeightmapTile? tile, out string? terrainError))
+                        terrainTiles.Add(new SwtorTerrainTile(roomName, tile!, layout.World(inst) * Matrix4x4.CreateTranslation(-options.OriginOffset) * Matrix4x4.CreateScale(worldScale)));
+                    else
+                    {
+                        terrainSkipped++;
+                        terrainErrors[terrainError!] = terrainErrors.GetValueOrDefault(terrainError!) + 1;
+                    }
                     continue;
                 }
                 if (inst.Kind != InstanceKind.Model || inst.AssetPath is null)
@@ -169,7 +229,7 @@ public static class SwtorSceneBuilder
                         int first = piece.StartTriangle * 3, end = Math.Min(mesh.Indices.Length, (piece.StartTriangle + piece.TriangleCount) * 3);
                         if (first < 0 || first >= end) continue;
                         // Pas de mesh de collision dans le .gr2 : la geometrie visible (et les pieces de collision seule) sert de collision, hors additifs.
-                        if (fallback && !mat.NoCollision && mat.Alpha != SurfaceAlpha.Additive) collAcc.Add(mesh, null, Vector2.One, world, normalM, flip, options.Axes, first, end);
+                        if (fallback && !mat.NoCollision && mat.Alpha is not (SurfaceAlpha.Additive or SurfaceAlpha.Multiply)) collAcc.Add(mesh, null, Vector2.One, world, normalM, flip, options.Axes, first, end);
                         if (mat.Hidden) { skippedHidden++; continue; }
 
                         if (!acc.TryGetValue(mat.Key, out MeshAccumulator? a))
@@ -183,6 +243,7 @@ public static class SwtorSceneBuilder
                 }
             }
 
+            log.Progress(RoomsFraction(), $"Room {roomIndex}/{plannedRooms} '{roomName}': assembling meshes");
             var list = new List<SceneMesh>();
             foreach (MeshAccumulator a in order)
             {
@@ -193,7 +254,20 @@ public static class SwtorSceneBuilder
             }
             meshes.AddRange(list);
             roomMeshes[roomName] = list;
+            log.Info($"Room {roomIndex}/{plannedRooms} '{roomName}' done in {roomClock.Elapsed.TotalSeconds:0.0}s: {list.Count} mesh(es), {triangles - roomTrianglesAtStart:N0} triangle(s), {models.Count - roomModelsAtStart:N0} new model(s).");
         }
+        log.Info($"Rooms built in {clock.Elapsed.TotalSeconds:0.0}s: {instances:N0} model instance(s), {models.Count:N0} distinct model(s) ({missing.Count:N0} missing), {materials.Textures.Count:N0} texture(s), {triangles:N0} triangle(s).");
+
+        int terrainTriangles = 0, terrainStep = 0;
+        if (terrainTiles.Count > 0)
+        {
+            log.Progress(0.86, $"Terrain: {terrainTiles.Count} tile(s)");
+            log.Info($"Converting {terrainTiles.Count} terrain tile(s)...");
+            terrainTriangles = AddTerrain(terrainTiles, options, worldScale, triangles, materials, meshes, roomMeshes, roomCollision, log, out terrainStep);
+        }
+        triangles += terrainTriangles;
+        foreach (var (error, count) in terrainErrors.OrderBy(k => k.Key, StringComparer.Ordinal))
+            log.Warn("SWTOR_TERRAIN_UNSUPPORTED", $"{count} terrain tile(s) skipped: {error}.");
 
         foreach (var (kind, count) in skippedByKind.OrderBy(k => k.Key.ToString(), StringComparer.Ordinal))
             log.Warn("SWTOR_KIND_SKIPPED", $"{count} instance(s) of kind {kind} not converted.");
@@ -206,10 +280,15 @@ public static class SwtorSceneBuilder
         if (areaLighting.Fog is not null) log.Warn("SWTOR_FOG_IGNORED", "The area defines static fog; fog is not exported.");
         if (meshes.Count == 0) log.Warn("SWTOR_EMPTY_SCENE", $"{internalName}: no mesh produced (rooms: {roomsUsed}).");
 
+        log.Progress(0.90, "Building the walkmeshes");
+        log.Info("Building the walkmeshes (collision)...");
         int walkableTris, solidTris;
         var walks = options.UseCollisionMeshes ? BuildWalkmeshes(roomCollision, options, out walkableTris, out solidTris)
             : BuildWalkmeshes(roomMeshes, options, out walkableTris, out solidTris);
+        log.Info($"Walkmeshes: {walkableTris:N0} walkable + {solidTris:N0} solid triangle(s).");
         ModuleEntry entry = ChooseEntry(walks, meshes, roomMeshes, log);
+        log.Progress(0.95, "Computing room visibility");
+        log.Info("Computing room visibility...");
 
         var info = new ModuleInfo(internalName, internalName, internalName, entry);
         bool hasSpace = layout.Rooms.Any(r => IsSpaceRoom(r.Name));
@@ -219,6 +298,7 @@ public static class SwtorSceneBuilder
             AreaLightingKnown = true,
             RenderMeshesAreSolid = !options.UseCollisionMeshes,
             CompactRenderSurfaces = true,
+            RoomVisibility = SwtorVisibility.Build(layout, roomMeshes.Keys, log),
             SkyShader = hasSpace ? SpaceSkyShader : null,
         }, areaLighting, options, lights.Count > 0);
         var stats = new SwtorSceneStats(roomsUsed, instances, models.Count, missing.Count, meshes.Count, triangles, skippedCollision, lights.Count,
@@ -228,17 +308,102 @@ public static class SwtorSceneBuilder
             FallbackInstances = fallbackInstances,
             OverrideInstances = overrideInstances,
             RoomTriangles = roomMeshes.ToDictionary(kv => kv.Key, kv => kv.Value.Sum(m => m.Triangles.Length / 3), StringComparer.OrdinalIgnoreCase),
+            TerrainTiles = terrainTiles.Count,
+            TerrainTriangles = terrainTriangles,
+            TerrainStep = terrainStep,
         };
+        log.Progress(1.0, "Scene ready");
+        log.Info($"Scene built in {clock.Elapsed.TotalSeconds:0.0}s.");
         return new SwtorSceneResult(scene, stats);
     }
+
+    /// <summary>Lit le blob de terrain d'un objet heightmap ; faux (avec la raison) si le format de cette dalle n'est pas gere (version 9, dalle degeneree...).</summary>
+    private static bool TryReadTerrain(RoomInstance inst, out HeightmapTile? tile, out string? error)
+    {
+        tile = null;
+        error = null;
+        byte[]? blob = inst.Fields.Where(f => f.Type == 9 && f.Value is byte[] { Length: > 0 }).Select(f => (byte[])f.Value).FirstOrDefault();
+        if (blob is null) { error = "no data blob"; return false; }
+        try
+        {
+            tile = HeightmapTile.ReadBlob(blob);
+            return true;
+        }
+        catch (GameFormatException ex)
+        {
+            error = ex.Message.Split('(')[0].Trim();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Ajoute le sol : une grille par dalle, decimee au pas qui tient dans le budget, un mesh par room avec la texture de sol retenue
+    /// (<see cref="SwtorTerrain.ChooseGroundTexture"/>, sinon une texture unie), et sa collision dans le walkmesh de la room.
+    /// </summary>
+    private static int AddTerrain(List<SwtorTerrainTile> tiles, SwtorBuildOptions options, float worldScale, long modelTriangles, SwtorMaterials materials,
+        List<SceneMesh> meshes, Dictionary<string, List<SceneMesh>> roomMeshes, Dictionary<string, MeshAccumulator> roomCollision, ImportLog log, out int step)
+    {
+        long cap = options.TerrainMaxTriangles > 0
+            ? options.TerrainMaxTriangles
+            : long.MaxValue;
+        step = SwtorTerrain.ChooseStep([.. tiles.Select(t => t.Tile)], cap);
+        float uvPeriod = 3.2f * worldScale;
+        var perRoom = new Dictionary<string, SwtorTerrainMesh>(StringComparer.OrdinalIgnoreCase);
+        foreach (IGrouping<string, SwtorTerrainTile> g in tiles.GroupBy(t => t.Room, StringComparer.OrdinalIgnoreCase))
+            perRoom[g.Key] = SwtorTerrain.BuildMesh(g.Select(t => (t.Tile, t.World)), step, p => SwtorAxes.ToZUp(p, options.Axes), SwtorAxes.FlipsWinding(options.Axes), uvPeriod);
+
+        string? ground = SwtorTerrain.ChooseGroundTexture(meshes, perRoom.Values.SelectMany(m => m.Positions), 0.25f * worldScale,
+            key => materials.Textures.TryGetValue(key, out var tex) && tex is not null, out SurfaceAlpha alpha);
+        if (ground is null)
+        {
+            ground = FlatGroundTexture;
+            alpha = SurfaceAlpha.Opaque;
+            byte[] rgba = new byte[4 * 4 * 4];
+            for (int i = 0; i < rgba.Length; i += 4) { rgba[i] = 150; rgba[i + 1] = 132; rgba[i + 2] = 105; rgba[i + 3] = 255; }
+            materials.Textures[ground] = new KotorTexture(4, 4, rgba, false, TxiInfo.Empty);
+            log.Warn("SWTOR_TERRAIN_TEXTURE", "No ground-level surface found to borrow a texture from: terrain drawn with a flat sand colour (the terrain blend map is not decoded).");
+        }
+        else
+        {
+            // La texture d'une roche etiree en projection plane sur des pentes donne des stries : on n'en garde que les basses frequences (8 x 8, tirees vers la moyenne).
+            KotorTexture src = materials.Textures[ground]!;
+            materials.Textures[FlatGroundTexture] = SwtorTerrain.SmoothGroundTexture(src);
+            log.Warn("SWTOR_TERRAIN_TEXTURE", $"Terrain coloured from '{ground}', the material most used by up-facing surfaces lying on the ground, reduced to a smooth 8x8 tile (the terrain blend map and layer textures are not decoded).");
+            ground = FlatGroundTexture;
+            alpha = SurfaceAlpha.Opaque;
+        }
+
+        int total = 0;
+        foreach (var (room, mesh) in perRoom)
+        {
+            if (mesh.Triangles.Length == 0) continue;
+            var sm = new SceneMesh(room, TerrainNode, ground, null, TxiInfo.Empty, 0, mesh.Positions, mesh.Normals, mesh.Uv, null, mesh.Triangles) { Alpha = alpha };
+            meshes.Add(sm);
+            if (!roomMeshes.TryGetValue(room, out var list)) roomMeshes[room] = list = [];
+            list.Add(sm);
+            if (roomCollision.TryGetValue(room, out MeshAccumulator? coll)) coll.AddRaw(mesh);
+            total += mesh.Triangles.Length / 3;
+        }
+        log.Warn("SWTOR_TERRAIN", $"{tiles.Count} terrain tile(s) converted to {total:N0} triangles (grid step {step} = {step * HeightmapTile.CellSize:0.##} GR2 units per cell, budget {cap:N0}).");
+        return total;
+    }
+
+    /// <summary>Cle de la texture unie de repli du sol.</summary>
+    internal const string FlatGroundTexture = "swtor_terrain";
+
+    /// <summary>Nom de noeud des meshes de sol (diagnostic, apercus).</summary>
+    public const string TerrainNode = "terrain";
 
     private static bool TryGetModel(string path, ISwtorModelSource source, Dictionary<string, Gr2Model?> cache, HashSet<string> missing,
         ImportLog log, out Gr2Model? model)
     {
         if (cache.TryGetValue(path, out model)) return model is not null;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             model = source.LoadModel(path);
+            if (clock.ElapsedMilliseconds >= 500)
+                log.Info($"  slow model {path}: {clock.Elapsed.TotalSeconds:0.0}s" + (model is null ? " (not found)" : $", {model.Meshes.Count} mesh(es)"));
             if (model is null) log.Warn("SWTOR_MODEL_MISSING", $"{path}: .gr2 not found, instance(s) skipped.");
         }
         catch (GameFormatException ex)
@@ -393,7 +558,7 @@ public static class SwtorSceneBuilder
             var walk = new List<bool>();
             foreach (SceneMesh m in list)
             {
-                if (m.Alpha == SurfaceAlpha.Additive) continue;
+                if (m.Alpha is SurfaceAlpha.Additive or SurfaceAlpha.Multiply) continue;
                 int b = pos.Count;
                 pos.AddRange(m.Positions);
                 for (int i = 0; i + 2 < m.Triangles.Length; i += 3)
@@ -568,6 +733,16 @@ public static class SwtorSceneBuilder
                 if (flip) (b, c) = (c, b);
                 Triangles.Add(a); Triangles.Add(b); Triangles.Add(c);
             }
+        }
+
+        /// <summary>Ajoute un maillage deja en repere de scene (terrain).</summary>
+        public void AddRaw(SwtorTerrainMesh mesh)
+        {
+            int b = Positions.Count;
+            Positions.AddRange(mesh.Positions);
+            Normals.AddRange(mesh.Normals);
+            Uv.AddRange(mesh.Uv);
+            foreach (int i in mesh.Triangles) Triangles.Add(b + i);
         }
 
         public SceneMesh ToSceneMesh(string room) =>

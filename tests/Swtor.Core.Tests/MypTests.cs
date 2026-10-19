@@ -21,7 +21,7 @@ public class MypTests
     public void Hash_EmptyNameIsTheSeed() => Assert.Equal(0xDEADBEEFDEADBEEFUL, MypHash.Compute(""));
 
     // Builds an archive with one table: header, then per file a 36 byte file header and its data, then the table.
-    private static byte[] Build(params (string Name, byte[] Stored, int Size, ushort Compression)[] files)
+    internal static byte[] Build(params (string Name, byte[] Stored, int Size, ushort Compression)[] files)
     {
         const int capacity = 4;
         var ms = new MemoryStream();
@@ -57,7 +57,7 @@ public class MypTests
         return bytes;
     }
 
-    private static byte[] Zlib(byte[] data)
+    internal static byte[] Zlib(byte[] data)
     {
         var ms = new MemoryStream();
         using (var z = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true)) z.Write(data);

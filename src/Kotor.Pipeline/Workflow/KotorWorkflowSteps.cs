@@ -183,6 +183,25 @@ public sealed class KotorWorkflowSteps(ExportOptions options) : IWorkflowSteps
         finally { Flush(log, progress); }
     }
 
+    public PreviewModel SetSpawn(System.Numerics.Vector3 position, float yawDegrees)
+    {
+        ImportStepResult imported = _imported ?? throw new InvalidOperationException("Import first.");
+        PreviewModel view = _importModel ?? throw new InvalidOperationException("Import first.");
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        string origin = string.Create(ci, $"{position.X:0.###} {position.Y:0.###} {position.Z:0.###}");
+        string angle = yawDegrees.ToString("0.###", ci);
+        var entities = new List<IReadOnlyDictionary<string, string>>();
+        foreach (var e in imported.Plan.Input.Entities)
+        {
+            if (e.TryGetValue("classname", out string? c) && c is "info_player_start" or "info_player_deathmatch")
+                entities.Add(new Dictionary<string, string>(e) { ["origin"] = origin, ["angle"] = angle });
+            else entities.Add(e);
+        }
+        _imported = imported with { Plan = imported.Plan with { Input = imported.Plan.Input with { Entities = entities } } };
+        _exported = null;
+        return _importModel = view with { Spawn = position, SpawnYaw = yawDegrees };
+    }
+
     public PreviewModel Export(IProgress<string> progress)
     {
         ImportStepResult imported = _imported ?? throw new InvalidOperationException("Import first.");

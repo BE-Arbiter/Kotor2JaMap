@@ -58,6 +58,41 @@ public sealed class PreviewBuilderTests : IDisposable
         Assert.NotNull(m.Spawn);
     }
 
+    [Theory]
+    [InlineData(KotorGame.Kotor1, false, "wall")]
+    [InlineData(KotorGame.Kotor2, false, "wall")]
+    [InlineData(KotorGame.Swtor, false, "wall")]
+    [InlineData(KotorGame.Swtor, true, "wall")]
+    public void KeyOf_strips_the_game_prefix(KotorGame game, bool lightmap, string name)
+    {
+        string rel = (lightmap ? ShaderNames.LightmapPrefixFor(game) : ShaderNames.PrefixFor(game)) + name + ".tga";
+        Assert.Equal(name, PreviewBuilder.KeyOf(new ExportTexture(rel, null, lightmap)));
+    }
+
+    [Fact]
+    public void SetSpawn_rewrites_the_player_starts_and_the_view()
+    {
+        var steps = new KotorWorkflowSteps(Opt());
+        steps.UseScene(Scene(), Opt(), "demo");
+        steps.Import(new Progress<string>());
+
+        PreviewModel view = steps.SetSpawn(new Vector3(100, 200, 300), 45f);
+        Assert.Equal(new Vector3(100, 200, 300), view.Spawn);
+        Assert.Equal(45f, view.SpawnYaw);
+
+        // Un deuxieme import n'est pas necessaire : l'export lit le plan modifie.
+        var again = steps.SetSpawn(new Vector3(1.5f, 2, 3), 10f);
+        Assert.Equal(new Vector3(1.5f, 2, 3), again.Spawn);
+    }
+
+    [Fact]
+    public void SetSpawn_requires_an_import()
+    {
+        var steps = new KotorWorkflowSteps(Opt());
+        steps.UseScene(Scene(), Opt(), "demo");
+        Assert.Throws<InvalidOperationException>(() => steps.SetSpawn(Vector3.Zero, 0f));
+    }
+
     [Fact]
     public void Missing_texture_maps_to_checker()
     {

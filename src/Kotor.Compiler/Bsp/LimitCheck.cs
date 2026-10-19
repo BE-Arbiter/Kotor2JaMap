@@ -37,12 +37,13 @@ public static class LimitCheck
     }
 
     /// <summary>Lumps liés aux surfaces de rendu.</summary>
-    public static void CheckRenderLimits(int shaders, int surfaces, int verts, int indexes, int leafSurfaces, int maxLeafSurfaces = 0x20000)
+    public static void CheckRenderLimits(int shaders, int surfaces, int verts, int indexes, int leafSurfaces, int maxLeafSurfaces = 0x20000,
+        int maxVerts = MaxDrawVerts, int maxIndexes = Limits.MaxDrawIndexes)
     {
         Check("MAX_MAP_SHADERS", shaders, MaxShaders);
         Check("MAX_MAP_DRAW_SURFS", surfaces, MaxDrawSurfaces);
-        Check("MAX_MAP_DRAW_VERTS", verts, MaxDrawVerts);
-        Check("MAX_MAP_DRAW_INDEXES", indexes, Limits.MaxDrawIndexes);
+        Check("MAX_MAP_DRAW_VERTS", verts, maxVerts);
+        Check("MAX_MAP_DRAW_INDEXES", indexes, maxIndexes);
         Check("MAX_MAP_LEAFFACES", leafSurfaces, maxLeafSurfaces);
     }
 }

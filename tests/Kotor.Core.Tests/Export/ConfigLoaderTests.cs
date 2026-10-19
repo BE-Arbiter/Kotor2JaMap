@@ -58,6 +58,25 @@ public class ConfigLoaderTests
         finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    public void Config_roundtrip_keeps_the_swtor_source_and_folders()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "cfgswtor_" + Guid.NewGuid().ToString("N"));
+        string p = Path.Combine(dir, ConfigLoader.ConfigFileName);
+        try
+        {
+            var game = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", Kotor2Dir: @"D:\k2", SwtorDir: @"D:\tor\resources", SwtorGameDir: @"E:\SWTOR", SwtorFromGame: true);
+            ConfigLoader.Save(p, game);
+            Assert.Equal(game, ConfigLoader.Load(p, NoEnv, Detected));
+            ConfigLoader.Save(p, game with { SwtorFromGame = false });
+            ExportOptions loaded = ConfigLoader.Load(p, NoEnv, Detected);
+            Assert.False(loaded.SwtorFromGame);
+            Assert.Equal(@"E:\SWTOR", loaded.SwtorGameDir);
+            Assert.Equal(@"D:\tor\resources", loaded.SwtorDir);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
     private static string WriteConfig(string json)
     {
         string p = Path.Combine(Path.GetTempPath(), "cfg_" + Guid.NewGuid().ToString("N") + ".json");

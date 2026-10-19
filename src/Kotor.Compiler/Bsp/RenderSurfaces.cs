@@ -54,9 +54,9 @@ public static class RenderSurfaces
     {
         ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(tree);
-        var groups = new Dictionary<(string Shader, bool DoubleSided, bool Lm), List<Builder>>();
-        var order = new List<(string Shader, bool DoubleSided, bool Lm)>();
-        var pending = new Dictionary<(string Shader, bool DoubleSided, bool Lm), List<Tri>>();
+        var groups = new Dictionary<(string Shader, bool DoubleSided, bool Lm, int Room), List<Builder>>();
+        var order = new List<(string Shader, bool DoubleSided, bool Lm, int Room)>();
+        var pending = new Dictionary<(string Shader, bool DoubleSided, bool Lm, int Room), List<Tri>>();
         int uniqueKey = 0;
         for (int si = 0; si < inputs.Count; si++)
         {
@@ -72,7 +72,7 @@ public static class RenderSurfaces
                 if (s.Uv1 is not null && !hasUv1) log.Warn("SURFACE_ATTRIBUTE_MISMATCH", $"Surface '{s.Shader}': {s.Uv1.Length} UV1 for {nv} vertex(es), no lightmap (vertex lighting).");
             }
 
-            var gk = (s.Shader, s.DoubleSided, hasUv1);
+            var gk = (s.Shader, s.DoubleSided, hasUv1, tree.Clusters.Count > 0 ? s.Room : -1);
             if (!groups.TryGetValue(gk, out List<Builder>? chunks)) { groups[gk] = chunks = [new Builder()]; order.Add(gk); }
             if (!pending.TryGetValue(gk, out List<Tri>? tris)) pending[gk] = tris = [];
             for (int t = 0; t + 2 < s.Indices.Length; t += 3)
@@ -149,7 +149,7 @@ public static class RenderSurfaces
                 var bl = new Builder();
                 for (int k = l; k < r; k++) AddTri(bl, list[k]);
                 bool fits = bl.Positions.Count <= MaxSurfaceVerts && bl.Indices.Count <= MaxSurfaceIndexes;
-                if (r - l > 1 && (!fits || (long)(r - l) * LeavesTouching(tree, bl.Positions).Count > MaxLeafTriangleCost))
+                if (r - l > 1 && (!fits || (long)(r - l) * LeavesTouching(tree, bl.Positions, gk.Room).Count > MaxLeafTriangleCost))
                 {
                     int mid = (l + r) / 2;
                     Emit(l, mid);
@@ -169,7 +169,7 @@ public static class RenderSurfaces
                 if (b.Indices.Count == 0) continue;
                 Vector3[] pos = b.Positions.ToArray();
                 result.Add(new RenderSurface(gk.Shader, pos, b.Uvs.ToArray(), b.Normals.ToArray(), b.Indices.ToArray(),
-                    LeavesTouching(tree, pos), DoubleSided: gk.DoubleSided, LightmapUvs: gk.Lm ? b.Uv1.ToArray() : null));
+                    LeavesTouching(tree, pos, gk.Room), DoubleSided: gk.DoubleSided, LightmapUvs: gk.Lm ? b.Uv1.ToArray() : null));
             }
         return result;
     }
@@ -178,7 +178,7 @@ public static class RenderSurfaces
     /// Feuilles non solides dont la région recoupe la boîte englobante des points (descente des deux côtés quand la boîte
     /// chevauche un plan). Si toutes les feuilles touchées sont solides, on les garde : aucune surface ne reste sans feuille.
     /// </summary>
-    public static IReadOnlyList<int> LeavesTouching(BspTree tree, IReadOnlyList<Vector3> points)
+    public static IReadOnlyList<int> LeavesTouching(BspTree tree, IReadOnlyList<Vector3> points, int room = -1)
     {
         if (tree.Nodes.Count == 0) return [0];
         Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
@@ -204,6 +204,12 @@ public static class RenderSurfaces
             if (child < 0) all.Add(-1 - child); else stack.Push(child);
         }
         all.Sort();
+        // Surface d une piece : seulement les feuilles de la boite de cette piece (repli : toutes celles touchees).
+        if (room >= 0 && tree.Clusters.Count > 0)
+        {
+            var own = all.Where(l => tree.Leaves[l].InRoom(room)).ToList();
+            if (own.Count > 0) all = own;
+        }
         var open = all.Where(l => !tree.Leaves[l].IsSolid).ToList();
         return open.Count > 0 ? open : all;
     }

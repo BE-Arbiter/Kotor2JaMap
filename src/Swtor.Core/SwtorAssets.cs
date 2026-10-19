@@ -13,11 +13,15 @@ public sealed class SwtorAssets
 
     public string Root { get; }
 
-    public SwtorAssets(string? root = null)
+    public SwtorAssets(string? root = null, Myp.SwtorGameSource? source = null)
     {
         string? fromEnv = Environment.GetEnvironmentVariable("SWTOR_ASSETS");
         Root = root ?? (string.IsNullOrWhiteSpace(fromEnv) ? DefaultRoot : fromEnv);
+        Source = source;
     }
+
+    /// <summary>Archives du jeu : un fichier absent du dossier y est cherche puis ecrit dans <see cref="Root"/> (mode « depuis le jeu »). Null : dossier extrait seul.</summary>
+    public Myp.SwtorGameSource? Source { get; }
 
     /// <summary>Vrai si le dossier de ressources existe.</summary>
     public bool Exists => Directory.Exists(Root);
@@ -30,8 +34,14 @@ public sealed class SwtorAssets
         return p;
     }
 
-    /// <summary>Chemin disque du fichier, ou null s'il n'existe pas.</summary>
+    /// <summary>Chemin disque du fichier, ou null s il n existe pas (avec une <see cref="Source"/>, il est extrait du jeu s il manque).</summary>
     public string? Resolve(string resourcePath)
+    {
+        if (ResolveOnDisk(resourcePath) is { } onDisk) return onDisk;
+        return Source is not null && Source.Materialize(resourcePath, Root) ? ResolveOnDisk(resourcePath) : null;
+    }
+
+    private string? ResolveOnDisk(string resourcePath)
     {
         string[] parts = Normalize(resourcePath).Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0 || parts.Contains("..")) return null;

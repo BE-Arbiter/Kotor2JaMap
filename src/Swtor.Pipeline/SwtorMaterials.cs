@@ -110,10 +110,9 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
         bool hasAlpha = alpha is SurfaceAlpha.Cutout or SurfaceAlpha.Blend;
         if (glass) Fill(rgba, 110);                 // verre : translucide uniforme
         else if (alpha == SurfaceAlpha.Additive) PremultiplyAlpha(rgba);   // additif : l'alpha de la texture est le masque de la lueur (sinon le carton entier est ajoute)
+        else if (alpha == SurfaceAlpha.Multiply) BlendToWhite(rgba);        // multiplicatif : le fond est multiplie par la couleur ; l alpha de la texture melange avec du blanc (neutre)
         else if (!hasAlpha) Fill(rgba, 255);        // opaque : l'alpha d'une texture Uber n'est pas de l'opacite (brillance, emissif)
         Textures[key] = new KotorTexture(w, h, rgba, hasAlpha, TxiInfo.Empty);
-        if (mat.AlphaMode.Equals("Multiply", StringComparison.OrdinalIgnoreCase))
-            log.Warn("SWTOR_ALPHA_MODE_APPROX", $"{name}: alpha mode Multiply not supported, rendered as a translucent surface.");
         return new SwtorMaterialInfo(key, alpha, uvScale, false);
     }
 
@@ -137,7 +136,7 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
         if (alpha == SurfaceAlpha.Additive && mat.Shader.StartsWith("AnimatedVFX", StringComparison.OrdinalIgnoreCase) && LightCardNames.Any(lower.Contains))
             return new SwtorMaterialClass(SurfaceAlpha.Additive, true, true, "SWTOR_VFX_SKIPPED",
                 "light cone / beam card (AnimatedVFX, additive with animated masks and fresnel fade) not reproducible by a static JA shader, skipped instead of drawn as a flat bright card.");
-        return new SwtorMaterialClass(alpha, false, alpha == SurfaceAlpha.Additive, null, null);
+        return new SwtorMaterialClass(alpha, false, alpha is SurfaceAlpha.Additive or SurfaceAlpha.Multiply, null, null);
     }
 
     private static SurfaceAlpha AlphaOf(MaterialDef mat)
@@ -146,7 +145,8 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
         return mat.AlphaMode.ToLowerInvariant() switch
         {
             "test" => SurfaceAlpha.Cutout,
-            "full" or "multiply" => SurfaceAlpha.Blend,
+            "full" => SurfaceAlpha.Blend,
+            "multiply" => SurfaceAlpha.Multiply,
             "add" => SurfaceAlpha.Additive,
             _ => SurfaceAlpha.Opaque,
         };
@@ -175,6 +175,17 @@ internal sealed class SwtorMaterials(ISwtorModelSource source, int maxTextureSiz
         {
             int a = rgba[i + 3];
             rgba[i] = (byte)(rgba[i] * a / 255); rgba[i + 1] = (byte)(rgba[i + 1] * a / 255); rgba[i + 2] = (byte)(rgba[i + 2] * a / 255);
+            rgba[i + 3] = 255;
+        }
+    }
+
+    /// <summary>rgb = melange(blanc, rgb, alpha), puis alpha = 255 : une texture multiplicative neutre (blanc) la ou elle est transparente.</summary>
+    internal static void BlendToWhite(byte[] rgba)
+    {
+        for (int i = 0; i + 3 < rgba.Length; i += 4)
+        {
+            int a = rgba[i + 3];
+            for (int c = 0; c < 3; c++) rgba[i + c] = (byte)((rgba[i + c] * a + 255 * (255 - a) + 127) / 255);
             rgba[i + 3] = 255;
         }
     }

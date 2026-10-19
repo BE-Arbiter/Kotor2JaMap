@@ -29,6 +29,19 @@ public class LimitCheckTests
     }
 
     [Fact]
+    public void Swgl_profile_does_not_enforce_the_q3map_draw_vert_and_index_limits_but_vanilla_does()
+    {
+        // 2 952 061 sommets et ~8,8 M d index : refuses a tort par l ancien controle (constantes de compilateur, pas de limite du moteur).
+        LimitCheck.CheckRenderLimits(1, 1, 2_952_061, 8_856_183, 1, Limits.Swgl.MaxLeafSurfaces, Limits.Swgl.MaxDrawVertices, Limits.Swgl.MaxDrawIndices);
+        var ex = Assert.Throws<BspLimitException>(() =>
+            LimitCheck.CheckRenderLimits(1, 1, 2_952_061, 30, 1, Limits.Vanilla.MaxLeafSurfaces, Limits.Vanilla.MaxDrawVertices, Limits.Vanilla.MaxDrawIndices));
+        Assert.Contains("MAX_MAP_DRAW_VERTS", ex.Message);
+        // Le lump reste borne : un int32 d octets (80 octets par sommet).
+        Assert.True((long)Limits.Swgl.MaxDrawVertices * 80 < int.MaxValue);
+        Assert.True((long)Limits.Swgl.MaxDrawIndices * 4 < int.MaxValue);
+    }
+
+    [Fact]
     public void Swgl_leaf_surfaces_cover_the_endar_spire_assembly_and_name_the_lump_beyond()
     {
         // end_m01aa + end_m01ab : 1 242 104 leaf faces (au-dela de 0x100000).

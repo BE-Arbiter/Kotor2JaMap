@@ -48,6 +48,31 @@ public sealed class WorkflowControllerTests
         public PreviewModel Import(IProgress<string> log) => OnImport();
         public PreviewModel Export(IProgress<string> log) => OnExport();
         public string CreatePk3(IProgress<string> log) => OnPack();
+        public (Vector3 Position, float Yaw)? Spawn;
+        public PreviewModel SetSpawn(Vector3 position, float yawDegrees)
+        {
+            Spawn = (position, yawDegrees);
+            return Model() with { Spawn = position, SpawnYaw = yawDegrees };
+        }
+    }
+
+    [Fact]
+    public async Task PlaceSpawn_only_between_import_and_export()
+    {
+        var f = new FakeSteps();
+        var c = await ToStage(f, 1);
+        Assert.False(c.CanPlaceSpawn);
+        Assert.False(c.PlaceSpawn(new Vector3(1, 2, 3), 90f));
+
+        await c.NextAsync();   // Imported
+        Assert.True(c.CanPlaceSpawn);
+        Assert.True(c.PlaceSpawn(new Vector3(1, 2, 3), 90f));
+        Assert.Equal((new Vector3(1, 2, 3), 90f), f.Spawn);
+        Assert.Equal(new Vector3(1, 2, 3), c.Preview!.Spawn);
+        Assert.Equal(WorkflowStage.Imported, c.Stage);
+
+        await c.NextAsync();   // Exported
+        Assert.False(c.CanPlaceSpawn);
     }
 
     private static AssemblySession TwoUnlinkedParts(out ModuleEntity d1, out ModuleEntity d2)

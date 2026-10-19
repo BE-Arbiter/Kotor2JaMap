@@ -70,6 +70,7 @@ public static class Compiler
             int solidKeep = polygons.Count, walkKeep = walkBrushes.Count;
             int solidInitial = solidKeep, walkInitial = walkKeep;
             string entityLump = BuildEntityLump(input.Entities);
+            var roomBoxes = RoomBoxes(input);
             // Sous-modeles (portes) : bornes calculees depuis les plans ; un brush degenere est ignore avec un avertissement.
             var subModels = new List<BspSubModel>();
             for (int sm = 0; sm < input.SubModels.Count; sm++)
@@ -95,7 +96,7 @@ public static class Compiler
                     var solidPolys = polygons.Take(solidKeep).ToList();
                     IReadOnlyList<Brush> brushes = BrushBuilder.FromPolygons(solidPolys, log: solidPolys.Count == 0 ? null : IterWarn);
                     brushes = brushes.Concat(walkBrushes.Take(walkKeep)).ToList();
-                    BspTree tree = BspTree.Build(brushes, limits);
+                    BspTree tree = BspTree.Build(brushes, limits, roomBoxes);
 
                     // Surfaces de rendu.
                     var surfaces = new List<RenderSurface>();
@@ -116,7 +117,7 @@ public static class Compiler
 
                     // Tout est construit en memoire : en cas de depassement, aucun fichier n'est ecrit.
                     ms.SetLength(0);
-                    BspWriter.Write(tree, ms, entityLump, limits, surfaces, EffectiveLighting(input), GlobalFog.FromWorldspawn(world, input.MapName), subModels);
+                    BspWriter.Write(tree, ms, entityLump, limits, surfaces, EffectiveLighting(input), GlobalFog.FromWorldspawn(world, input.MapName), subModels, roomBoxes.Count > 0 ? input.Rooms : null);
                     break;
                 }
                 catch (BspLimitException bx) when (bx.CollisionRelated && attempt < MaxShrinkAttempts && (solidKeep > 0 || walkKeep > 0))
@@ -151,6 +152,32 @@ public static class Compiler
 
         if (error is not null) log.Warn("BSP_ERROR", error);
         return new CompileResult(error is null, warnings, error);
+    }
+
+    /// <summary>Marge (unites JA) ajoutee aux boites de pieces : evite qu'une surface posee exactement sur une face soit hors de sa piece.</summary>
+    public const float RoomBoxMargin = 4f;
+
+    /// <summary>
+    /// Boite de chaque piece = boite englobante de ses surfaces de rendu (plus <see cref="RoomBoxMargin"/>). Vide (pas de visibilite)
+    /// si <see cref="CompileInput.Rooms"/> est null, ne contient qu'une piece utile, ou aucune surface ne porte de piece valide.
+    /// </summary>
+    public static IReadOnlyList<RoomBox> RoomBoxes(CompileInput input)
+    {
+        if (input.Rooms is not { Count: > 0 } rooms) return [];
+        var lo = new Dictionary<int, Vector3>();
+        var hi = new Dictionary<int, Vector3>();
+        foreach (SurfaceInput s in input.Surfaces)
+        {
+            if (s.Room < 0 || s.Room >= rooms.Count) continue;
+            foreach (Vector3 p in s.Positions)
+            {
+                lo[s.Room] = lo.TryGetValue(s.Room, out Vector3 a) ? Vector3.Min(a, p) : p;
+                hi[s.Room] = hi.TryGetValue(s.Room, out Vector3 b) ? Vector3.Max(b, p) : p;
+            }
+        }
+        // Une seule piece : tout est dans le meme cluster, la visibilite ne sert a rien (sortie inchangee).
+        if (lo.Count < 2) return [];
+        return lo.Keys.OrderBy(k => k).Select(k => new RoomBox(k, lo[k] - new Vector3(RoomBoxMargin), hi[k] + new Vector3(RoomBoxMargin))).ToList();
     }
 
     /// <summary>With point lights the lighting is the KOTOR mode (ambient of <c>Lighting</c> plus the lights, no sun); otherwise unchanged.</summary>

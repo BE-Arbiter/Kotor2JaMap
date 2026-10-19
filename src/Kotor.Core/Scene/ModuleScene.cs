@@ -42,6 +42,9 @@ public sealed record ModuleScene(ModuleInfo Info, IReadOnlyList<SceneMesh> Meshe
     /// <summary>Modules d'une carte assemblee avec leur transformation ; null pour la scene d'un seul module.</summary>
     public IReadOnlyList<AssemblyPartRef>? Parts { get; init; } = null;
 
+    /// <summary>Visibilite par piece : nom de piece (<see cref="SceneMesh.Room"/>) -> pieces visibles depuis elle. Null = pas de donnees (un seul cluster toujours visible). Une piece absente du dictionnaire voit tout et est vue de tout.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyCollection<string>>? RoomVisibility { get; init; }
+
     /// <summary>Copie de la scene transformee : positions, normales (rotation seule), lumieres et entree ; textures partagees.</summary>
     public ModuleScene Transformed(RigidTransform t)
     {

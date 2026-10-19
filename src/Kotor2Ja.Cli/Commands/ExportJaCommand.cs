@@ -26,12 +26,14 @@ public static class ExportJaCommand
         var limOpt = new Option<string?>("--bsp-limits") { Description = "BSP limits profile: swgl (default) or vanilla." };
         var cfgOpt = new Option<string?>("--config") { Description = "JSON configuration file (default: kotor2ja.config.json next to the executable)." };
         var assetsOpt = new Option<string?>("--assets") { Description = "With --game swtor: root of the extracted SWTOR resources (default: SWTOR_ASSETS, then the default resources folder)." };
+        var noVisOpt = new Option<bool>("--novis") { Description = "Disable the room visibility (PVS): one always-visible cluster, the engine draws everything in the frustum." };
         cmd.Arguments.Add(module);
-        foreach (Option o in new Option[] { nameOpt, refOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption, gameOption, assetsOpt }) cmd.Options.Add(o);
+        foreach (Option o in new Option[] { nameOpt, refOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption, gameOption, assetsOpt, noVisOpt }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
         {
             string? cfgPath = pr.GetValue(cfgOpt) ?? GameOption.DefaultConfigPath;
             if (!TryLoadConfig(cfgPath, Console.Error, out ExportOptions opt)) return 1;
+            if (pr.GetValue(noVisOpt)) opt = opt with { NoVis = true };
             if (string.Equals(pr.GetValue(gameOption)?.Trim(), "swtor", StringComparison.OrdinalIgnoreCase))
                 return ExportSwtorCommand.Run(opt, pr.GetValue(module)!, pr.GetValue(nameOpt), pr.GetValue(assetsOpt), pr.GetValue(scaleOpt),
                     pr.GetValue(limOpt), null, false, null, Console.Out, Console.Error);

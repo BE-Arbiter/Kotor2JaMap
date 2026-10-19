@@ -73,6 +73,8 @@ public static class ConfigLoader
             ["scale"] = o.Scale, ["lightmapBrightness"] = o.LightmapBrightness, ["bspLimits"] = o.BspLimits,
         };
         if (!string.IsNullOrWhiteSpace(o.SwtorDir)) data["swtorAssetsDir"] = o.SwtorDir;
+        if (!string.IsNullOrWhiteSpace(o.SwtorGameDir)) data["swtorGameDir"] = o.SwtorGameDir;
+        data["swtorSource"] = o.SwtorFromGame ? "game" : "extracted";
         string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
@@ -99,7 +101,9 @@ public static class ConfigLoader
         return new ExportOptions(GameDir("kotorDir", "KOTOR_PATH", o.KotorDir), Str("jaBaseDir", o.JaBaseDir), Str("workDir", o.WorkDir),
             Num("scale", o.Scale), Num("lightmapBrightness", o.LightmapBrightness), Str("bspLimits", o.BspLimits),
             Kotor2Dir: GameDir("kotor2Dir", "KOTOR2_PATH", o.Kotor2Dir ?? ""),
-            SwtorDir: getEnv("SWTOR_ASSETS") is { } sw && !string.IsNullOrWhiteSpace(sw) ? sw : Str("swtorAssetsDir", o.SwtorDir ?? "") is { Length: > 0 } cfg ? cfg : null);
+            SwtorDir: getEnv("SWTOR_ASSETS") is { } sw && !string.IsNullOrWhiteSpace(sw) ? sw : Str("swtorAssetsDir", o.SwtorDir ?? "") is { Length: > 0 } cfg ? cfg : null,
+            SwtorGameDir: Str("swtorGameDir", "") is { Length: > 0 } gd ? gd : null,
+            SwtorFromGame: string.Equals(Str("swtorSource", "extracted"), "game", StringComparison.OrdinalIgnoreCase));
     }
 
     private static JsonElement? Find(JsonElement obj, string key)

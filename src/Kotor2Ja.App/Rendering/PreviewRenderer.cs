@@ -257,7 +257,7 @@ public sealed class PreviewRenderer : IDisposable
                 if (!opt.HiddenKinds.Contains(kind))
                     foreach (GpuBatch b in batches) DrawBatch(b, opt, world);
             foreach (GpuBatch b in _batches)
-                if (b.Source.Blend is PreviewBlend.Additive or PreviewBlend.Alpha && Visible(b, opt)) DrawBatch(b, opt, Matrix.Identity);
+                if (b.Source.Blend is PreviewBlend.Additive or PreviewBlend.Alpha or PreviewBlend.Multiply && Visible(b, opt)) DrawBatch(b, opt, Matrix.Identity);
 
             _flat.World = Matrix.Identity; _flat.View = _view; _flat.Projection = _proj;
             _flat.TextureEnabled = false; _flat.VertexColorEnabled = true; _flat.DiffuseColor = XnaVector3.One;
@@ -287,10 +287,11 @@ public sealed class PreviewRenderer : IDisposable
     {
         PreviewBatch s = b.Source;
         _gd.RasterizerState = s.DoubleSided || s.IsSky || opt.BothSides ? CullNone : CullBack;
-        bool blended = s.Blend is PreviewBlend.Additive or PreviewBlend.Alpha;
+        bool blended = s.Blend is PreviewBlend.Additive or PreviewBlend.Alpha or PreviewBlend.Multiply;
         _gd.BlendState = s.Blend switch
         {
             PreviewBlend.Additive => AddBlend,
+            PreviewBlend.Multiply => MultiplyBlend,
             PreviewBlend.Alpha => BlendState.NonPremultiplied,
             _ => BlendState.Opaque,
         };
@@ -431,6 +432,12 @@ public sealed class PreviewRenderer : IDisposable
     {
         ColorSourceBlend = Blend.One, ColorDestinationBlend = Blend.One,
         AlphaSourceBlend = Blend.One, AlphaDestinationBlend = Blend.One,
+    };
+    // GL_DST_COLOR GL_ZERO : fond x texture.
+    private static readonly BlendState MultiplyBlend = new()
+    {
+        ColorSourceBlend = Blend.DestinationColor, ColorDestinationBlend = Blend.Zero,
+        AlphaSourceBlend = Blend.DestinationAlpha, AlphaDestinationBlend = Blend.Zero,
     };
     private static readonly BlendState DepthOnly = new() { ColorWriteChannels = ColorWriteChannels.None };
     private static readonly DepthStencilState DepthEqual = new()

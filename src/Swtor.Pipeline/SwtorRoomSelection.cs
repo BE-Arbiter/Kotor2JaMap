@@ -33,7 +33,7 @@ public static class SwtorBudget
     {
         SwtorBudgetLevel.Exceeded =>
             $"Too many triangles: {triangles:N0} render triangles (~{EstimateDrawIndexes(triangles):N0} draw indexes, limit {MaxDrawIndexes:N0} = ~{MaxRenderTriangles:N0} triangles). "
-            + "The export will fail: uncheck rooms.",
+            + "This is the vanilla BSP limit: the swgl profile does not enforce it (not tested in game for maps this large); uncheck rooms if the game loads slowly or crashes.",
         SwtorBudgetLevel.Near =>
             $"Close to the limit: {triangles:N0} of ~{MaxRenderTriangles:N0} render triangles (~{EstimateDrawIndexes(triangles):N0} of {MaxDrawIndexes:N0} draw indexes).",
         _ => null,

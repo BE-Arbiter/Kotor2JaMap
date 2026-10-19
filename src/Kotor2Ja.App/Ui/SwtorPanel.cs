@@ -36,11 +36,15 @@ public sealed class SwtorPanel
     private string _mapName = "";
     private bool _nameEdited;
     private bool _forceOpen;
+    private volatile string _status = "";   // derniere etape de preparation signalee (extraction depuis le jeu)
+    private double _analysisFraction = -1d;  // avancement de l'analyse de zone (negatif = indetermine)
+    private volatile string _analysisLabel = "";
 
     public SwtorPanel(SwtorWorkflowSteps steps, Action<string> log)
     {
         _steps = steps;
         _log = log;
+        steps.Status = text => { _status = text; log("SWTOR: " + text); };
         if (steps.IsInstalled(KotorGame.Swtor)) StartCatalog();
     }
 
@@ -75,10 +79,21 @@ public sealed class SwtorPanel
         _analysisError = null;
         _loadingArea = area;
         int seq = Interlocked.Increment(ref _analysisSeq);
+        _analysisFraction = -1d;
+        _analysisLabel = "Preparing the area";
+        _log($"SWTOR: analysing area {area} (counting triangles per room; large maps take a while)...");
         Task.Run(() =>
         {
             AnalysisResult result;
-            try { result = new AnalysisResult(area, _steps.Analyze(area), null); }
+            try
+            {
+                result = new AnalysisResult(area, _steps.Analyze(area, (fraction, label) =>
+                {
+                    if (seq != Volatile.Read(ref _analysisSeq)) return;
+                    Volatile.Write(ref _analysisFraction, fraction);
+                    _analysisLabel = label;
+                }), null);
+            }
             catch (Exception e) when (e is not OutOfMemoryException) { result = new AnalysisResult(area, null, e.Message); }
             if (seq == Volatile.Read(ref _analysisSeq)) _analysisDone = result;
         });
@@ -92,8 +107,9 @@ public sealed class SwtorPanel
         if (_forceOpen) { ImGui.SetNextItemOpen(true, ImGuiCond.Always); _forceOpen = false; }
         if (!ImGui.TreeNodeEx("SWTOR###gameSwtor", ImGuiTreeNodeFlags.None)) return;
 
+        ImGui.TextDisabled(_steps.SourceDescription);
         CatalogResult? catalog = _catalog;
-        if (catalog is null) ImGui.TextDisabled("Loading areas...");
+        if (catalog is null) ProgressDisplay.Draw(-1d, _status.Length > 0 ? _status : "Loading areas...");
         else if (catalog.Catalog is null) { ImGui.PushStyleColor(ImGuiCol.Text, Red); ImGui.TextWrapped(catalog.Error ?? "Catalogue unavailable."); ImGui.PopStyleColor(); }
         else
         {
@@ -167,7 +183,11 @@ public sealed class SwtorPanel
             }
         }
 
-        if (_loadingArea is not null) { ImGui.TextDisabled("Counting triangles per room..."); return; }
+        if (_loadingArea is not null)
+        {
+            ProgressDisplay.Draw(Volatile.Read(ref _analysisFraction), _analysisLabel.Length > 0 ? _analysisLabel : "Counting triangles per room");
+            return;
+        }
         if (_analysisError is not null) { ImGui.PushStyleColor(ImGuiCol.Text, Red); ImGui.TextWrapped(_analysisError); ImGui.PopStyleColor(); return; }
         if (_selection is not { } sel) { ImGui.TextDisabled("Select an area."); return; }
 

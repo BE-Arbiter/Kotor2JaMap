@@ -16,14 +16,18 @@ public static class SwtorAreaAnalyzer
     /// Construit la zone une fois (sans collision, toutes les rooms dont l'espace) pour compter les triangles de rendu par room.
     /// La room du ciel (<c>skyscene</c>) n'est jamais exportee : elle n'est pas listee.
     /// </summary>
-    public static SwtorAreaAnalysis? Analyze(string areaFolder, SwtorAssets assets)
+    public static SwtorAreaAnalysis? Analyze(string areaFolder, SwtorAssets assets, ImportLog? log = null)
     {
         AreaLayout layout;
+        log?.Info("Reading the area layout...");
         try { layout = AreaLayout.Load(areaFolder); }
         catch (Exception ex) when (ex is GameFormatException or IOException or UnauthorizedAccessException) { return null; }
         string internalName = layout.Area.InternalName ?? Path.GetFileName(areaFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        log?.Info($"Area {internalName}: {layout.Rooms.Count} room(s); counting triangles per room.");
         var build = new SwtorBuildOptions { IncludeSpaceRoom = true, UseCollisionMeshes = false };
-        SwtorSceneResult r = SwtorSceneBuilder.Build(layout, new SwtorAssetsModelSource(assets), internalName, build, new ImportLog());
+        // Les avertissements de cette passe de comptage ne sont pas relayes : seuls l'avancement et les infos le sont.
+        var buildLog = new ImportLog { InfoSink = log?.InfoSink, ProgressSink = log?.ProgressSink };
+        SwtorSceneResult r = SwtorSceneBuilder.Build(layout, new SwtorAssetsModelSource(assets), internalName, build, buildLog);
         string sky = layout.Area.AreaProperties.Get("skyscene_room") is { Length: > 0 } s ? s : "skyscene_room";
         var rooms = layout.Rooms
             .Where(x => !x.Name.Equals(sky, StringComparison.OrdinalIgnoreCase) && !x.Name.Equals("skyscene", StringComparison.OrdinalIgnoreCase))

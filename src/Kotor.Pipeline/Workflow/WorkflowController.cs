@@ -26,6 +26,26 @@ public sealed class WorkflowController
     {
         ArgumentNullException.ThrowIfNull(steps);
         _steps = steps;
+        _steps.SetProgressSink(OnProgress);
+    }
+
+    private double _progressFraction = -1d;
+    private string _progressLabel = "";
+
+    /// <summary>Avancement de l'etape en cours : fraction 0..1, negative = indeterminee (barre animee).</summary>
+    public double ProgressFraction { get { lock (_gate) return _progressFraction; } }
+
+    /// <summary>Libelle de l'avancement de l'etape en cours (derniere phase ou derniere ligne du journal) ; vide hors etape.</summary>
+    public string ProgressLabel { get { lock (_gate) return _progressLabel; } }
+
+    private void OnProgress(double fraction, string label)
+    {
+        lock (_gate)
+        {
+            if (!_busy) return;
+            _progressFraction = fraction;
+            _progressLabel = label;
+        }
     }
 
     public IReadOnlyList<ModuleListItem> Modules() => _steps.Modules();
@@ -143,6 +163,20 @@ public sealed class WorkflowController
         return lines;
     }
 
+    /// <summary>Le point d'apparition peut etre place : etape Importer faite, rien en cours (l'export n'a pas encore eu lieu).</summary>
+    public bool CanPlaceSpawn { get { lock (_gate) return !_busy && _stage == WorkflowStage.Imported; } }
+
+    /// <summary>Place le point d'apparition (unites JA) pour l'export ; la vue Importer est mise a jour. Faux si <see cref="CanPlaceSpawn"/> est faux.</summary>
+    public bool PlaceSpawn(System.Numerics.Vector3 position, float yawDegrees)
+    {
+        lock (_gate)
+        {
+            if (_busy || _stage != WorkflowStage.Imported) return false;
+            _preview = _steps.SetSpawn(position, yawDegrees);
+            return true;
+        }
+    }
+
     public Task PreviewAsync()
     {
         IReadOnlyList<string> modules;
@@ -188,12 +222,19 @@ public sealed class WorkflowController
         {
             if (_busy || !canRun()) return Task.CompletedTask;
             _busy = true;
+            _progressFraction = -1d;
+            _progressLabel = "Starting...";
             gen = _generation;
             module = _module;
             game = _game;
         }
 
-        var progress = new SyncProgress(l => { if (IsCurrent(gen)) _log.Enqueue(l); });
+        var progress = new SyncProgress(l =>
+        {
+            if (!IsCurrent(gen)) return;
+            _log.Enqueue(l);
+            lock (_gate) if (_progressFraction < 0d) _progressLabel = l;   // etape sans avancement chiffre : la derniere ligne tient lieu de libelle
+        });
         return Task.Run(() =>
         {
             (WorkflowStage Stage, PreviewModel? Model)? result = null;
@@ -231,6 +272,8 @@ public sealed class WorkflowController
                 finally
                 {
                     _busy = false;
+                    _progressFraction = -1d;
+                    _progressLabel = "";
                 }
             }
         });

@@ -226,9 +226,47 @@ public sealed class AppGame : Game
             _camera.Update((float)gameTime.ElapsedGameTime.TotalSeconds, kb, mouse, _lastWheel,
                 io.WantCaptureMouse && !_looking, io.WantTextInput, IsActive, center, out _looking);
         _lastWheel = mouse.ScrollWheelValue;
+        if (!editor.IsOpen) UpdateSpawnPlacement(io, mouse, kb);
+        _wasLeftDown = mouse.LeftButton == ButtonState.Pressed;
         IsMouseVisible = !_looking;
         base.Update(gameTime);
     }
+
+    private bool _wasLeftDown;
+
+    // Mode « Place spawn » : un clic gauche sur la vue tire un rayon depuis la camera ; le point touche (releve de la hauteur du
+    // joueur, comme le point automatique) devient le spawn, oriente comme la camera. Echap quitte le mode.
+    private void UpdateSpawnPlacement(ImGuiIOPtr io, MouseState mouse, KeyboardState kb)
+    {
+        if (!_screen.PlacingSpawn) return;
+        if (kb.IsKeyDown(Keys.Escape)) { _screen.PlacingSpawn = false; return; }
+        bool click = mouse.LeftButton == ButtonState.Pressed && !_wasLeftDown;
+        PreviewModel? model = _workflow.Preview;
+        if (!click || io.WantCaptureMouse || _looking || model is null || !IsActive) return;
+
+        PresentationParameters pp = GraphicsDevice.PresentationParameters;
+        int left = (int)MainScreen.LeftWidth;
+        var viewport = new Viewport(left, 0, Math.Max(1, pp.BackBufferWidth - left), Math.Max(1, pp.BackBufferHeight)) { MinDepth = 0f, MaxDepth = 1f };
+        if (mouse.X < left) return;
+        Matrix view = _camera.View, proj = _camera.Projection(viewport.AspectRatio);
+        Vector3 near = viewport.Unproject(new Vector3(mouse.X, mouse.Y, 0f), proj, view, Matrix.Identity);
+        Vector3 far = viewport.Unproject(new Vector3(mouse.X, mouse.Y, 1f), proj, view, Matrix.Identity);
+        var origin = new System.Numerics.Vector3(_camera.Position.X, _camera.Position.Y, _camera.Position.Z);
+        var dir = new System.Numerics.Vector3(far.X - near.X, far.Y - near.Y, far.Z - near.Z);
+        if (PreviewPicker.Raycast(model, origin, dir) is not { } hit)
+        {
+            _screen.AddLog("Place spawn: nothing under the cursor, click on the floor.");
+            return;
+        }
+        var spawn = hit + new System.Numerics.Vector3(0f, 0f, SpawnHeight);
+        if (_workflow.PlaceSpawn(spawn, _camera.Yaw))
+        {
+            _screen.AddLog($"Spawn placed at {spawn.X:0} {spawn.Y:0} {spawn.Z:0}, angle {_camera.Yaw:0}.");
+            _screen.PlacingSpawn = false;
+        }
+    }
+
+    private const float SpawnHeight = 25f;   // comme ModuleExporter.SpawnHeight : hauteur du point au-dessus du sol
 
     // Camera sur le point d'apparition, sinon sur les bornes. Les etapes suivantes d'un meme module gardent la position du joueur
     // quand les bornes ne changent pas ; un autre module ou d'autres bornes recadrent.

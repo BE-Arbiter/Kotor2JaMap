@@ -32,13 +32,13 @@ public static class BspWriter
 
     public static void Write(BspTree tree, Stream output, string? entities = null, Limits? limits = null,
         IReadOnlyList<RenderSurface>? surfaces = null, VertexLighting? lighting = null, GlobalFog? fog = null,
-        IReadOnlyList<BspSubModel>? subModels = null)
+        IReadOnlyList<BspSubModel>? subModels = null, RoomVisibility? roomVisibility = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(output);
         limits ??= Limits.Vanilla;
 
-        var lumps = Build(tree, entities ?? DefaultEntities, limits, surfaces ?? [], lighting ?? VertexLighting.Default, fog, subModels ?? []);
+        var lumps = Build(tree, entities ?? DefaultEntities, limits, surfaces ?? [], lighting ?? VertexLighting.Default, fog, subModels ?? [], roomVisibility);
 
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
@@ -63,7 +63,7 @@ public static class BspWriter
     }
 
     private static byte[][] Build(BspTree tree, string entities, Limits limits, IReadOnlyList<RenderSurface> surfaces, VertexLighting lighting, GlobalFog? fog,
-        IReadOnlyList<BspSubModel> subModels)
+        IReadOnlyList<BspSubModel> subModels, RoomVisibility? roomVisibility)
     {
         var lumps = new byte[LumpCount][];
         for (int i = 0; i < LumpCount; i++) lumps[i] = [];
@@ -187,7 +187,8 @@ public static class BspWriter
         limits.CheckBrushes(brushes.Count);
         CheckMax("MAX_MAP_BRUSHSIDES", sides.Count, limits.MaxBrushSides);
         CheckMax("MAX_MAP_LEAFBRUSHES", leafBrushCount, limits.MaxLeafBrushes);
-        LimitCheck.CheckRenderLimits(shaderNames.Count, surfaces.Count, totalVerts, totalIndexes, leafSurfaceCount, limits.MaxLeafSurfaces);
+        LimitCheck.CheckRenderLimits(shaderNames.Count, surfaces.Count, totalVerts, totalIndexes, leafSurfaceCount, limits.MaxLeafSurfaces,
+            limits.MaxDrawVertices, limits.MaxDrawIndices);
         foreach (RenderSurface sf in surfaces) LimitCheck.CheckSurface(sf.Shader, sf.Positions.Length, sf.Indices.Length);
         LimitCheck.CheckRtxEstimate(LimitCheck.EstimateRtxPrimitives(surfaces), limits.MaxRtxPrimitives);
 
@@ -235,6 +236,7 @@ public static class BspWriter
                 IntVec(w, nodeMin[n], floor: true); IntVec(w, nodeMax[n], floor: false);
             }
         });
+        bool useRooms = roomVisibility is not null && tree.Clusters.Count > 0 && tree.LeafClusters.Count == leaves.Count;
         lumps[LumpLeafs] = Make(w =>
         {
             int firstLeafBrush = 0, firstLeafSurface = 0, leafIndex = -1;
@@ -242,7 +244,8 @@ public static class BspWriter
             {
                 leafIndex++;
                 int nSurf = leafSurfaces[leafIndex]?.Count ?? 0;
-                w.Write(l.IsSolid && nSurf == 0 ? -1 : 0); // cluster
+                // Cluster : celui de la cellule de la piece (tree.LeafClusters) ; une feuille solide sans surface reste -1 (jamais dessinee).
+                w.Write(l.IsSolid && nSurf == 0 ? -1 : useRooms ? tree.LeafClusters[leafIndex] : 0);
                 w.Write(0);                  // area
                 IntVec(w, l.Min, floor: true); IntVec(w, l.Max, floor: false);
                 w.Write(firstLeafSurface); w.Write(nSurf); // leafsurfaces
@@ -287,6 +290,9 @@ public static class BspWriter
         {
             foreach (var (p, s, d) in sides) { w.Write(p); w.Write(s); w.Write(d); }
         });
+        if (useRooms)
+            lumps[LumpVisibility] = VisibilityLump.Encode(VisibilityLump.ClusterMatrix(tree.Clusters, roomVisibility!));
+        else
         lumps[LumpVisibility] = Make(w =>
         {
             // Sans lump de visibilite le moteur a 0 cluster et ne dessine rien : un cluster, toujours visible (comme q3map2 -novis).

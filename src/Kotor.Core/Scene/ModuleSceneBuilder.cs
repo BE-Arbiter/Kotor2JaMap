@@ -56,7 +56,31 @@ public static class ModuleSceneBuilder
             AmbientColor = area.Ambient,
             SunDiffuseColor = area.SunDiffuse,
             AreaLightingKnown = area.Readable,
+            RoomVisibility = ReadVisibility(res, info.AreaResRef, layout, log),
         };
+    }
+
+    /// <summary>
+    /// Room visibility from the module <c>.vis</c> (same resref as the area). Null (no PVS, one always-visible cluster) when the file is
+    /// missing or unreadable. Rooms of the layout that the VIS does not list as a key are left out of the result: they see everything.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, IReadOnlyCollection<string>>? ReadVisibility(ResourceResolver res, string area, LayoutFile layout, ImportLog log)
+    {
+        byte[]? data = res.Find(area, ResourceType.Vis);
+        if (data is null) { log.Warn("VIS_MISSING", $"{area}.vis not found: no room visibility, everything stays visible."); return null; }
+        try
+        {
+            var vis = VisFile.Parse(Encoding.ASCII.GetString(data));
+            var rooms = layout.Rooms.Select(r => r.Model).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            int unlisted = rooms.Count(r => !vis.Visible.ContainsKey(r));
+            if (unlisted > 0) log.Warn("VIS_ROOM_UNLISTED", $"{area}.vis: {unlisted} room(s) of the layout without entry, treated as visible from everywhere.");
+            return vis.Visible;
+        }
+        catch (InvalidDataException ex)
+        {
+            log.Warn("VIS_UNREADABLE", $"{area}.vis unreadable ({ex.Message}): no room visibility.");
+            return null;
+        }
     }
 
     /// <summary>Counts for the LIGHTMAP_REPAIRED summary line.</summary>

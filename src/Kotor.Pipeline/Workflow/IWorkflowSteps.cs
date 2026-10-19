@@ -15,6 +15,10 @@ public interface IWorkflowSteps
     IReadOnlyList<ModuleListItem> Modules();
     /// <summary>Is the folder of this game configured and present?</summary>
     bool IsInstalled(KotorGame game) => true;
+    /// <summary>
+    /// Recoit l'avancement des etapes longues : fraction 0..1 (negative = indeterminee) et libelle. Facultatif ; sans effet par defaut.
+    /// </summary>
+    void SetProgressSink(Action<double, string>? sink) { }
     PreviewModel Preview(KotorGame game, string module, IProgress<string> log);
     /// <summary>
     /// Previsualise plusieurs modules assembles en une carte (un seul module : meme resultat que la surcharge d'un module).
@@ -30,6 +34,11 @@ public interface IWorkflowSteps
     /// <summary>A partir de l'etat garde par l'implementation.</summary>
     PreviewModel Import(IProgress<string> log);
     PreviewModel Export(IProgress<string> log);
+    /// <summary>
+    /// Remplace le point d'apparition de l'etape Importer (unites JA, <paramref name="yawDegrees"/> autour de Z) ; l'export l'ecrit dans le BSP.
+    /// Retourne la vue Importer mise a jour. Sans import garde : <see cref="InvalidOperationException"/>.
+    /// </summary>
+    PreviewModel SetSpawn(System.Numerics.Vector3 position, float yawDegrees) => throw new NotSupportedException();
     /// <returns>Chemin du pk3.</returns>
     string CreatePk3(IProgress<string> log);
 }

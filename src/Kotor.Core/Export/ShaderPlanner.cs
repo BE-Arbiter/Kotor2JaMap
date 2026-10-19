@@ -4,13 +4,13 @@ using Kotor.Core.Textures;
 
 namespace Kotor.Core.Export;
 
-public enum ShaderKind { Lightmapped, LightmappedCutout, Additive, Blend, Unlit, UnlitCutout }
+public enum ShaderKind { Lightmapped, LightmappedCutout, Additive, Blend, Unlit, UnlitCutout, Multiply }
 
 /// <summary>Shader prevu pour un maillage. <paramref name="Name"/> est le nom complet (<c>textures/kotor/...</c>).</summary>
 public sealed record PlannedShader(string Name, ShaderKind Kind, string Texture, string? Lightmap)
 {
     /// <summary>Les types qui ecrivent <c>cull none</c> : leurs surfaces sont double face.</summary>
-    public bool DoubleSided => Kind is ShaderKind.LightmappedCutout or ShaderKind.UnlitCutout or ShaderKind.Additive or ShaderKind.Blend;
+    public bool DoubleSided => Kind is ShaderKind.LightmappedCutout or ShaderKind.UnlitCutout or ShaderKind.Additive or ShaderKind.Blend or ShaderKind.Multiply;
 }
 
 public static class ShaderPlanner
@@ -47,6 +47,7 @@ public static class ShaderPlanner
         {
             case SurfaceAlpha.Additive: return new PlannedShader(plain, ShaderKind.Additive, tex, null);
             case SurfaceAlpha.Blend: return new PlannedShader(plain, ShaderKind.Blend, tex, null);
+            case SurfaceAlpha.Multiply: return new PlannedShader(plain, ShaderKind.Multiply, tex, null);
             case SurfaceAlpha.Cutout:
                 return lm is null ? new PlannedShader(plain, ShaderKind.UnlitCutout, tex, null)
                                   : new PlannedShader(lit, ShaderKind.LightmappedCutout, tex, lm);
@@ -92,6 +93,11 @@ public static class ShaderPlanner
             case ShaderKind.Additive:
                 b.Append("\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tcull none\n");
                 b.Append("\t{\n\t\t").Append(map).Append("\n\t\tblendFunc GL_ONE GL_ONE\n\t\trgbGen identity\n\t}\n");
+                break;
+            case ShaderKind.Multiply:
+                // Filtre : couleur du fond x texture (decalcomanies, traces, saletes). polygonOffset : pas de z-fighting avec la surface decoree.
+                b.Append("\tsurfaceparm nonsolid\n\tsurfaceparm trans\n\tpolygonOffset\n\tcull none\n");
+                b.Append("\t{\n\t\t").Append(map).Append("\n\t\tblendFunc GL_DST_COLOR GL_ZERO\n\t\trgbGen identity\n\t}\n");
                 break;
             case ShaderKind.Blend:
                 b.Append("\tsurfaceparm trans\n\tcull none\n");

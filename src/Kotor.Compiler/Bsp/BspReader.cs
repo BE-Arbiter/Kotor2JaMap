@@ -8,6 +8,9 @@ namespace Kotor.Compiler.Bsp;
 public sealed record BspSurface(string Shader, int SurfaceType, Vector3[] Positions, Vector3[] Normals, Vector2[] Uv0, Vector2[] Uv1,
     byte[] Colors, int[] Indices);
 
+/// <summary>Feuille relue : cluster (-1 = jamais dessinee), zone, plage de leafsurfaces.</summary>
+public sealed record BspLeafInfo(int Cluster, int Area, int FirstLeafSurface, int NumLeafSurfaces);
+
 public sealed record BspBrushInfo(int BrushCount, int BrushSideCount, int PlaneCount);
 
 /// <summary>Modele du lump des modeles (0 = monde, 1.. = sous-modeles <c>*N</c>).</summary>
@@ -21,6 +24,50 @@ public sealed record BspFile(IReadOnlyList<string> Shaders, IReadOnlyList<BspSur
     public IReadOnlyList<int> BrushSideCounts { get; init; } = [];
     /// <summary>Contenu du lump des leaf brushes : indices de brushes references par les feuilles de l arbre.</summary>
     public IReadOnlyList<int> LeafBrushes { get; init; } = [];
+    /// <summary>Feuilles de l arbre, leafsurfaces, noeuds (plan, avant, arriere) et plans (normale, distance) ; sert aux verifications de visibilite.</summary>
+    public IReadOnlyList<BspLeafInfo> Leaves { get; init; } = [];
+    public IReadOnlyList<int> LeafSurfaces { get; init; } = [];
+    public IReadOnlyList<(int Plane, int Front, int Back)> Nodes { get; init; } = [];
+    public IReadOnlyList<(Vector3 Normal, float Dist)> Planes { get; init; } = [];
+    /// <summary>Lump de visibilite : nombre de clusters, octets par ligne, lignes de bits (vide si le lump est absent).</summary>
+    public int NumClusters { get; init; }
+    public int ClusterBytes { get; init; }
+    public byte[] VisBits { get; init; } = [];
+
+    /// <summary>Feuille contenant le point (meme convention que le moteur : avant si n.p >= dist).</summary>
+    public int FindLeaf(Vector3 p)
+    {
+        if (Nodes.Count == 0) return 0;
+        int n = 0;
+        while (true)
+        {
+            var (pl, f, b) = Nodes[n];
+            var (nor, dist) = Planes[pl];
+            int child = Vector3.Dot(nor, p) >= dist ? f : b;
+            if (child < 0) return -1 - child;
+            n = child;
+        }
+    }
+
+    /// <summary>Le cluster <paramref name="from"/> voit-il le cluster <paramref name="to"/> ? Sans lump de visibilite ou cluster -1 : oui (comme le moteur).</summary>
+    public bool ClusterSees(int from, int to)
+    {
+        if (NumClusters == 0 || from < 0 || from >= NumClusters) return true;
+        if (to < 0 || to >= NumClusters) return false;
+        return (VisBits[from * ClusterBytes + (to >> 3)] & (1 << (to & 7))) != 0;
+    }
+
+    /// <summary>Surfaces que le moteur dessinerait (hors culling du frustum) depuis ce cluster : celles d une feuille de cluster visible.</summary>
+    public HashSet<int> VisibleSurfaces(int cluster)
+    {
+        var set = new HashSet<int>();
+        foreach (BspLeafInfo l in Leaves)
+        {
+            if (l.Cluster < 0 || !ClusterSees(cluster, l.Cluster)) continue;
+            for (int k = 0; k < l.NumLeafSurfaces; k++) set.Add(LeafSurfaces[l.FirstLeafSurface + k]);
+        }
+        return set;
+    }
 }
 
 /// <summary>Relit un .bsp ecrit par <see cref="BspWriter"/> (entites, shaders, surfaces de rendu, comptes de collision).</summary>
@@ -133,6 +180,36 @@ public static class BspReader
 
         var collision = new BspBrushInfo(Count(BspWriter.LumpBrushes, BrushSize), Count(BspWriter.LumpBrushSides, BrushSideSize),
             Count(BspWriter.LumpPlanes, PlaneSize));
-        return new BspFile(shaders, surfaces, entities, collision) { Models = models, BrushSideCounts = sideCounts, LeafBrushes = leafBrushes };
+        int leafCount = Count(BspWriter.LumpLeafs, 48), lo = lumps[BspWriter.LumpLeafs].Ofs;
+        var leafInfos = new List<BspLeafInfo>(leafCount);
+        for (int i = 0; i < leafCount; i++)
+        {
+            int o = lo + i * 48;
+            leafInfos.Add(new BspLeafInfo(I(o), I(o + 4), I(o + 32), I(o + 36)));
+        }
+        int lsCount = Count(BspWriter.LumpLeafSurfaces, 4), lso = lumps[BspWriter.LumpLeafSurfaces].Ofs;
+        var leafSurfaces = new int[lsCount];
+        for (int i = 0; i < lsCount; i++) leafSurfaces[i] = I(lso + i * 4);
+        int nodeCount = Count(BspWriter.LumpNodes, 36), no = lumps[BspWriter.LumpNodes].Ofs;
+        var nodes = new (int, int, int)[nodeCount];
+        for (int i = 0; i < nodeCount; i++) nodes[i] = (I(no + i * 36), I(no + i * 36 + 4), I(no + i * 36 + 8));
+        int planeCount = Count(BspWriter.LumpPlanes, PlaneSize), po = lumps[BspWriter.LumpPlanes].Ofs;
+        var planes = new (Vector3, float)[planeCount];
+        for (int i = 0; i < planeCount; i++) planes[i] = (new Vector3(F(po + i * 16), F(po + i * 16 + 4), F(po + i * 16 + 8)), F(po + i * 16 + 12));
+        int numClusters = 0, clusterBytes = 0;
+        byte[] visBits = [];
+        var (vo2, vl) = lumps[BspWriter.LumpVisibility];
+        if (vl >= 8)
+        {
+            numClusters = I(vo2); clusterBytes = I(vo2 + 4);
+            if (numClusters < 0 || clusterBytes < 0 || (long)numClusters * clusterBytes + 8 > vl)
+                throw new InvalidDataException($"Visibility lump: {numClusters} cluster(s) x {clusterBytes} byte(s) do not fit in {vl} bytes.");
+            visBits = data.AsSpan(vo2 + 8, numClusters * clusterBytes).ToArray();
+        }
+        return new BspFile(shaders, surfaces, entities, collision)
+        {
+            Models = models, BrushSideCounts = sideCounts, LeafBrushes = leafBrushes, Leaves = leafInfos, LeafSurfaces = leafSurfaces,
+            Nodes = nodes, Planes = planes, NumClusters = numClusters, ClusterBytes = clusterBytes, VisBits = visBits,
+        };
     }
 }

@@ -23,12 +23,14 @@ public static class ExportSwtorCommand
         var spaceOpt = new Option<bool>("--include-space") { Description = "Keep the SPACE room (ship exterior hull, windows) when all rooms are exported; left out by default for interiors." };
         var wsOpt = new Option<float?>("--world-scale") { Description = "Manual multiplier on top of the derived SWTOR world scale (250 JA units per GR2 unit, calibrated on JA stair height, seat height and door proportions; default 1)." };
         var axesOpt = new Option<string?>("--axes") { Description = "Axis conversion: rotation (default, right-handed) or mirror (left-handed source)." };
+        var noVisOpt = new Option<bool>("--novis") { Description = "Disable the room visibility (PVS): one always-visible cluster, the engine draws everything in the frustum." };
         cmd.Arguments.Add(area);
-        foreach (Option o in new Option[] { nameOpt, assetsOpt, scaleOpt, limOpt, cfgOpt, texOpt, spaceOpt, axesOpt, wsOpt }) cmd.Options.Add(o);
+        foreach (Option o in new Option[] { nameOpt, assetsOpt, scaleOpt, limOpt, cfgOpt, texOpt, spaceOpt, axesOpt, wsOpt, noVisOpt }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
         {
             string? cfgPath = pr.GetValue(cfgOpt) ?? GameOption.DefaultConfigPath;
             if (!ExportJaCommand.TryLoadConfig(cfgPath, Console.Error, out ExportOptions opt)) return 1;
+            if (pr.GetValue(noVisOpt)) opt = opt with { NoVis = true };
             return Run(opt, pr.GetValue(area)!, pr.GetValue(nameOpt), pr.GetValue(assetsOpt), pr.GetValue(scaleOpt), pr.GetValue(limOpt),
                 pr.GetValue(texOpt), pr.GetValue(spaceOpt), pr.GetValue(axesOpt), Console.Out, Console.Error, pr.GetValue(wsOpt));
         });

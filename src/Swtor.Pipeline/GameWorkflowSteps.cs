@@ -37,5 +37,6 @@ public sealed class GameWorkflowSteps(KotorWorkflowSteps kotor, SwtorWorkflowSte
     public PreviewModel ApplyAssembly(IProgress<string> log) => _active.ApplyAssembly(log);
     public PreviewModel Import(IProgress<string> log) => _active.Import(log);
     public PreviewModel Export(IProgress<string> log) => _active.Export(log);
+    public PreviewModel SetSpawn(System.Numerics.Vector3 position, float yawDegrees) => _active.SetSpawn(position, yawDegrees);
     public string CreatePk3(IProgress<string> log) => _active.CreatePk3(log);
 }

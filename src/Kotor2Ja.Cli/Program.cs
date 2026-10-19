@@ -30,6 +30,7 @@ public static class Program
         root.Subcommands.Add(ExportSwtorCommand.Create());
         root.Subcommands.Add(SwtorDumpAreaCommand.Create());
         root.Subcommands.Add(SwtorListAreasCommand.Create());
+        root.Subcommands.Add(SwtorExtractCommand.Create());
         return root;
     }
 }

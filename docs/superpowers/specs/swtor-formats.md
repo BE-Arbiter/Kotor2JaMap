@@ -147,11 +147,48 @@ dédié n'a été identifié (Basse).
 `.box`, `.cam`, `.wtr` eau, `.wws` son, `.mir`, `.fla`, `.bil`, `.bon`, `.zzp`, `.fol`, `.phy`, `.phj`, `.amk`, `.pfn`, `.sfq`, `.ext`, `.apl`.
 Il n'y a pas d'extension SpeedTree dans la table : les arbres ne sont pas des objets d'area visibles ici (à confirmer en T5).
 
-### Terrain (`\engine\heightmap.hms`)
+### Terrain (`\engine\heightmap.hms`) (decode : Haute pour la grille de hauteurs, Moyenne pour le masque, Basse pour les textures)
 
-Blob zlib dont le flux décompressé commence par `02`, `u32 66`, `u32 62` (largeur × hauteur en cellules ? 66 et 62 sont aussi
-deux champs `f32` de l'objet) puis des flottants. Non décodé (Basse) : sujet de T5.
+Un objet heightmap est une **dalle de terrain** (centaines par zone exterieure : ex. 52 a 163 par room de Tatooine). Le champ de type 9 est un
+blob compresse : **zlib** (`78 ..`, ~80 %), **zstd** (`28 B5 2F FD`) ou **gzip** (`1F 8B`, voir version 9 plus bas). Flux decompresse (version 1 ou 2) :
 
+| Offset | Contenu |
+|---|---|
+| 0 | `u8` version (1 ou 2) |
+| 1, 5 | `u32 R` (echantillons le long de X, Â« rangees Â»), `u32 C` (le long de Z) ; 65 x 65 pour une dalle standard, 32 x 32 a 71 x 71 sinon, rarement non carre |
+| 9 | `u8` drapeau : 0 = rien ; 1 = un masque de trous suit |
+| 10 | si drapeau = 1 : masque, `ceil(R*C/8)` octets, un bit par echantillon (indice `r*C+c`, **bit de poids fort d'abord**), 1 = present |
+| ensuite | pourtour : `2*(R-1) + 2*(C-1)` `f32` (hauteurs en unites du monde) |
+| ensuite | interieur : `(R-2)*(C-2)` `u16` little-endian, indice `r*(C-2)+c`, **hauteur = valeur / 512** |
+| ensuite | donnees non lues : carte de melange des materiaux (4 x `u16` par texel, valeurs multiples de 256, sommes 0xFF00 : 2 a 4 couches), maillage de rendu (sommets + index `u16` d'un TIN), magique `AB EF CD AB` en fin de flux |
+
+Pourtour : quatre bords de `R-1` ou `C-1` elements, stockes par **paires entrelacees** : d'abord `(bord -Z, bord +Z)` pour `k = 0..R-2` (le long de X),
+puis `(bord -X, bord +X)` pour `k = 0..C-2` (le long de Z). L'element `k` est l'echantillon de la grille complete `R x C` a l'indice `k` le long du bord ;
+l'element 0 est un coin. Le coin (+X, +Z) n'est stocke nulle part. Les valeurs du pourtour sont egales a celles du pourtour de la dalle voisine
+(verifie : bords +Z / -Z de dalles voisines identiques a 0,0000 pres ; coin different, car partage par quatre dalles). L'interieur occupe les
+echantillons `1..R-2` et `1..C-2`.
+
+Placement (verifie sur 2 237 modeles poses sur le sol de Tatooine : mediane des ecarts de hauteur 0,04 pour le quartile bas) :
+- la **position de l'objet est le centre** de la dalle ; l'echantillon `(r, c)` est a `X = px + (r - (R-1)/2) * 0,2`, `Z = pz + (c - (C-1)/2) * 0,2`,
+  `Y = py + hauteur` (les rangees courent donc le long de **X**, les colonnes le long de **Z**) ; les dalles voisines sont a `(R-1) * 0,2` (12,8 pour 65).
+- **pas constant de 0,2 unite du monde** (verifie : espacement minimal des dalles = 12,8 / 12,6 / 12,4 pour 65 / 64 / 63 echantillons ; le champ f32
+  `D9DDF326` / `1B205D23` des objets n'est PAS la taille : 32, 64, 65, 128 ou 129 sans rapport fiable).
+- echelle et rotation de l'objet : toujours 1 et 0 observes ; la matrice monde de l'objet est appliquee quand meme.
+- masque de trous : 1 = present (hypothese, a confirmer en jeu : les 0 forment des diagonales/zones sous falaises et batiments).
+
+Non gere (rejete avec le code `SWTOR_TERRAIN_UNSUPPORTED`, ~5 % des dalles) : **version 9** (gzip, dalles `Default` de 61 x 68 : flottants, tres
+differentes), versions 8, dalles de 2 x 2 a 3 x n (fictives), et toute dalle tronquee. Orientation des dalles non carrees : la grille a `C-2` colonnes
+par rangee (verifie par lissage sur ~3 000 dalles), `R` = premier `u32`.
+
+**Textures du sol : non decodees.** Le terrain n'a aucun champ de materiau lisible (les champs texte de l'objet sont vides sauf `STANDARD`) ; la carte
+de melange indexe des couches dont les noms n'ont pas ete retrouves (ni dans le blob, ni dans area.dat, ni dans `art/shaders/materials`). L'export
+prend donc comme texture du sol le materiau le plus represente parmi les surfaces tournees vers le haut posees sur le terrain (roches, dalles), sinon
+une couleur de sable unie.
+
+Conversion (Swtor.Pipeline `SwtorTerrain`, `SwtorSceneBuilder.AddTerrain`) : meme matrice, recentrage et echelle que les modeles ; grille decimee au pas entier
+(1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 21, 32, 64 ; dernier echantillon toujours garde pour que les dalles se raccordent sans fente) qui tient dans
+`TerrainMaxTriangles` (0 par defaut = aucune limite, pleine resolution : le PVS par room evite de tout dessiner) ; cellule percee si ses 4 sommets ne sont pas tous presents (au pas > 1 :
+si au moins une cellule fine l'est) ; diagonale choisie pour suivre le relief ; un mesh par room (noeud `terrain`) et collision dans le walkmesh de la room.
 ## Hiérarchie et composition des transformations (Haute pour la hiérarchie, Moyenne pour la rotation)
 
 - `parent` référence l'`id` d'un autre objet (de la même zone, parfois d'une autre room) : 1 646 171 des 1 646 401 références

@@ -49,6 +49,9 @@ public sealed class MainScreen
         _view = view;
     }
 
+    /// <summary>Mode « Place spawn » actif : le prochain clic sur le sol de la vue pose le point d'apparition.</summary>
+    public bool PlacingSpawn { get; set; }
+
     /// <summary>Editeur de placement (ouvert par « Link modules » / « Edit placement »).</summary>
     public PlacementEditor Editor => _editor;
 
@@ -116,6 +119,7 @@ public sealed class MainScreen
 
         DrawSettings();
         ImGui.Separator();
+        if (busy) ProgressDisplay.Draw(_workflow.ProgressFraction, _workflow.ProgressLabel);
         string? error = _workflow.LastError;
         float errorHeight = error is null ? 0f : ImGui.GetTextLineHeightWithSpacing() * 4f;
         ImGui.TextUnformatted("Log");
@@ -146,6 +150,9 @@ public sealed class MainScreen
 
     private ExportOptions _settings = new("", "", "");
     private string _kotorText = "", _kotor2Text = "", _jaText = "", _workText = "";
+    // SWTOR : source des ressources (dossier extrait ou archives du jeu).
+    private bool _swtorFromGame;
+    private string _swtorExtractedText = "", _swtorGameText = "";
     private string? _settingsMessage;
     private bool _settingsMessageIsError;
     // Disk and registry access (path checks, Detect) runs on background tasks; the render thread only reads their results.
@@ -176,6 +183,9 @@ public sealed class MainScreen
         _kotor2Text = o.Kotor2Dir ?? "";
         _jaText = o.JaBaseDir ?? "";
         _workText = o.WorkDir ?? "";
+        _swtorFromGame = o.SwtorFromGame;
+        _swtorExtractedText = o.SwtorDir ?? "";
+        _swtorGameText = o.SwtorGameDir ?? "";
         _checkedFor = null;
     }
 
@@ -187,6 +197,7 @@ public sealed class MainScreen
         if (_detectJob.TryTake(out ExportOptions? detected) && detected is not null)
         {
             _kotorText = detected.KotorDir ?? ""; _kotor2Text = detected.Kotor2Dir ?? ""; _jaText = detected.JaBaseDir ?? ""; _workText = detected.WorkDir ?? "";
+            if (!string.IsNullOrWhiteSpace(detected.SwtorGameDir)) _swtorGameText = detected.SwtorGameDir;
             _settingsMessage = "Folders detected through Steam (valid fields were kept). Click Save to keep them.";
             _settingsMessageIsError = false;
         }
@@ -198,6 +209,7 @@ public sealed class MainScreen
         PathField("KOTOR 2", ref _kotor2Text, _status.Kotor2);
         PathField("JA base", ref _jaText, _status.Ja);
         PathField("Work dir", ref _workText, _status.Work);
+        DrawSwtorSource();
         bool busy = _workflow.IsBusy;
         ImGui.BeginDisabled(_detectJob.IsRunning);
         if (ImGui.Button("Detect") && DetectSettings is { } detect)
@@ -206,21 +218,18 @@ public sealed class MainScreen
             _settingsMessage = "Detecting...";
             _settingsMessageIsError = false;
             _detectJob.TryStart(() => SettingsProbe.ApplyDetected(snapshot, detect(),
-                SettingsProbe.Check(snapshot.KotorDir, snapshot.Kotor2Dir ?? "", snapshot.JaBaseDir, snapshot.WorkDir)));
+                SettingsProbe.Check(snapshot.KotorDir, snapshot.Kotor2Dir ?? "", snapshot.JaBaseDir, snapshot.WorkDir))
+                with { SwtorGameDir = Swtor.Core.Myp.SwtorGameLocator.Detect() ?? snapshot.SwtorGameDir });
         }
         ImGui.EndDisabled();
         ImGui.SameLine();
         ImGui.BeginDisabled(busy);
         if (ImGui.Button("Save") && SaveSettings is { } save)
         {
-            string? error = save(_settings with
-            {
-                KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim(),
-            });
+            string? error = save(SettingsFromFields());
             _settingsMessageIsError = error is not null;
             _settingsMessage = error ?? SavedInfo ?? "Saved.";
-            if (error is null)
-                _settings = _settings with { KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim() };
+            if (error is null) _settings = SettingsFromFields();
         }
         ImGui.EndDisabled();
         if (_settingsMessage is not null)
@@ -229,6 +238,34 @@ public sealed class MainScreen
             ImGui.TextWrapped(_settingsMessage);
             ImGui.PopStyleColor();
         }
+    }
+
+    private ExportOptions SettingsFromFields() => _settings with
+    {
+        KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim(),
+        SwtorFromGame = _swtorFromGame,
+        SwtorDir = string.IsNullOrWhiteSpace(_swtorExtractedText) ? null : _swtorExtractedText.Trim(),
+        SwtorGameDir = string.IsNullOrWhiteSpace(_swtorGameText) ? null : _swtorGameText.Trim(),
+    };
+
+    // Les deux sources des ressources SWTOR : dossier deja extrait, ou archives .tor du jeu (extraites a la demande dans un cache).
+    private void DrawSwtorSource()
+    {
+        ImGui.Separator();
+        ImGui.TextUnformatted("SWTOR resources");
+        if (ImGui.RadioButton("From extracted files", !_swtorFromGame)) _swtorFromGame = false;
+        ImGui.SameLine();
+        if (ImGui.RadioButton("From Game", _swtorFromGame)) _swtorFromGame = true;
+        if (_swtorFromGame)
+        {
+            PathField("SWTOR game folder (empty = detect)", ref _swtorGameText, true);
+            ImGui.TextDisabled("Reads the .tor archives; what is needed is extracted to the work dir on first use (needs internet once, for the Jedipedia file name list).");
+        }
+        else
+        {
+            PathField("SWTOR extracted resources (empty = default)", ref _swtorExtractedText, true);
+        }
+        ImGui.Separator();
     }
 
     private static void PathField(string label, ref string text, bool ok)
@@ -373,6 +410,16 @@ public sealed class MainScreen
         if (ImGui.Begin("##next", flags))
         {
             bool busy = _workflow.IsBusy;
+            if (!_workflow.CanPlaceSpawn) PlacingSpawn = false;
+            else
+            {
+                if (PlacingSpawn) ImGui.TextColored(Orange, "Click the floor to place the spawn (Esc: cancel)");
+                bool active = PlacingSpawn;
+                if (active) ImGui.PushStyleColor(ImGuiCol.Button, Orange * new Vector4(0.6f, 0.6f, 0.6f, 1f));
+                if (ImGui.Button(active ? "Cancel###placespawn" : "Place spawn###placespawn", new Vector2(180, 40) * UiScale)) PlacingSpawn = !PlacingSpawn;
+                if (active) ImGui.PopStyleColor();
+                ImGui.SameLine();
+            }
             if (_workflow.NeedsLinking)
             {
                 ImGui.BeginDisabled(busy);

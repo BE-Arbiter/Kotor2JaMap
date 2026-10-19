@@ -171,8 +171,8 @@ public static partial class PreviewBuilder
         ArgumentNullException.ThrowIfNull(t);
         string rel = t.RelPath.Replace('\\', '/');
         string[] prefixes = t.Lightmap
-            ? [ShaderNames.LightmapPrefixFor(KotorGame.Kotor2), ShaderNames.LightmapPrefixFor(KotorGame.Kotor1)]
-            : [ShaderNames.PrefixFor(KotorGame.Kotor2), ShaderNames.PrefixFor(KotorGame.Kotor1)];
+            ? [ShaderNames.LightmapPrefixFor(KotorGame.Kotor2), ShaderNames.LightmapPrefixFor(KotorGame.Kotor1), ShaderNames.LightmapPrefixFor(KotorGame.Swtor)]
+            : [ShaderNames.PrefixFor(KotorGame.Kotor2), ShaderNames.PrefixFor(KotorGame.Kotor1), ShaderNames.PrefixFor(KotorGame.Swtor)];
         foreach (string prefix in prefixes)
             if (rel.StartsWith(prefix, StringComparison.Ordinal)) { rel = rel[prefix.Length..]; break; }
         return rel.EndsWith(".tga", StringComparison.OrdinalIgnoreCase) ? rel[..^4] : rel;
@@ -209,6 +209,7 @@ public static partial class PreviewBuilder
         ShaderKind.LightmappedCutout or ShaderKind.UnlitCutout => PreviewBlend.Cutout,
         ShaderKind.Additive => PreviewBlend.Additive,
         ShaderKind.Blend => PreviewBlend.Alpha,
+        ShaderKind.Multiply => PreviewBlend.Multiply,
         _ => PreviewBlend.Opaque,
     };
 

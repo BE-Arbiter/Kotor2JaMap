@@ -95,6 +95,10 @@ public static class ModuleExporter
         var surfaces = new List<SurfaceInput>();
         var solid = new List<SubMesh>();
         int meshCount = 0;
+        // Visibilite par piece : un cluster par piece (SceneMesh.Room), seulement pour une scene d un seul module et sans --novis.
+        bool useVis = !opt.NoVis && scene.RoomVisibility is not null && scene.Parts is null;
+        var roomNames = new List<string>();
+        var roomIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         long triangles = 0;
 
         foreach (SceneMesh src in scene.Meshes)
@@ -139,8 +143,9 @@ public static class ModuleExporter
 
             Vector3[] pos = Scaled(mesh.Positions, scale);
             surfaces.Add(new SurfaceInput(planned.Name, pos, mesh.Normals, FlipV(mesh.Uv0),
-                planned.Lightmap is null || mesh.Uv1 is null ? null : FlipV(mesh.Uv1), mesh.Triangles, planned.DoubleSided));
-            if (scene.RenderMeshesAreSolid && planned.Kind is not (ShaderKind.Additive or ShaderKind.Blend))
+                planned.Lightmap is null || mesh.Uv1 is null ? null : FlipV(mesh.Uv1), mesh.Triangles, planned.DoubleSided,
+                useVis ? RoomOf(mesh.Room, roomNames, roomIndex) : -1));
+            if (scene.RenderMeshesAreSolid && planned.Kind is not (ShaderKind.Additive or ShaderKind.Blend or ShaderKind.Multiply))
                 solid.Add(new SubMesh { MaterialName = planned.Name, Positions = pos, Triangles = mesh.Triangles });
             meshCount++;
             triangles += mesh.Triangles.Length / 3;
@@ -191,8 +196,18 @@ public static class ModuleExporter
 
         var input = new CompileInput(name, entities, surfaces,
             new ModelMesh { Name = "solid", SubMeshes = solid }, new ModelMesh { Name = "walkable", SubMeshes = walkable },
-            string.IsNullOrWhiteSpace(scene.SkyShader) ? JaDefaults.SkyShader : scene.SkyShader, lighting, lights) { CompactSurfaces = scene.CompactRenderSurfaces };
+            string.IsNullOrWhiteSpace(scene.SkyShader) ? JaDefaults.SkyShader : scene.SkyShader, lighting, lights)
+        {
+            CompactSurfaces = scene.CompactRenderSurfaces,
+            Rooms = useVis && roomNames.Count > 1 ? RoomVisibility.Create(roomNames, scene.RoomVisibility!) : null,
+        };
         return new ExportPlan(input, [.. shaders.Values], [.. textures.Values], meshCount, (int)triangles, missing.Count);
+    }
+
+    private static int RoomOf(string room, List<string> names, Dictionary<string, int> index)
+    {
+        if (!index.TryGetValue(room, out int i)) { index[room] = i = names.Count; names.Add(room); }
+        return i;
     }
 
     private static Vector3 SpawnOrigin(ModuleScene scene, float scale, ImportLog log)

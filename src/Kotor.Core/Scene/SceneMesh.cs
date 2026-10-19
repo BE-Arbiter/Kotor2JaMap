@@ -12,4 +12,4 @@ public sealed record SceneMesh(string Room, string Node, string Texture, string?
 }
 
 /// <summary>Opacity of a mesh declared by its source (SWTOR material alpha mode) instead of deduced from the texture alpha.</summary>
-public enum SurfaceAlpha { Auto, Opaque, Cutout, Blend, Additive }
+public enum SurfaceAlpha { Auto, Opaque, Cutout, Blend, Additive, Multiply }
