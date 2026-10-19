@@ -8,6 +8,7 @@ public static class ConfigLoader
     public const string DefaultKotorDir = @"C:\Program Files (x86)\Steam\steamapps\common\swkotor";
     public const string DefaultKotor2Dir = @"C:\Program Files (x86)\Steam\steamapps\common\Knights of the Old Republic II";
     public const string DefaultJaBaseDir = @"C:\Program Files (x86)\Steam\steamapps\common\Jedi Academy - SWGL_DEV\GameData\base";
+    public const string DefaultJediKnightDir = @"C:\Program Files (x86)\Steam\steamapps\common\Star Wars Jedi Knight";
     public static string DefaultWorkDir => GameLocator.DefaultWorkDir();
     public const string DefaultSwtorAssetsDir = @"C:\jka_tor_assets\resources";
     public const string ConfigFileName = "kotor2ja.config.json";
@@ -23,7 +24,8 @@ public static class ConfigLoader
         GamePaths found = (detect ?? (() => GameLocator.Detect()))();
         return new ExportOptions(EnvOr(getEnv, "KOTOR_PATH", found.KotorDir ?? DefaultKotorDir), found.JaBaseDir ?? DefaultJaBaseDir,
             found.WorkDir, Kotor2Dir: EnvOr(getEnv, "KOTOR2_PATH", found.Kotor2Dir ?? DefaultKotor2Dir),
-            SwtorDir: getEnv("SWTOR_ASSETS") is { } sw && !string.IsNullOrWhiteSpace(sw) ? sw : null);
+            SwtorDir: getEnv("SWTOR_ASSETS") is { } sw && !string.IsNullOrWhiteSpace(sw) ? sw : null,
+            JediKnightDir: EnvOr(getEnv, "JK_DIR", found.JediKnightDir ?? DefaultJediKnightDir));
     }
 
     /// <summary>User-level config folder: %APPDATA%Kotor2Ja.</summary>
@@ -74,6 +76,7 @@ public static class ConfigLoader
         };
         if (!string.IsNullOrWhiteSpace(o.SwtorDir)) data["swtorAssetsDir"] = o.SwtorDir;
         if (!string.IsNullOrWhiteSpace(o.SwtorGameDir)) data["swtorGameDir"] = o.SwtorGameDir;
+        if (!string.IsNullOrWhiteSpace(o.JediKnightDir)) data["jediKnightDir"] = o.JediKnightDir;
         data["swtorSource"] = o.SwtorFromGame ? "game" : "extracted";
         string? dir = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
@@ -103,7 +106,8 @@ public static class ConfigLoader
             Kotor2Dir: GameDir("kotor2Dir", "KOTOR2_PATH", o.Kotor2Dir ?? ""),
             SwtorDir: getEnv("SWTOR_ASSETS") is { } sw && !string.IsNullOrWhiteSpace(sw) ? sw : Str("swtorAssetsDir", o.SwtorDir ?? "") is { Length: > 0 } cfg ? cfg : null,
             SwtorGameDir: Str("swtorGameDir", "") is { Length: > 0 } gd ? gd : null,
-            SwtorFromGame: string.Equals(Str("swtorSource", "extracted"), "game", StringComparison.OrdinalIgnoreCase));
+            SwtorFromGame: string.Equals(Str("swtorSource", "extracted"), "game", StringComparison.OrdinalIgnoreCase),
+            JediKnightDir: GameDir("jediKnightDir", "JK_DIR", o.JediKnightDir ?? ""));
     }
 
     private static JsonElement? Find(JsonElement obj, string key)

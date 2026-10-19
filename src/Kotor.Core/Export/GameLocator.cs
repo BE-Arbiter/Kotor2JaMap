@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Kotor.Core.Export;
 
 /// <summary>Folders found on the machine. A null game folder means the game was not found.</summary>
-public sealed record GamePaths(string? KotorDir, string? Kotor2Dir, string? JaBaseDir, string WorkDir);
+public sealed record GamePaths(string? KotorDir, string? Kotor2Dir, string? JaBaseDir, string WorkDir, string? JediKnightDir = null);
 
 /// <summary>Finds the KOTOR, KOTOR 2 and Jedi Academy folders through the Steam libraries. Only reads; never writes.</summary>
 public static partial class GameLocator
@@ -46,7 +46,7 @@ public static partial class GameLocator
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { /* unreadable list: the Steam root alone */ }
 
-            string? k1 = null, k2 = null, ja = null;
+            string? k1 = null, k2 = null, ja = null, jk = null;
             foreach (string lib in libraries)
             {
                 // A library that throws (disconnected drive, access denied) is skipped; the others are still searched.
@@ -57,10 +57,11 @@ public static partial class GameLocator
                     k1 ??= GameFolder(common, "swkotor");
                     k2 ??= GameFolder(common, "Knights of the Old Republic II");
                     ja ??= FindJaBase(common);
+                    jk ??= JediKnightFolder(common);
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { }
             }
-            return new GamePaths(k1, k2, ja, work);
+            return new GamePaths(k1, k2, ja, work, jk);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -87,6 +88,13 @@ public static partial class GameLocator
     {
         string dir = Path.Combine(common, name);
         return File.Exists(Path.Combine(dir, "chitin.key")) ? dir : null;
+    }
+
+    /// <summary>"Star Wars Jedi Knight" containing Episode\JK1.GOB (the Mysteries of the Sith folder has another name).</summary>
+    private static string? JediKnightFolder(string common)
+    {
+        string dir = Path.Combine(common, "Star Wars Jedi Knight");
+        return File.Exists(Path.Combine(dir, "Episode", "JK1.GOB")) ? dir : null;
     }
 
     private static string? FindJaBase(string common)

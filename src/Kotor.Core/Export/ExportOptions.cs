@@ -5,13 +5,14 @@ namespace Kotor.Core.Export;
 /// <see cref="KotorDir"/> est le dossier du jeu choisi (<see cref="Game"/>). <see cref="Kotor2Dir"/> garde le dossier de KOTOR 2
 /// dans les options de base ; <see cref="ForGame"/> en tire les options d'un jeu.
 /// <see cref="SwtorDir"/> : racine des ressources SWTOR extraites (cle swtorAssetsDir, variable SWTOR_ASSETS).
+/// <see cref="JediKnightDir"/> : dossier d'installation de Star Wars Jedi Knight (cle jediKnightDir, variable JK_DIR).
 /// <see cref="NoVis"/> : vrai = pas de visibilite par piece (un seul cluster toujours visible, comme q3map2 -novis).
 /// <see cref="SwtorFromGame"/> : vrai = lire les zones SWTOR directement dans les archives du jeu (<see cref="SwtorGameDir"/>, detecte si vide) avec un cache dans le dossier de travail ; faux = dossier extrait (<see cref="SwtorDir"/>).
 /// </summary>
 public sealed record ExportOptions(string KotorDir, string JaBaseDir, string WorkDir, float Scale = ExportOptions.DefaultScale,
     float LightmapBrightness = 1.0f, string BspLimits = ExportOptions.DefaultBspLimits,
     KotorGame Game = KotorGame.Kotor1, string? Kotor2Dir = null, string? SwtorDir = null, bool NoVis = false,
-    string? SwtorGameDir = null, bool SwtorFromGame = false)
+    string? SwtorGameDir = null, bool SwtorFromGame = false, string? JediKnightDir = null)
 {
     public const float DefaultScale = 40f;
     public const string DefaultBspLimits = "swgl";
@@ -24,6 +25,7 @@ public sealed record ExportOptions(string KotorDir, string JaBaseDir, string Wor
     {
         KotorGame.Kotor2 => this with { Game = KotorGame.Kotor2, KotorDir = Kotor2Dir ?? "" },
         KotorGame.Swtor => this with { Game = KotorGame.Swtor }, // SWTOR reads its own extracted assets folder, not KotorDir
+        KotorGame.JediKnight => this with { Game = KotorGame.JediKnight }, // JK reads its own folder (JediKnightDir), not KotorDir
         _ => this with { Game = KotorGame.Kotor1 },
     };
 

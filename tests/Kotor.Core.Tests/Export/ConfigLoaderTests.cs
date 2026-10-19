@@ -22,7 +22,7 @@ public class ConfigLoaderTests
         try
         {
             var o = ConfigLoader.Load(p, NoEnv);
-            Assert.Equal(new ExportOptions("K", "J", "W", 10f, 1.5f, Kotor2Dir: o.Kotor2Dir), o);
+            Assert.Equal(new ExportOptions("K", "J", "W", 10f, 1.5f, Kotor2Dir: o.Kotor2Dir, JediKnightDir: o.JediKnightDir), o);
         }
         finally { File.Delete(p); }
     }
@@ -48,7 +48,7 @@ public class ConfigLoaderTests
         string p = Path.Combine(dir, "sub", ConfigLoader.ConfigFileName);
         try
         {
-            var o = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", 12f, 1.25f, "vanilla", Kotor2Dir: @"D:\k2");
+            var o = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", 12f, 1.25f, "vanilla", Kotor2Dir: @"D:\k2", JediKnightDir: ConfigLoader.DefaultJediKnightDir);
             ConfigLoader.Save(p, o);
             Assert.Equal(o, ConfigLoader.Load(p, NoEnv, Detected));
             Assert.Equal(o, ConfigLoader.LoadOrDetect(Path.GetDirectoryName(p)!, NoEnv, Detected));
@@ -65,7 +65,7 @@ public class ConfigLoaderTests
         string p = Path.Combine(dir, ConfigLoader.ConfigFileName);
         try
         {
-            var game = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", Kotor2Dir: @"D:\k2", SwtorDir: @"D:\tor\resources", SwtorGameDir: @"E:\SWTOR", SwtorFromGame: true);
+            var game = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", Kotor2Dir: @"D:\k2", SwtorDir: @"D:\tor\resources", SwtorGameDir: @"E:\SWTOR", SwtorFromGame: true, JediKnightDir: ConfigLoader.DefaultJediKnightDir);
             ConfigLoader.Save(p, game);
             Assert.Equal(game, ConfigLoader.Load(p, NoEnv, Detected));
             ConfigLoader.Save(p, game with { SwtorFromGame = false });
@@ -156,7 +156,7 @@ public class ConfigLoaderTests
             string blocker = Path.Combine(root, "blocker");
             File.WriteAllText(blocker, "x");                       // a file where the executable folder should be: not writable
             string exeDir = Path.Combine(blocker, "bin"), appData = Path.Combine(root, "appdata");
-            var o = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", Kotor2Dir: @"D:\k2");
+            var o = new ExportOptions(@"C:\k1", @"C:\ja\base", @"C:\work", Kotor2Dir: @"D:\k2", JediKnightDir: ConfigLoader.DefaultJediKnightDir);
 
             string written = ConfigLoader.SaveWithFallback(exeDir, o, appData);
             Assert.Equal(Path.Combine(appData, ConfigLoader.ConfigFileName), written);
