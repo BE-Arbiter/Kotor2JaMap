@@ -119,3 +119,18 @@ Sert surtout au mouvement : `0x400448` et `0x408` sur les portes, ascenseurs et 
 
 `kotor2ja jk-dump-level <niveau> [--jk <dossier>]` : comptes (sommets, surfaces, secteurs, materiaux, things par type resolu,
 COG par fichier), gabarits non resolus et sections sautees. Dossier JK : `--jk`, puis `JK_PATH`, puis le chemin Steam par defaut.
+
+## Constats de la tache 4 (scene : geometrie, lumiere, echelle)
+
+- **Orientation des textures [donnees]** : les rangees d'un `.mat` sont lues telles que stockees (rangee 0 = haut), sans retournement. `03wsign.mat` (symbole
+  au-dessus du texte) et `numbers.mat` (chiffres) sont poses sur des murs dont le texvert v **diminue en montant** (31 surfaces sur 31 par niveau CTF) : v est un
+  indice de rangee depuis le haut, en pixels. Coordonnee de la scene = (u / largeur, 1 - v / hauteur) de la cellule 0.
+- **Sens des polygones [donnees]** : la methode de Newell donne une normale du meme cote que la normale du fichier pour 4595 surfaces sur 4595 de `01narshadda`
+  (les trois premiers sommets seuls : 4274 sur 4595, polygones presque alignes au depart) : l'ordre des sommets est antihoraire vu du cote de la normale, repere
+  droit Z vers le haut, comme JA.
+- **Joueur [donnees]** : origine a 0,120 au-dessus du sol (12 departs sur 12), `eyeoffset` z 0,037, `size` 0,065. Lacet : 0 = +Y, positif = gauche
+  (direction `(-sin, cos)`) ; verifie par lancer de rayon sur les 357 departs des 34 niveaux (le sens oppose donne la vue la plus courte 2 fois sur 3).
+- **Adjoin [specs, coherent avec les donnees]** : le bit `0x2` rend l'adjoin franchissable ; sans lui (ex. `0x5`) le mur de l'adjoin bloque.
+- **Lumiere** : `Intensities` de 0 a 8,5 (la plupart 0..1), `AMBIENT LIGHT` de 0 a 2,22, `EXTRA LIGHT` de secteur 0 a 1, lumiere additionnelle de surface 0 dans 01narshadda.
+  Modes `light` rencontres : 3 (gouraud), 0 (pleine lumiere).
+- **Marches [donnees]** : contremarches (surface verticale a quatre sommets dont les aretes haute et basse sont des bords de surfaces horizontales) de 0,02 a 0,10.
