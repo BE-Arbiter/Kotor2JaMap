@@ -132,6 +132,160 @@ public sealed partial class JkThingConverterTests
         Assert.Equal("5,6,7", string.Join(',', seq));
     }
 
+    [Theory]
+    [InlineData(5, 8, 7, "5,6,7,8")]      // retour apres debut : pas dans le cycle, on joue debut..fin
+    [InlineData(3, 6, 9, "3,4,5,6")]      // retour au-dela de la fin
+    [InlineData(2, 4, 3, "2,3,4")]
+    public void Sequence_LoopAfterStart_PlaysTheRangeAndFlagsAnApproximation(int start, int end, int loopTo, string expected)
+    {
+        var seq = JkMusic.Sequence(new JkMusic.Song(start, end, loopTo, "x.cog", false), out bool exact);
+        Assert.False(exact);
+        Assert.Equal(expected, string.Join(',', seq));
+    }
+
+    [Fact]
+    public void Sequence_EndBeforeStart_PlaysTheStartTrackOnly()
+    {
+        var seq = JkMusic.Sequence(new JkMusic.Song(9, 7, 7, "x.cog", false), out bool exact);
+        Assert.False(exact);
+        Assert.Equal("9", string.Join(',', seq));
+    }
+
+    [Fact]
+    public void Convert_StartOutsideTheCycle_LogsTheApproximation()
+    {
+        using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "5 7 9"));
+        JkMusic.Convert(e.Prepared, e.Fs, e.Opt, e.Log, n => FakeTrack(10, 1), FakeDecode);
+        Assert.Contains(e.Log.Warnings, w => w.Code == "JK_MUSIC_LOOP_APPROX" && w.Message.Contains("5, 6, 7"));
+    }
+
+    // Comportement reel : le message startup de chaque instance est lu dans l'ordre du niveau et le DERNIER PlaySong l'emporte (comme le moteur).
+    [Fact]
+    public void Find_SeveralInstancesWithPlaySong_TheLastOneWins()
+    {
+        using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "12 13 12", ("levelsong.cog", LevelSongCog, "21")));
+        Assert.Equal(new JkMusic.Song(21, 21, 21, "levelsong.cog", false), JkMusic.Find(e.Prepared.Level, f => ScriptOf(e, f)));
+    }
+
+    [Fact]
+    public void Find_SameScriptTwiceWithDifferentArguments_TheLastInstanceWins()
+    {
+        using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "12 13 12", ("00_soundtrack.cog", SoundtrackCog, "14 15 14")));
+        Assert.Equal(new JkMusic.Song(14, 15, 14, "00_soundtrack.cog", false), JkMusic.Find(e.Prepared.Level, f => ScriptOf(e, f)));
+    }
+
+    // --- la musique n'est jamais fatale ---
+
+    [Theory]
+    [InlineData(typeof(NullReferenceException))]
+    [InlineData(typeof(IndexOutOfRangeException))]
+    [InlineData(typeof(UnauthorizedAccessException))]
+    public void Convert_UnexpectedExceptionWhileReadingATrack_IsLoggedAndTheLevelContinues(Type exception)
+    {
+        using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "12 13 12"));
+        ConvertedEntities c = JkMusic.Convert(e.Prepared, e.Fs, e.Opt, e.Log,
+            n => n == 13 ? throw (Exception)Activator.CreateInstance(exception)! : FakeTrack(20, 1), FakeDecode);
+
+        Assert.Equal(22050 * 2, Pcm(Assert.Single(c.Sounds).Data).Length);
+        Assert.Contains(e.Log.Warnings, w => w.Code == "JK_MUSIC_UNREADABLE" && w.Message.Contains("13"));
+    }
+
+    [Fact]
+    public void Convert_UnexpectedExceptionWhileDecoding_IsLoggedAndTheLevelContinues()
+    {
+        using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "12 13 12"));
+        ConvertedEntities c = JkMusic.Convert(e.Prepared, e.Fs, e.Opt, e.Log, n => FakeTrack(20, 1),
+            d => throw new NullReferenceException("corrupt stream"));
+
+        Assert.Empty(c.Sounds);
+        Assert.Equal(2, e.Log.Warnings.Count(w => w.Code == "JK_MUSIC_UNREADABLE"));
+        Assert.Contains(e.Log.Warnings, w => w.Code == "JK_MUSIC_NONE");
+    }
+
+    // --- limite RIFF ---
+
+    [Fact]
+    public void Convert_TrackThatWouldOverflowTheWavLimit_IsLeftOutAndLogged()
+    {
+        using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "13 13 12"));
+        // 100 000 octets de donnees au plus : une seconde (88 200 octets) tient, la seconde piste non.
+        ConvertedEntities c = JkMusic.Convert(e.Prepared, e.Fs, e.Opt, e.Log, n => FakeTrack(20, 1), FakeDecode, maxDataBytes: 100_000);
+
+        Assert.Equal(22050 * 2, Pcm(Assert.Single(c.Sounds).Data).Length);
+        Assert.Contains(e.Log.Warnings, w => w.Code == "JK_MUSIC_UNREADABLE" && w.Message.Contains("12") && w.Message.Contains("too long"));
+    }
+
+    [Fact]
+    public void Convert_FirstTrackAloneOverflowsTheWavLimit_NoMusic()
+    {
+        using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "13 13 12"));
+        ConvertedEntities c = JkMusic.Convert(e.Prepared, e.Fs, e.Opt, e.Log, n => FakeTrack(20, 1), FakeDecode, maxDataBytes: 1000);
+
+        Assert.Empty(c.Sounds);
+        Assert.Contains(e.Log.Warnings, w => w.Code == "JK_MUSIC_NONE");
+    }
+
+    [Fact]
+    public void Wav_RefusesMoreThanTheRiffLimit()
+    {
+        Assert.Throws<InvalidDataException>(() => JkMusic.WavFile([new short[8]], 22050, maxDataBytes: 8));
+    }
+
+    [Fact]
+    public void Resample_NaNIsSilence()
+    {
+        short[] pcm = JkMusic.ToStereo16(new PcmAudio(22050, 1, [float.NaN, float.PositiveInfinity, float.NegativeInfinity]), 22050);
+        Assert.Equal([0, 0, 32767, 32767, -32768, -32768], pcm.Select(v => (int)v));
+    }
+
+    // --- cache du decodage ---
+
+    [Fact]
+    public void Convert_SameLevelTwice_DecodesTheTracksOnlyOnceUntilAFileChanges()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "jkmusic_cache_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "MUSIC"));
+        try
+        {
+            string file = Path.Combine(dir, "MUSIC", "Track12.ogg");
+            File.WriteAllBytes(file, FakeTrack(20, 1));
+            using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "12 12 12"));
+            ExportOptions opt = e.Opt with { JediKnightDir = dir };
+            int decoded = 0;
+            Func<byte[], PcmAudio> decode = d => { decoded++; return FakeDecode(d); };
+
+            ConvertedEntities a = JkMusic.Convert(e.Prepared, e.Fs, opt, e.Log, decode: decode);
+            ConvertedEntities b = JkMusic.Convert(e.Prepared, e.Fs, opt, new ImportLog(), decode: decode);
+            Assert.Equal(1, decoded);
+            Assert.Same(Assert.Single(a.Sounds).Data, Assert.Single(b.Sounds).Data);
+
+            File.WriteAllBytes(file, FakeTrack(30, 2));   // piste modifiee : taille differente
+            ConvertedEntities c = JkMusic.Convert(e.Prepared, e.Fs, opt, new ImportLog(), decode: decode);
+            Assert.Equal(2, decoded);
+            Assert.Equal(2 * 22050 * 2, Pcm(Assert.Single(c.Sounds).Data).Length);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Convert_CacheHit_KeepsTheJournal()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "jkmusic_cache_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "MUSIC"));
+        try
+        {
+            File.WriteAllBytes(Path.Combine(dir, "MUSIC", "Track12.ogg"), FakeTrack(20, 1));
+            using Env e = Make(MusicLevel("00_soundtrack.cog", SoundtrackCog, "12 13 12"));   // la piste 13 manque
+            ExportOptions opt = e.Opt with { JediKnightDir = dir };
+            JkMusic.Convert(e.Prepared, e.Fs, opt, new ImportLog(), decode: FakeDecode);
+            var log = new ImportLog();
+            JkMusic.Convert(e.Prepared, e.Fs, opt, log, decode: FakeDecode);
+            Assert.Contains(log.Warnings, w => w.Code == "JK_MUSIC_TRACK_MISSING");
+            Assert.Contains(log.Warnings, w => w.Code == "JK_MUSIC");
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     // --- lecture des COG ---
 
     [Fact]

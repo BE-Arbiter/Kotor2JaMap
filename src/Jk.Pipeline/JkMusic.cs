@@ -90,12 +90,14 @@ internal static class JkMusic
     /// (defaut : <c>MUSIC\TrackNN.ogg</c> du dossier du jeu) ; <paramref name="decode"/> le decode (defaut : <see cref="DecodeOgg"/>).
     /// </summary>
     public static ConvertedEntities Convert(JkPreparedScene prepared, JkFileSystem fs, ExportOptions opt, ImportLog log,
-        Func<int, byte[]?>? readTrack = null, Func<byte[], PcmAudio>? decode = null)
+        Func<int, byte[]?>? readTrack = null, Func<byte[], PcmAudio>? decode = null, long maxDataBytes = MaxWavDataBytes)
     {
         ArgumentNullException.ThrowIfNull(prepared);
         ArgumentNullException.ThrowIfNull(fs);
         ArgumentNullException.ThrowIfNull(opt);
         ArgumentNullException.ThrowIfNull(log);
+        // Cache seulement avec la lecture par defaut des fichiers du jeu (la cle depend de leur taille et date) ; un lecteur fourni (tests) n'est jamais mis en cache.
+        string? cacheKey = readTrack is null ? CacheKey(prepared.Scene.Info.Module, opt.JediKnightDir, maxDataBytes) : null;
         readTrack ??= n => ReadTrack(opt.JediKnightDir, n);
         decode ??= DecodeOgg;
 
@@ -129,45 +131,115 @@ internal static class JkMusic
         if (!exact)
             log.Warn("JK_MUSIC_LOOP_APPROX", $"Music: {call} of {song.Script} does not start inside its loop; the tracks {string.Join(", ", sequence)} are played in order and looped.");
 
-        var missing = new List<int>();
-        var unreadable = new List<(int Track, string Why)>();
-        var pcm = new List<(int Track, short[] Data)>();
-        foreach (int track in sequence)
+        string? sequenceKey = cacheKey is null ? null : cacheKey + "|" + string.Join(',', sequence);
+        Built? built = sequenceKey is null ? null : CacheGet(opt.JediKnightDir!, sequenceKey);
+        if (built is null)
         {
-            byte[]? ogg = readTrack(track);
-            if (ogg is null) { missing.Add(track); continue; }
-            try { pcm.Add((track, ToStereo16(decode(ogg), OutputRate))); }
-            catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or IOException)
-            {
-                unreadable.Add((track, ex.Message));
-            }
+            built = Build(sequence, readTrack, decode, maxDataBytes);
+            if (sequenceKey is not null && built.Wav is not null) CachePut(opt.JediKnightDir!, sequenceKey, built);
         }
-        if (missing.Count > 0)
-            log.Warn("JK_MUSIC_TRACK_MISSING", $"Music: {call} of {song.Script} plays CD track(s) {string.Join(", ", sequence)}, but MUSIC\\Track*.ogg of the game has no file for "
-                + $"{string.Join(", ", missing)}" + (pcm.Count > 0 ? "; they are left out of the loop." : "."));
-        foreach (var (track, why) in unreadable)
-            log.Warn("JK_MUSIC_UNREADABLE", $"Music: Track{track}.ogg cannot be decoded ({why}); it is left out of the loop.");
 
-        if (pcm.Count == 0)
+        if (built.Missing.Count > 0)
+            log.Warn("JK_MUSIC_TRACK_MISSING", $"Music: {call} of {song.Script} plays CD track(s) {string.Join(", ", sequence)}, but MUSIC\\Track*.ogg of the game has no file for "
+                + $"{string.Join(", ", built.Missing)}" + (built.Used.Count > 0 ? "; they are left out of the loop." : "."));
+        foreach (var (track, why) in built.Unreadable)
+            log.Warn("JK_MUSIC_UNREADABLE", $"Music: Track{track}.ogg cannot be used ({why}); it is left out of the loop.");
+
+        if (built.Wav is null)
         {
             log.Warn("JK_MUSIC_NONE", $"Music: {call} of {song.Script} has no track file I can read, so the map has no music.");
             return ConvertedEntities.Empty;
         }
 
-        var all = new short[pcm.Sum(p => p.Data.Length)];
-        int at = 0;
-        foreach (var (_, data) in pcm) { data.CopyTo(all, at); at += data.Length; }
         string path = Folder + prepared.Scene.Info.Module.ToLowerInvariant() + ".wav";
-        byte[] wav = WavFile(all, OutputRate);
-        double seconds = all.Length / 2.0 / OutputRate;
-        log.Warn("JK_MUSIC", $"Music: {call} of {song.Script} -> CD track(s) {string.Join(", ", pcm.Select(p => p.Track))} in one loop, "
-            + $"{path} ({seconds.ToString("0.0", CultureInfo.InvariantCulture)} s, {(wav.Length / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture)} MB, {OutputRate} Hz 16-bit stereo wav), "
+        log.Warn("JK_MUSIC", $"Music: {call} of {song.Script} -> CD track(s) {string.Join(", ", built.Used)} in one loop, "
+            + $"{path} ({built.Seconds.ToString("0.0", CultureInfo.InvariantCulture)} s, {(built.Wav.Length / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture)} MB, {OutputRate} Hz 16-bit stereo wav), "
             + "played in a loop by the worldspawn 'music' key.");
         return new ConvertedEntities([], [], [])
         {
-            Sounds = [new SoundAsset(path, wav)],
+            Sounds = [new SoundAsset(path, built.Wav)],
             WorldKeys = new Dictionary<string, string>(StringComparer.Ordinal) { ["music"] = path },
         };
+    }
+
+    // ---------------------------------------------------------------- construction du wav et cache
+
+    /// <summary>Donnees d'un wav au plus : le champ RIFF « taille » est un entier 32 bits signe, en-tete de 36 octets compris.</summary>
+    public const long MaxWavDataBytes = int.MaxValue - 36;
+
+    /// <summary>Resultat de la lecture des pistes : le wav (null si aucune piste utilisable) et ce qui a ete omis, pour que le journal soit identique avec ou sans cache.</summary>
+    private sealed record Built(byte[]? Wav, IReadOnlyList<int> Used, IReadOnlyList<int> Missing, IReadOnlyList<(int Track, string Why)> Unreadable, double Seconds);
+
+    /// <summary>
+    /// Lit et decode les pistes. La musique n'est JAMAIS fatale : toute exception de lecture ou de decodage d'une piste (hors erreurs critiques de memoire ou de processus) la
+    /// fait omettre (<c>JK_MUSIC_UNREADABLE</c>), y compris les exceptions inattendues de NVorbis sur un flux corrompu. Une piste qui ferait depasser <paramref name="maxDataBytes"/>
+    /// (limite RIFF de 2 Go) est omise de la meme facon, avec la raison « too long ».
+    /// </summary>
+    private static Built Build(IReadOnlyList<int> sequence, Func<int, byte[]?> readTrack, Func<byte[], PcmAudio> decode, long maxDataBytes)
+    {
+        var missing = new List<int>();
+        var unreadable = new List<(int Track, string Why)>();
+        var used = new List<int>();
+        var pcm = new List<short[]>();
+        long total = 0;                                              // en octets de donnees wav (long : pas de debordement au-dela de 1 Go)
+        foreach (int track in sequence)
+        {
+            try
+            {
+                byte[]? ogg = readTrack(track);
+                if (ogg is null) { missing.Add(track); continue; }
+                short[] data = ToStereo16(decode(ogg), OutputRate);
+                long bytes = (long)data.Length * 2;
+                if (total + bytes > maxDataBytes)
+                {
+                    unreadable.Add((track, $"too long: the wav would exceed {maxDataBytes / 1048576} MB"));
+                    continue;
+                }
+                total += bytes;
+                pcm.Add(data);
+                used.Add(track);
+            }
+            catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or AccessViolationException or ThreadAbortException))
+            {
+                unreadable.Add((track, ex.Message));
+            }
+        }
+        if (pcm.Count == 0) return new Built(null, used, missing, unreadable, 0);
+        return new Built(WavFile(pcm, OutputRate, maxDataBytes), used, missing, unreadable, total / 4.0 / OutputRate);
+    }
+
+    // Cache simple du dernier wav par dossier du jeu : Import (puis Export) consecutifs de la meme carte ne redecodent pas 300 a 400 Mo d'audio. Un seul wav (25 a 45 Mo) reste en memoire.
+    // L'apercu (PipelineSteps.Preview) n'appelle pas la conversion des objets : seul Import la lance.
+    private static readonly Dictionary<string, (string Key, Built Value)> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object CacheLock = new();
+
+    private static Built? CacheGet(string dir, string key)
+    {
+        lock (CacheLock) return Cache.TryGetValue(dir, out var e) && e.Key == key ? e.Value : null;
+    }
+
+    private static void CachePut(string dir, string key, Built value)
+    {
+        lock (CacheLock) Cache[dir] = (key, value);
+    }
+
+    /// <summary>Cle de cache : niveau, limite, et pour chaque fichier du dossier <c>MUSIC</c> sa taille et sa date ; null si le dossier du jeu n'est pas utilisable.</summary>
+    private static string? CacheKey(string module, string? jkDir, long maxDataBytes)
+    {
+        if (string.IsNullOrWhiteSpace(jkDir) || !Directory.Exists(jkDir)) return null;
+        try
+        {
+            string? dir = Directory.EnumerateDirectories(jkDir).FirstOrDefault(d => string.Equals(Path.GetFileName(d), "MUSIC", StringComparison.OrdinalIgnoreCase));
+            if (dir is null) return null;
+            var sb = new StringBuilder(module.ToLowerInvariant()).Append('|').Append(maxDataBytes);
+            foreach (string f in Directory.EnumerateFiles(dir).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+            {
+                var info = new FileInfo(f);
+                sb.Append('|').Append(info.Name.ToLowerInvariant()).Append(':').Append(info.Length).Append(':').Append(info.LastWriteTimeUtc.Ticks);
+            }
+            return sb.ToString();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary><c>MUSIC\Track&lt;n&gt;.ogg</c> du dossier du jeu (dossier cherche sans tenir compte de la casse), ou null.</summary>
@@ -273,23 +345,35 @@ internal static class JkMusic
         return result;
     }
 
-    private static short Clip(float v) => (short)Math.Clamp((int)MathF.Round(v * 32768f), short.MinValue, short.MaxValue);
+    /// <summary>Echantillon flottant -> 16 bits, ecrete ; NaN (flux corrompu) donne le silence, les infinis sont ecretes.</summary>
+    private static short Clip(float v) => float.IsNaN(v) ? (short)0 : (short)MathF.Round(Math.Clamp(v * 32768f, short.MinValue, short.MaxValue));
 
     private static int Gcd(int a, int b) { while (b != 0) (a, b) = (b, a % b); return a; }
 
     /// <summary>Fichier wav PCM 16 bits stereo (en-tete de 44 octets : <c>RIFF</c>, <c>fmt </c>, <c>data</c>) : le format que le lecteur de musique de JA attend.</summary>
-    public static byte[] WavFile(short[] interleavedStereo, int rate)
+    public static byte[] WavFile(short[] interleavedStereo, int rate) => WavFile([interleavedStereo], rate);
+
+    /// <summary>
+    /// Wav des blocs mis bout a bout, ecrit directement dans un tableau de taille connue (pas de copie intermediaire).
+    /// <see cref="InvalidDataException"/> au-dela de <paramref name="maxDataBytes"/> (limite RIFF 2 Go).
+    /// </summary>
+    public static byte[] WavFile(IReadOnlyList<short[]> blocks, int rate, long maxDataBytes = MaxWavDataBytes)
     {
-        int bytes = interleavedStereo.Length * 2;
-        using var ms = new MemoryStream(44 + bytes);
-        using var w = new BinaryWriter(ms);
-        w.Write("RIFF"u8.ToArray()); w.Write(36 + bytes); w.Write("WAVE"u8.ToArray());
-        w.Write("fmt "u8.ToArray()); w.Write(16); w.Write((short)1); w.Write((short)2); w.Write(rate); w.Write(rate * 4); w.Write((short)4); w.Write((short)16);
-        w.Write("data"u8.ToArray()); w.Write(bytes);
-        var raw = new byte[bytes];
-        Buffer.BlockCopy(interleavedStereo, 0, raw, 0, bytes);
-        w.Write(raw);
-        w.Flush();
-        return ms.ToArray();
+        long bytes = 0;
+        foreach (short[] b in blocks) bytes += (long)b.Length * 2;
+        if (bytes > maxDataBytes) throw new InvalidDataException($"wav data too long ({bytes} bytes, limit {maxDataBytes})");
+        var wav = new byte[44 + bytes];
+        Span<byte> h = wav;
+        "RIFF"u8.CopyTo(h); BitConverter.TryWriteBytes(h[4..], (int)(36 + bytes)); "WAVE"u8.CopyTo(h[8..]);
+        "fmt "u8.CopyTo(h[12..]); BitConverter.TryWriteBytes(h[16..], 16); BitConverter.TryWriteBytes(h[20..], (short)1); BitConverter.TryWriteBytes(h[22..], (short)2);
+        BitConverter.TryWriteBytes(h[24..], rate); BitConverter.TryWriteBytes(h[28..], rate * 4); BitConverter.TryWriteBytes(h[32..], (short)4); BitConverter.TryWriteBytes(h[34..], (short)16);
+        "data"u8.CopyTo(h[36..]); BitConverter.TryWriteBytes(h[40..], (int)bytes);
+        int at = 44;
+        foreach (short[] b in blocks)
+        {
+            Buffer.BlockCopy(b, 0, wav, at, b.Length * 2);
+            at += b.Length * 2;
+        }
+        return wav;
     }
 }
