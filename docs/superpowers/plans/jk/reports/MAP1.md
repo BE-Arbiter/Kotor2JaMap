@@ -55,3 +55,19 @@ Journal : `MAP_VISUAL_CAPPED`, `MAP_VISUAL_UV_APPROX`, `MAP_VISUAL_WRITE_FAILED`
 5. Le dossier `edit` copie les textures (16 Mo JK, 66 Mo pour `danm14aa`) a chaque export ; desactivable avec `--map-visuals off`. Pas de cle `mapVisuals` dans `kotor2ja.config.json` ni de case dans l'application (option d'export et CLI seulement).
 6. Le `.map` du pk3 garde `textures/common/caulk` (nom invalide pour q3map2, qui y ajoute `textures/`) : volontairement non modifie.
 7. Les modeles (`misc_model_*`) ne sont pas dessines dans l'editeur ; les shaders de portes/triggers (`jk/mover_nonsolid`, `jk/trigger_hurt`, `system/clip`) n'ont pas de .tga (non visuels).
+
+## Correctif de revue
+
+Changements :
+- `src/Kotor.Pipeline/PipelineSteps.cs` : le `Directory.Delete(editDir)` inconditionnel est supprime. Avec `--map-visuals on`, le `.map` d'edition existant est renomme en `<carte>.<aaaammjj-hhmmss>.map.bak` (5 sauvegardes au plus, `PipelineSteps.MaxEditBackups`, les plus anciennes sont retirees) avant l'ecriture du nouveau. Si la sauvegarde echoue (fichier verrouille), le nouveau `.map` n'est pas ecrit et l'avertissement `MAP_VISUAL_WRITE_FAILED` est journalise ; toute erreur d'E/S du dossier `edit` (sauvegarde, ecriture du `.map`, copie des textures) est un avertissement, jamais `EXPORT_IO_ERROR`. Avec `--map-visuals off`, rien n'est cree, modifie ni supprime dans `edit`.
+- `src/Kotor.Compiler/Bsp/VisualMapWriter.cs` : `Valid` ecarte un triangle dont un UV est NaN/infini (compte dans `DegenerateTriangles`, donc dans le journal `Edit map: ... degenerate triangle(s) skipped`).
+- `README.md` (« Editing the map ») : regeneration a chaque export avec sauvegarde, modifications d'editeur a garder ailleurs, groupe `_kotor_visual` qui double la geometrie si on recompile tel quel, plantage de `q3map2 -meta` (recompilation non garantie), `MAP_VISUAL_WRITE_FAILED`.
+
+Tests (RED d'abord) :
+- `VisualMapWriterTests.NonFiniteUv_TriangleIsSkippedAndCounted` (NaN, infini) : RED `echec : 2, reussite : 0` sans le filtre, GREEN `reussite : 2`.
+- `ModuleExporterTests` : `Reexport_backs_up_the_existing_edit_map_instead_of_deleting_it_and_caps_the_backups`, `Locked_edit_map_gives_a_warning_and_the_export_still_succeeds` (fichier ouvert en `FileShare.None`), `Unusable_edit_folder_gives_a_warning_and_the_export_still_succeeds` (« edit » est un fichier), `Map_visuals_off_leaves_the_user_edited_map_untouched`, et `Map_visuals_off_...` adapte (le dossier `edit` n'est plus retire). RED : erreur de compilation `'PipelineSteps' ne contient pas de definition pour 'MaxEditBackups'` ; GREEN : `ModuleExporterTests` 22/22.
+
+Commandes et sorties :
+- `dotnet test Kotor2Ja.sln` entier, 0 echec : Kotor.Compiler 107, Jk.Core 50, Kotor.Core 229, Kotor.Pipeline 199, Swtor.Pipeline 84, Swtor.Core 132, Kotor2Ja.Cli 55, Jk.Pipeline 303 (aucun verrou de DLL).
+- `Kotor2Ja.Cli.exe export-ja 01narshadda --game jk --config C:/Users/lambe/AppData/Local/Temp/jkedit/cfg.json` (jaBaseDir temporaire, GameData\base jamais touche), en `on` puis en `--map-visuals off` : SHA-256 du pk3 `8b26303c73fc...` dans les deux cas, identique au hash de reference de ce rapport. Les golden tests du BSP (`Compile_BspHashStaysTheGoldenOne_...`) restent verts ; KOTOR/SWTOR non touches (suites vertes).
+- Limite : le `.bak` n'est pas teste par une vraie session d'editeur (verrou simule par `FileShare.None`).

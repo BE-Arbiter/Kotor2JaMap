@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
@@ -224,8 +225,10 @@ public static class PipelineSteps
             string bsp = Path.Combine(stage, "maps", name + ".bsp");
             // .map d'edition (geometrie visible texturee) : hors du pk3, dans <travail>\<carte>\edit.
             string editDir = EditDir(opt, name);
-            if (Directory.Exists(editDir)) Directory.Delete(editDir, true);
-            var input = opt.MapVisuals ? plan.Input with { VisualMapPath = EditMapPath(opt, name) } : plan.Input;
+            // Avec --map-visuals off on ne touche a rien dans edit. Sinon l'ancien .map est sauvegarde (jamais supprime en silence) ;
+            // si la sauvegarde echoue, le .map d'edition n'est pas ecrit : l'export du jeu n'en depend pas.
+            bool writeEdit = opt.MapVisuals && BackupEditMap(EditMapPath(opt, name), name, log);
+            var input = writeEdit ? plan.Input with { VisualMapPath = EditMapPath(opt, name) } : plan.Input;
             var cr = global::Kotor.Compiler.Compiler.Compile(input, bsp, Limits.FromName(opt.BspLimits), log);
             if (!cr.Ok) throw new PipelineStepException("BSP_ERROR", cr.Error ?? "Compilation failed."); // deja journalise par le compilateur
 
@@ -259,7 +262,7 @@ public static class PipelineSteps
                     t.Lightmap ? ModuleExporter.Brighten(t.Texture.Rgba, opt.LightmapBrightness) : t.Texture.Rgba);
             }
 
-            if (opt.MapVisuals) PrepareEditFolder(stage, editDir, EditMapPath(opt, name), log);
+            if (writeEdit) PrepareEditFolder(stage, editDir, EditMapPath(opt, name), log);
             return new ExportStepResult(bsp, ReadBack(File.ReadAllBytes(bsp), plan, log), stage);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -276,6 +279,45 @@ public static class PipelineSteps
 
     /// <summary>Le .map d'edition : <c>&lt;travail&gt;\&lt;carte&gt;\edit\base\maps\&lt;carte&gt;.map</c>.</summary>
     public static string EditMapPath(ExportOptions opt, string name) => Path.Combine(EditDir(opt, name), "base", "maps", name + ".map");
+
+    /// <summary>Nombre maximal de sauvegardes <c>&lt;carte&gt;.&lt;horodatage&gt;.map.bak</c> conservees a cote du .map d'edition.</summary>
+    public const int MaxEditBackups = 5;
+
+    /// <summary>
+    /// Sauvegarde le .map d'edition existant (renomme en <c>&lt;carte&gt;.&lt;horodatage&gt;.map.bak</c>, au plus <see cref="MaxEditBackups"/>
+    /// conservees) avant qu'un nouvel export ne le remplace. Renvoie false (avec l'avertissement <c>MAP_VISUAL_WRITE_FAILED</c>) si une erreur
+    /// d'E/S empeche la sauvegarde : le .map existant reste alors intact et n'est pas reecrit. Ne leve jamais d'erreur d'E/S.
+    /// </summary>
+    private static bool BackupEditMap(string editMap, string name, ImportLog log)
+    {
+        try
+        {
+            if (!File.Exists(editMap)) return true;
+            string dir = Path.GetDirectoryName(editMap)!;
+            string bak;
+            int n = 0;
+            do
+            {
+                string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + (n == 0 ? "" : "-" + n);
+                bak = Path.Combine(dir, $"{name}.{stamp}.map.bak");
+                n++;
+            } while (File.Exists(bak));
+            File.Move(editMap, bak);
+            log.Info($"Edit map: previous {Path.GetFileName(editMap)} kept as {Path.GetFileName(bak)}.");
+
+            var olds = Directory.GetFiles(dir, name + ".*.map.bak").OrderBy(f => File.GetLastWriteTimeUtc(f)).ThenBy(f => f, StringComparer.Ordinal).ToList();
+            for (int i = 0; i < olds.Count - MaxEditBackups; i++)
+            {
+                try { File.Delete(olds[i]); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.Warn("MAP_VISUAL_WRITE_FAILED", $"Edit map not written: the existing one cannot be backed up ({ex.Message}); the pk3 is not affected.");
+            return false;
+        }
+    }
 
     /// <summary>
     /// Complete le dossier d'edition pour qu'il soit une base d'editeur autonome : copie de <c>textures</c> et <c>shaders</c> du staging, et

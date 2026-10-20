@@ -261,7 +261,70 @@ public sealed class ModuleExporterTests : IDisposable
         Assert.True(ModuleExporter.Export(scene, "mv", Opt() with { MapVisuals = false }, new ImportLog()).Ok);
         Assert.Equal(bspOn, File.ReadAllBytes(bsp));
         Assert.Equal(mapOn, File.ReadAllBytes(map));
-        Assert.False(Directory.Exists(Path.Combine(_root, "work", "mv", "edit"))); // l'ancien dossier d'edition est retire
+        // off ne touche a rien dans edit : ni suppression, ni sauvegarde, .map inchange.
+        string editMap = Path.Combine(_root, "work", "mv", "edit", "base", "maps", "mv.map");
+        Assert.True(File.Exists(editMap));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(editMap)!, "*.bak"));
+    }
+
+    [Fact]
+    public void Map_visuals_off_leaves_the_user_edited_map_untouched()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        Assert.True(ModuleExporter.Export(scene, "mo", Opt(), new ImportLog()).Ok);
+        string editMap = Path.Combine(_root, "work", "mo", "edit", "base", "maps", "mo.map");
+        File.WriteAllText(editMap, "// edited by the user");
+        Assert.True(ModuleExporter.Export(scene, "mo", Opt() with { MapVisuals = false }, new ImportLog()).Ok);
+        Assert.Equal("// edited by the user", File.ReadAllText(editMap));
+    }
+
+    [Fact]
+    public void Reexport_backs_up_the_existing_edit_map_instead_of_deleting_it_and_caps_the_backups()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        string maps = Path.Combine(_root, "work", "rb", "edit", "base", "maps");
+        Assert.True(ModuleExporter.Export(scene, "rb", Opt(), new ImportLog()).Ok);
+        File.WriteAllText(Path.Combine(maps, "rb.map"), "// edited by the user");
+
+        Assert.True(ModuleExporter.Export(scene, "rb", Opt(), new ImportLog()).Ok);
+        var baks = Directory.GetFiles(maps, "rb.*.map.bak");
+        Assert.Single(baks);
+        Assert.Equal("// edited by the user", File.ReadAllText(baks[0]));
+        Assert.Contains("_kotor_visual", File.ReadAllText(Path.Combine(maps, "rb.map")));
+
+        for (int i = 0; i < PipelineSteps.MaxEditBackups + 3; i++)
+            Assert.True(ModuleExporter.Export(scene, "rb", Opt(), new ImportLog()).Ok);
+        Assert.Equal(PipelineSteps.MaxEditBackups, Directory.GetFiles(maps, "rb.*.map.bak").Length);
+    }
+
+    [Fact]
+    public void Locked_edit_map_gives_a_warning_and_the_export_still_succeeds()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        Assert.True(ModuleExporter.Export(scene, "lk", Opt(), new ImportLog()).Ok);
+        string editMap = Path.Combine(_root, "work", "lk", "edit", "base", "maps", "lk.map");
+        var log = new ImportLog();
+        ExportResult r;
+        using (new FileStream(editMap, FileMode.Open, FileAccess.Read, FileShare.None)) // l'editeur verrouille le fichier
+            r = ModuleExporter.Export(scene, "lk", Opt(), log);
+        Assert.True(r.Ok, r.Error);
+        Assert.True(File.Exists(r.Pk3Path));
+        Assert.Contains(log.Warnings, e => e.Code == "MAP_VISUAL_WRITE_FAILED");
+        Assert.DoesNotContain(log.Warnings, e => e.Code == "EXPORT_IO_ERROR");
+    }
+
+    [Fact]
+    public void Unusable_edit_folder_gives_a_warning_and_the_export_still_succeeds()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        string mapDir = Path.Combine(_root, "work", "ed");
+        Directory.CreateDirectory(mapDir);
+        File.WriteAllText(Path.Combine(mapDir, "edit"), "not a folder"); // « edit » est un fichier : aucun dossier possible
+        var log = new ImportLog();
+        var r = ModuleExporter.Export(scene, "ed", Opt(), log);
+        Assert.True(r.Ok, r.Error);
+        Assert.Contains(log.Warnings, e => e.Code == "MAP_VISUAL_WRITE_FAILED");
+        Assert.True(File.Exists(r.Pk3Path));
     }
 
     [SkippableFact]

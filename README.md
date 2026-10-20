@@ -164,6 +164,10 @@ Sizes (examples): `jk_01narshadda` 7.5 MB, about 97,000 lines, 7,852 visual brus
 
 Compiling the editing map with `q3map2` gives textured visible geometry plus the collision brushes; it is meant for editing and looking, not as a replacement for the converter (lightmaps, vertex lighting, doors, sky box and visibility are not rebuilt). The BSP and the `.pk3` do not depend on this file: with `--map-visuals off` they are byte-for-byte the same.
 
+**The editing map is regenerated at every export.** The previous `<map>.map` is not overwritten silently: it is renamed `<map>.<yyyyMMdd-HHmmss>.map.bak` in the same folder (the 5 most recent backups are kept). Changes you make in the editor must therefore be saved somewhere else (or taken back from the `.bak`), not left in `edit\base\maps`. If the old file cannot be backed up (locked by the editor or by Explorer) or the `edit` folder cannot be written, the export still succeeds and logs the warning `MAP_VISUAL_WRITE_FAILED`; the `.bsp` and the `.pk3` never depend on it. With `--map-visuals off` nothing in `edit` is created, changed or deleted.
+
+Recompiling the editing map: the `_kotor_visual` group duplicates the geometry the `.bsp` already draws, so compiling the file as it is doubles the visible surfaces. Delete that group first, or compile only the collision and the entities. Also, `q3map2` crashes (segfault) in `-meta` on these maps, so a recompilation is not guaranteed to work.
+
 ## Configuration
 
 Settings are read from `kotor2ja.config.json`, next to the executable (see also Portable build above). The application and the command line tool use the same file. Only `export-ja` accepts `--config` to read another file; `list-modules` and `export-obj` always read the file next to the executable. Missing keys use the defaults.

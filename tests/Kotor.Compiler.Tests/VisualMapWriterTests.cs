@@ -309,6 +309,20 @@ public sealed class VisualMapWriterTests : IDisposable
         Assert.Equal(2, st.DegenerateTriangles);
     }
 
+    [Theory]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public void NonFiniteUv_TriangleIsSkippedAndCounted(float bad)
+    {
+        var s = Wall([new(0, 0, 0), new(100, 0, 0), new(100, 100, 0), new(0, 100, 0)], [new(0, 0), new(bad, 0), new(1, 1), new(0, 1)]);
+        var sw = new StringWriter { NewLine = "\n" };
+        VisualMapStats st = VisualMapWriter.Write(sw, [s]);
+        Assert.Equal(1, st.Brushes);          // le triangle 0,2,3 est sain
+        Assert.Equal(1, st.DegenerateTriangles);
+        Assert.DoesNotContain("NaN", sw.ToString());
+        Assert.DoesNotContain("Infinity", sw.ToString());
+    }
+
     [Fact]
     public void Needle_TooThinForTheMapPrecision_IsSkipped()
     {

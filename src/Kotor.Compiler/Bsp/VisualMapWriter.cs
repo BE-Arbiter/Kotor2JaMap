@@ -116,6 +116,8 @@ public static class VisualMapWriter
             if (ix < 0 || ix >= s.Positions.Length || ix >= s.Uv0.Length) return false;
             Vector3 p = s.Positions[ix];
             if (!float.IsFinite(p.X) || !float.IsFinite(p.Y) || !float.IsFinite(p.Z)) return false;
+            Vector2 uv = s.Uv0[ix]; // UV NaN/infini : la texture serait incalculable (compte comme triangle ecarte)
+            if (!float.IsFinite(uv.X) || !float.IsFinite(uv.Y)) return false;
         }
         return true;
     }
