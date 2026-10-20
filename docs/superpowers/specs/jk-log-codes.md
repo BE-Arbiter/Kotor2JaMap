@@ -28,7 +28,7 @@ La colonne « Perte » dit ce qui manque en jeu quand le code apparaît. Variabl
 | `JK_GEO_APPROX` | avertissement | Mode géométrique 1 à 3 (points, filaire, couleur unie) : dessiné texturé. | apparence |
 | `JK_SKY_APPROX` | avertissement | Ciel approché par un seul shader par niveau (horizon et plafond). | détail du ciel |
 | `JK_TRANSLUCENT_APPROX` | avertissement | Surfaces translucides : mélange fixe à 50 %. | niveau de transparence |
-| `JK_STAIR_RAMP` | info | Contremarches trop hautes pour le pas de JA : rampe de collision marchable ajoutée (le rendu ne change pas). | aucune |
+| `JK_STAIR_RAMP` | info | Bilan des rampes de marche : nombre de rampes de collision marchables ajoutées sur les vraies marches trop hautes pour le pas de JA (le rendu ne change pas), nombre de contremarches hautes isolées (comptoirs, rebords, caisses) laissées bloquantes, nombre de contremarches plus étroites que le joueur, nombre de rampes trop raides. | aucune |
 | `JK_ADJOIN_COG_OPENED` | avertissement | Adjoins bloquants dans le fichier que des COG peuvent ouvrir (`SetAdjoinFlags` : champs de force, grilles, vitres cassables, portes sans mouvement) : rendus franchissables pour qu'aucun passage ne reste fermé. | la barrière ne bloque plus (reste visible) |
 | `JK_NO_PLAYER_START` | avertissement | Aucun départ du joueur : entrée à l'origine. | position d'entrée |
 

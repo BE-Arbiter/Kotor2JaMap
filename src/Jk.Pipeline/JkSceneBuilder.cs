@@ -228,17 +228,17 @@ public static class JkSceneBuilder
             acc.AddPolygon(pos, normal, uv0, uv1, reversed, both);
         }
 
-        // Rampes de collision sur les contremarches trop hautes pour le pas de JA.
+        // Rampes de collision sur les vraies marches trop hautes pour le pas de JA (comptoirs et rebords isoles restent bloquants).
         float minRise = options.StairRampMinRiseJa / JkWorldScale.JaUnitsPerJkUnit;
-        List<JkStairRamps.Ramp> stairRamps = JkStairRamps.Compute(level, s => !IsPassableAdjoin(level, s, fx.OpenedAdjoins), minRise, out int steepSkipped);
+        List<JkStairRamps.Ramp> stairRamps = JkStairRamps.Compute(level, s => !IsPassableAdjoin(level, s, fx.OpenedAdjoins), minRise, out JkStairRamps.Stats rampStats);
         foreach (JkStairRamps.Ramp r in stairRamps)
         {
             string room = roomNames[group[r.Sector]];
             if (!walks.TryGetValue(room, out WalkAcc? walk)) walks[room] = walk = new WalkAcc();
             walk.AddRamp(r.A * scale, r.B * scale, r.C * scale, r.D * scale);
         }
-        if (stairRamps.Count > 0 || steepSkipped > 0)
-            log.Warn("JK_STAIR_RAMP", $"{stairRamps.Count} stair riser(s) taller than {options.StairRampMinRiseJa:0.#} JA units got a walkable collision ramp (rendering unchanged); {steepSkipped} too steep for a ramp.");
+        if (rampStats.Placed > 0 || rampStats.Steep > 0 || rampStats.Isolated > 0 || rampStats.Narrow > 0)
+            log.Warn("JK_STAIR_RAMP", $"{rampStats.Placed} stair riser(s) taller than {options.StairRampMinRiseJa:0.#} JA units got a walkable collision ramp (rendering unchanged); {rampStats.Isolated} isolated tall riser(s) (counters, ledges, crates) left blocking; {rampStats.Narrow} narrower than the player; {rampStats.Steep} too steep for a ramp.");
 
         // --- Scene ---
         var sceneMeshes = meshes.Select(m => m.ToSceneMesh()).ToList();

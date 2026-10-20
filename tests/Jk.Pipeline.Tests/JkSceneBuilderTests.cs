@@ -227,10 +227,10 @@ public class JkSceneBuilderTests
     }
 
     [Fact]
-    public void StairRiser_TooTallForJa_GetsWalkableRamp()
+    public void StairRiser_CurbAboveMinRise_GetsWalkableRamp()
     {
-        // Deux planchers a 0 et 0,1 relies par une contremarche verticale ; 0,1 = 34 u JA > 18 : une rampe de collision doit apparaitre.
-        string jkl = StairLevel(0.1f);
+        // Deux planchers a 0 et 0,05 relies par une contremarche verticale ; 0,05 = 17 u JA > 14 (seuil de rampe) : une rampe de collision de secours doit apparaitre.
+        string jkl = StairLevel(0.05f);
         JklLevel level = JklReader.Read(jkl);
         var log = new ImportLog();
         JkPreparedScene s = JkSceneBuilder.Build(level, JkTemplates.FromLevels(null, level), SyntheticLevel.Files(), "stairs", log, null);
@@ -264,23 +264,23 @@ public class JkSceneBuilderTests
     [InlineData(3, true)]
     public void StairRamp_AnyVertexRotation_CoversWholeRiserWithoutCrossing(int rot, bool reverse)
     {
-        JklLevel level = JklReader.Read(StairLevel(0.1f, rot, reverse));
-        var ramps = JkStairRamps.Compute(level, _ => true, 0.05f, out int skipped);
-        Assert.Equal(0, skipped);
+        JklLevel level = JklReader.Read(StairLevel(0.05f, rot, reverse));
+        var ramps = JkStairRamps.Compute(level, _ => true, 0.05f, out JkStairRamps.Stats rampStats);
+        Assert.Equal(0, rampStats.Steep);
         JkStairRamps.Ramp r = Assert.Single(ramps);
 
-        // Rampe attendue : largeur 1 (y 0..1), de x = 1 (haut, z = 0,1) a x = 1 - 0,12 (bas, z = 0).
-        float expected = 1f * MathF.Sqrt(0.1f * 0.1f + 0.12f * 0.12f);
+        // Rampe attendue : largeur 1 (y 0..1), de x = 1 (haut, z = 0,05) a x = 1 - 0,06 (bas, z = 0).
+        float expected = 1f * MathF.Sqrt(0.05f * 0.05f + 0.06f * 0.06f);
         Vector3 n1 = Vector3.Cross(r.B - r.A, r.C - r.A), n2 = Vector3.Cross(r.C - r.A, r.D - r.A);
         // Les deux triangles ont la meme orientation (normale vers le haut), marchable (pente 40 deg) : pas de noeud papillon.
         Assert.True(n1.Z > 0f && n2.Z > 0f, $"orientation {n1} / {n2}");
         Assert.True(Vector3.Normalize(n1).Z > 0.7f && Vector3.Normalize(n2).Z > 0.7f);
         // Couverture complete de la contremarche : l'aire totale est celle du rectangle attendu.
         Assert.Equal(expected, (n1.Length() + n2.Length()) / 2f, 4);
-        // Les 4 coins : deux sur l'arete haute (x = 1, z = 0,1), deux au sol (x = 0,88, z = 0), couvrant y = 0 et y = 1.
+        // Les 4 coins : deux sur l'arete haute (x = 1, z = 0,05), deux au sol (x = 0,94, z = 0), couvrant y = 0 et y = 1.
         Vector3[] c = [r.A, r.B, r.C, r.D];
-        Assert.Equal(2, c.Count(p => MathF.Abs(p.Z - 0.1f) < 1e-4f && MathF.Abs(p.X - 1f) < 1e-4f));
-        Assert.Equal(2, c.Count(p => MathF.Abs(p.Z) < 1e-4f && MathF.Abs(p.X - 0.88f) < 1e-4f));
+        Assert.Equal(2, c.Count(p => MathF.Abs(p.Z - 0.05f) < 1e-4f && MathF.Abs(p.X - 1f) < 1e-4f));
+        Assert.Equal(2, c.Count(p => MathF.Abs(p.Z) < 1e-4f && MathF.Abs(p.X - 0.94f) < 1e-4f));
         Assert.Equal(2, c.Count(p => MathF.Abs(p.Y) < 1e-4f));
         Assert.Equal(2, c.Count(p => MathF.Abs(p.Y - 1f) < 1e-4f));
     }
@@ -291,7 +291,7 @@ public class JkSceneBuilderTests
     [InlineData(2, true)]
     public void StairRamp_InScene_AllRampTrianglesWalkableAndUpward(int rot, bool reverse)
     {
-        JklLevel level = JklReader.Read(StairLevel(0.1f, rot, reverse));
+        JklLevel level = JklReader.Read(StairLevel(0.05f, rot, reverse));
         JkPreparedScene s = JkSceneBuilder.Build(level, JkTemplates.FromLevels(null, level), SyntheticLevel.Files(), "stairs", new ImportLog(), null);
         float area = 0f; int count = 0;
         var pts = new List<Vector3>();
@@ -309,6 +309,199 @@ public class JkSceneBuilderTests
         float width = pts.Max(p => p.Y) - pts.Min(p => p.Y);
         float length = MathF.Sqrt(MathF.Pow(pts.Max(p => p.X) - pts.Min(p => p.X), 2) + MathF.Pow(pts.Max(p => p.Z) - pts.Min(p => p.Z), 2));
         Assert.InRange(area, width * length * 0.999f, width * length * 1.001f);
+    }
+
+    // ---- Rampes : vrais escaliers seulement (correctif « comptoirs ») ----
+
+    private static List<JkStairRamps.Ramp> Ramps(float h, int steps, float width = 1f, float minRise = 0.041f)
+    {
+        JklLevel level = JklReader.Read(StepsLevel(h, steps, width));
+        return JkStairRamps.Compute(level, _ => true, minRise, out JkStairRamps.Stats _);
+    }
+
+    [Fact]
+    public void StairRamp_FourStepStair_GetsOneRampPerRiser()
+    {
+        Assert.Equal(4, Ramps(0.07f, 4).Count);
+        Assert.Equal(4, Ramps(0.1f, 4).Count); // meme une serie de marches hautes (>= 3) est un escalier
+    }
+
+    [Fact]
+    public void StairRamp_IsolatedCounter_GetsNoRamp()
+    {
+        // Un comptoir / rebord isole de 0,1 (34 u JA) : le joueur JK ne le franchit pas non plus, il doit rester bloquant.
+        Assert.Empty(Ramps(0.1f, 1));
+        // Un ressaut isole de 0,07 (24 u, au-dessus du pas de JA) n'est pas un escalier non plus.
+        Assert.Empty(Ramps(0.07f, 1));
+        // Deux marches hautes seulement : un double rebord, pas un escalier.
+        Assert.Empty(Ramps(0.1f, 2));
+    }
+
+    [Fact]
+    public void StairRamp_TwoStepsOf007_AreAStair()
+    {
+        Assert.Equal(2, Ramps(0.07f, 2).Count);
+    }
+
+    [Fact]
+    public void StairRamp_SmallIsolatedCurb_KeepsItsRamp()
+    {
+        // 0,05 = 17 u : bordure ou marche seule, franchissable par JK ; la rampe de secours (marge sur les 18 u de JA) reste.
+        Assert.Single(Ramps(0.05f, 1));
+    }
+
+    [Fact]
+    public void StairRamp_RiserNarrowerThanThePlayer_GetsNoRamp()
+    {
+        Assert.Empty(Ramps(0.05f, 1, width: 0.1f)); // 0,1 < diametre du joueur (0,13)
+        Assert.Single(Ramps(0.05f, 1, width: 0.2f));
+    }
+
+    [Fact]
+    public void StairRamp_Stats_CountPlacedAndIsolated()
+    {
+        JkStairRamps.Compute(JklReader.Read(StepsLevel(0.07f, 4, 1f)), _ => true, 0.041f, out JkStairRamps.Stats stair);
+        Assert.Equal(new JkStairRamps.Stats(4, 0, 0, 0), stair);
+        JkStairRamps.Compute(JklReader.Read(StepsLevel(0.1f, 1, 1f)), _ => true, 0.041f, out JkStairRamps.Stats counter);
+        Assert.Equal(new JkStairRamps.Stats(0, 0, 1, 0), counter);
+    }
+
+    [Fact]
+    public void StairRamp_CounterInScene_LogsIsolatedAndHasNoWalkableSlope()
+    {
+        JklLevel level = JklReader.Read(StepsLevel(0.1f, 1, 1f));
+        var log = new ImportLog();
+        JkPreparedScene s = JkSceneBuilder.Build(level, JkTemplates.FromLevels(null, level), SyntheticLevel.Files(), "counter", log, null);
+        string msg = Assert.Single(log.Warnings, w => w.Code == "JK_STAIR_RAMP").Message;
+        Assert.StartsWith("0 stair riser(s)", msg);
+        Assert.Contains("1 isolated tall riser(s)", msg);
+        foreach (SceneWalkmesh w in s.Scene.Walkmeshes)
+            for (int t = 0; t < w.Triangles.Length / 3; t++)
+            {
+                Vector3 a = w.Positions[w.Triangles[t * 3]], b = w.Positions[w.Triangles[t * 3 + 1]], c = w.Positions[w.Triangles[t * 3 + 2]];
+                Vector3 n = Vector3.Normalize(Vector3.Cross(b - a, c - a));
+                Assert.False(w.Walkable[t] && n.Z > 0.7f && n.Z < 0.99f, "A counter must not get a walkable slope");
+            }
+    }
+
+    /// <summary>
+    /// Donnees reelles : le comptoir / bar vert de 01narshadda (materiaux 01wbar*, contremarche de 0,1 au-dessus d'un sol en caillebotis) ne recoit plus de rampe,
+    /// les marches de caillebotis de 0,05 la gardent, et le nombre de rampes du niveau est borne (93 avant le correctif).
+    /// </summary>
+    [SkippableFact]
+    public void Narshadda01_Counters_HaveNoRamp_ButRealStepsKeepTheirs()
+    {
+        Skip.IfNot(File.Exists(Path.Combine(JkDir, "Episode", "JK1.GOB")), "Jedi Knight is not installed");
+        JkLevelRef lr = JkInstall.ListLevels(JkDir).Single(l => l.Name == "01narshadda");
+        using JkFileSystem fs = JkFileSystem.ForEpisode(JkDir, lr.EpisodeGob);
+        var log = new ImportLog();
+        JkPreparedScene s = JkSceneBuilder.Build(fs, lr, log);
+        string msg = Assert.Single(log.Warnings, w => w.Code == "JK_STAIR_RAMP").Message;
+        int placed = int.Parse(msg[..msg.IndexOf(' ')], System.Globalization.CultureInfo.InvariantCulture);
+        Assert.InRange(placed, 1, 25); // 93 avant le correctif
+        Assert.Contains("isolated tall riser(s)", msg);
+
+        List<JkStairRamps.Ramp> ramps = JkStairRamps.Compute(s.Level, f => f.Adjoin < 0, 14f / JkWorldScale.JaUnitsPerJkUnit, out JkStairRamps.Stats stats);
+        Assert.InRange(stats.Isolated, 30, 200);
+        bool HasRampOn(int surface) => s.Level.Surfaces[surface].VertexIndices.Select(i => s.Level.Vertices[i])
+            .Any(p => ramps.Any(r => new[] { r.A, r.B, r.C, r.D }.Any(c => c == p)));
+        // Surfaces dont le materiau est 01wbar* : comptoir, bar, balustrade.
+        int[] bars = Enumerable.Range(0, s.Level.Surfaces.Count)
+            .Where(i => s.Level.Surfaces[i].Material >= 0 && s.Level.Materials[s.Level.Surfaces[i].Material].StartsWith("01wbar", StringComparison.OrdinalIgnoreCase)).ToArray();
+        Assert.NotEmpty(bars);
+        foreach (int i in bars)
+        {
+            // Seule la partie haute d'une contremarche touche une rampe : on teste les sommets hauts de la face verticale.
+            Vector3[] v = s.Level.Surfaces[i].VertexIndices.Select(x => s.Level.Vertices[x]).ToArray();
+            if (v.Max(p => p.Z) - v.Min(p => p.Z) < 0.09f) continue;
+            Assert.False(HasRampOn(i), $"surface {i} (bar riser) must not have a ramp");
+        }
+        // Marches de caillebotis de 0,05 (surfaces 2798 et 2799) : rampe de secours conservee.
+        Assert.True(HasRampOn(2798) && HasRampOn(2799));
+    }
+
+    /// <summary>Donnees reelles : l'escalier de 8 marches de 09fuelstation (contremarches 2449..2486, pas de 5) garde ses rampes.</summary>
+    [SkippableFact]
+    public void FuelStation09_EightStepStair_KeepsItsRamps()
+    {
+        Skip.IfNot(File.Exists(Path.Combine(JkDir, "Episode", "JK1.GOB")), "Jedi Knight is not installed");
+        JkLevelRef lr = JkInstall.ListLevels(JkDir).Single(l => l.Name == "09fuelstation");
+        using JkFileSystem fs = JkFileSystem.ForEpisode(JkDir, lr.EpisodeGob);
+        JkPreparedScene s = JkSceneBuilder.Build(fs, lr, new ImportLog());
+        List<JkStairRamps.Ramp> ramps = JkStairRamps.Compute(s.Level, f => f.Adjoin < 0, 14f / JkWorldScale.JaUnitsPerJkUnit, out JkStairRamps.Stats _);
+        foreach (int i in new[] { 2449, 2456, 2461, 2466, 2471, 2476, 2481, 2486 })
+        {
+            Vector3 top = s.Level.Surfaces[i].VertexIndices.Select(x => s.Level.Vertices[x]).OrderByDescending(p => p.Z).First();
+            Assert.Contains(ramps, r => new[] { r.A, r.B, r.C, r.D }.Contains(top));
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="steps"/> contremarches de hauteur <paramref name="h"/> : plancher k = x de k a k+1, z = k * h ; la contremarche j est en x = j.
+    /// Les sommets sont partages entre contremarches et planchers comme dans un vrai niveau.
+    /// </summary>
+    private static string StepsLevel(float h, int steps, float width)
+    {
+        string F(float v) => v.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+        var verts = new List<string> { "0 0 0", $"0 {F(width)} 0" };
+        // Pour la contremarche j (1..steps) : bas (2 + 4(j-1), +1), haut (4 + 4(j-1), +1).
+        for (int j = 1; j <= steps; j++)
+        {
+            verts.Add($"{j} 0 {F((j - 1) * h)}"); verts.Add($"{j} {F(width)} {F((j - 1) * h)}");
+            verts.Add($"{j} 0 {F(j * h)}"); verts.Add($"{j} {F(width)} {F(j * h)}");
+        }
+        verts.Add($"{steps + 1} 0 {F(steps * h)}"); verts.Add($"{steps + 1} {F(width)} {F(steps * h)}");
+        static int bottom(int j) => 2 + 4 * (j - 1);
+        static int top(int j) => 4 + 4 * (j - 1);
+        int end = 2 + 4 * steps;
+        var surfaces = new List<string>(); var normals = new List<string>();
+        for (int k = 0; k <= steps; k++)
+        {
+            (int l0, int l1) = k == 0 ? (0, 1) : (top(k), top(k) + 1);
+            (int r0, int r1) = k == steps ? (end, end + 1) : (bottom(k + 1), bottom(k + 1) + 1);
+            surfaces.Add($"{surfaces.Count}: 0 0x4 0x0 4 3 1 -1 0.0 4 {l0},0 {r0},1 {r1},2 {l1},3 0.5 0.5 0.5 0.5"); normals.Add($"{normals.Count}: 0 0 1");
+        }
+        for (int j = 1; j <= steps; j++)
+        {
+            surfaces.Add($"{surfaces.Count}: 0 0x4 0x0 4 3 1 -1 0.0 4 {bottom(j)},0 {top(j)},1 {top(j) + 1},2 {bottom(j) + 1},3 0.5 0.5 0.5 0.5"); normals.Add($"{normals.Count}: -1 0 0");
+        }
+        return $@"SECTION: HEADER
+Version 1
+SECTION: MATERIALS
+World materials 1
+0: floor.mat 1.0 1.0
+SECTION: GEORESOURCE
+World Colormaps 1
+0: test.cmp
+World vertices {verts.Count}
+{string.Join("\n", verts.Select((v, i) => $"{i}: {v}"))}
+World texture vertices 4
+0: 0 0
+1: 8 0
+2: 8 8
+3: 0 8
+World adjoins 0
+World surfaces {surfaces.Count}
+{string.Join("\n", surfaces)}
+#--- Surface normals ---
+{string.Join("\n", normals)}
+SECTION: SECTORS
+World sectors 1
+SECTOR 0
+FLAGS 0x0
+AMBIENT LIGHT 0.1
+EXTRA LIGHT 0.0
+COLORMAP 0
+TINT 0 0 0
+SURFACES 0 {surfaces.Count}
+SECTION: TEMPLATES
+World templates 2
+_actor none type=actor
+walkplayer _actor type=player
+SECTION: THINGS
+World things 1
+0: walkplayer walkplayer 0.5 0.5 0.12 0 0 0 0 thingflags=0x20000401
+";
     }
 
     /// <summary>Un secteur : sol bas (x 0..1, z 0), contremarche en x = 1, sol haut (x 1..2, z = h). Les sommets sont partages comme dans un vrai niveau.</summary>
