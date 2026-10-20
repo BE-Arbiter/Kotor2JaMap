@@ -106,9 +106,7 @@ public static class JkSurfaceEffects
         if (water > 0)
             log.Warn("JK_WATER_VOLUME", $"{water} underwater sector(s) found: the scene converts the water look (translucent surface, tint); the swimmable volume (water contents) is created with the placed objects (JK_WATER_BRUSH), without underwater fog.");
 
-        int thrustSectors = level.Sectors.Count(s => s.Thrust != Vector3.Zero), thrustInstances = 0;
-        var thrustScripts = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (readCog is null) { LogThrust(log, thrustSectors, 0, thrustScripts); return result; }
+        if (readCog is null) return result; // sans scripts, seule la poussee du fichier existe : elle est convertie avec les objets (JkSectorThrust)
 
         var scripts = new Dictionary<string, CogScript?>(StringComparer.OrdinalIgnoreCase);
         int deferred = 0, heal = 0;
@@ -125,7 +123,6 @@ public static class JkSurfaceEffects
             if (script is null) continue;
             IReadOnlyDictionary<string, string> values = script.Bind(inst);
             if (ReadOpenedAdjoins(level, script, values, result)) adjoinCogs.Add(inst.CogFile);
-            if (script.AllCalls().Any(c => c.Function.Equals("SectorThrust", StringComparison.OrdinalIgnoreCase) || c.Function.Equals("SetSectorThrust", StringComparison.OrdinalIgnoreCase))) { thrustInstances++; thrustScripts.Add(inst.CogFile); }
 
             IReadOnlyList<CogCallSite> startup = script.StartupCalls();
             ReadStartupEffects(level, script, values, startup, result);
@@ -139,7 +136,7 @@ public static class JkSurfaceEffects
                 heal += script.Symbols.Count(s => s.Type == "sector" && !s.Local && values.TryGetValue(s.Name, out string? v) && v != "-1");
         }
 
-        LogThrust(log, thrustSectors, thrustInstances, thrustScripts);
+        LogThrust(log, JkSectorThrust.Analyze(level, file => scripts.GetValueOrDefault(file)));
         if (result.OpenedAdjoins.Count > 0)
             log.Warn("JK_ADJOIN_COG_OPENED", $"{result.OpenedAdjoins.Count} adjoin(s) blocked in the level file can be opened by COG scripts (force fields, grates, breakable glass, doors without a moving part): they are made passable so that no way stays closed for good; the barrier stays visible but no longer blocks. Scripts: "
                 + string.Join(", ", adjoinCogs.Take(12)) + (adjoinCogs.Count > 12 ? ", ..." : "."));
@@ -223,13 +220,16 @@ public static class JkSurfaceEffects
         }
     }
 
-    /// <summary>La poussee de secteur (vent, ventilateurs, geysers : <c>THRUST</c> du secteur, <c>SetSectorThrust</c> des COG) n'est pas convertie : un seul message avec les comptes.</summary>
-    private static void LogThrust(ImportLog log, int sectors, int instances, SortedSet<string> scripts)
+    /// <summary>
+    /// Poussee de secteur que la conversion ne sait pas faire : celle que des evenements changent (interrupteurs, minuteries, pulses : vent, ventilateurs, geysers, ascenseurs d'air) ou dont les arguments
+    /// ne se resolvent pas. La poussee continue (fichier du niveau, <c>SectorThrust</c> du seul message <c>startup</c>) est convertie par <see cref="JkSectorThrust"/>. Un seul message avec les comptes.
+    /// </summary>
+    private static void LogThrust(ImportLog log, JkSectorThrust.Plan plan)
     {
-        if (sectors == 0 && instances == 0) return;
-        log.Warn("JK_SECTOR_THRUST_SKIPPED", $"{sectors} sector(s) carry a THRUST vector and {instances} COG instance(s) ({scripts.Count} script(s)) set a sector thrust at run time (wind, fans, geysers, lifts): "
-            + "the push is not converted (no push zone yet), the sectors stay walkable and still."
-            + (scripts.Count > 0 ? " Scripts: " + string.Join(", ", scripts.Take(12)) + (scripts.Count > 12 ? ", ..." : ".") : ""));
+        if (plan.SkippedInstances == 0) return;
+        log.Warn("JK_SECTOR_THRUST_SKIPPED", $"{plan.SkippedInstances} COG instance(s) ({plan.SkippedScripts.Count} script(s)) set a sector thrust that events change at run time (switches, timers, pulses: wind, fans, geysers, lifts): "
+            + "the push is not converted, the sectors stay walkable and still."
+            + (plan.SkippedScripts.Count > 0 ? " Scripts: " + string.Join(", ", plan.SkippedScripts.Take(12)) + (plan.SkippedScripts.Count > 12 ? ", ..." : ".") : ""));
     }
 
     // ---- adjoins ouverts par des COG ----
@@ -359,7 +359,7 @@ public static class JkSurfaceEffects
     // ---- arguments d'appel ----
 
     /// <summary>Un identifiant prend la valeur de son symbole ; sinon le texte (nombre, vecteur) tel quel.</summary>
-    private static string Resolve(string expr, IReadOnlyDictionary<string, string> values)
+    internal static string Resolve(string expr, IReadOnlyDictionary<string, string> values)
     {
         expr = expr.Trim();
         return values.TryGetValue(expr, out string? v) ? v : expr;
@@ -375,9 +375,9 @@ public static class JkSurfaceEffects
         return [Resolve(expr, values)];
     }
 
-    private static int Index(string? s) => s is not null && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i) ? i : -1;
+    internal static int Index(string? s) => s is not null && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i) ? i : -1;
 
-    private static float? Number(string? s) =>
+    internal static float? Number(string? s) =>
         s is not null && float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float f) && float.IsFinite(f) ? f : null;
 
     private static uint? Flags(string s)
@@ -387,7 +387,7 @@ public static class JkSurfaceEffects
         catch (OverflowException) { return null; }
     }
 
-    private static Vector3? Vector(string s)
+    internal static Vector3? Vector(string s)
     {
         s = s.Trim();
         if (s.StartsWith('(')) return JklReader.ParseTriple(s);

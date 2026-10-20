@@ -80,11 +80,12 @@ public static class JkObjects
         ConvertedEntities things = JkThingConverter.Convert(prepared, fs, opt, log, subs, movers.Movers, pool);
         ConvertedEntities volumes = ConvertVolumes(prepared, opt, log, subs);
         ConvertedEntities sounds = ConvertSectorSounds(prepared, fs, opt, log);
-        var (mobile, mobileSubs) = MoverConverter.Convert(movers.All, prepared, moverModels, opt.Scale, subs.Items.Count + 1, log);
+        var (mobile, mobileSubs) = MoverConverter.Convert(movers.All, prepared, moverModels, opt.Scale, subs.Items.Count + 1, log, new JkMoverSounds(prepared, fs, log).For);
         foreach (SubModelInput sub in mobileSubs) subs.Add(sub);
-        // Zones secretes : leurs declencheurs prennent les derniers sous-modeles (apres les mobiles, dont les indices sont deja fixes).
+        // Poussees de secteur puis zones secretes : leurs declencheurs prennent les derniers sous-modeles (apres les mobiles, dont les indices sont deja fixes).
+        ConvertedEntities thrust = JkSectorThrust.Convert(prepared, fs, opt, log, subs);
         ConvertedEntities secrets = JkSecrets.Convert(prepared, fs, opt, log, subs);
-        return (things.Merge(volumes).Merge(sounds).Merge(mobile).Merge(secrets), subs.Items);
+        return (things.Merge(volumes).Merge(sounds).Merge(mobile).Merge(thrust).Merge(secrets), subs.Items);
     }
 
     /// <summary>Crochet <see cref="SceneObjects"/> d'une scene JK (voir <c>PipelineSteps.Import</c> et <c>KotorWorkflowSteps.UseScene</c>) ; <paramref name="fs"/> doit rester ouvert tant que l'etape Importer peut tourner.</summary>

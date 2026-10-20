@@ -76,15 +76,16 @@ public static class MoverConverter
     /// <param name="models">MD3 de chaque thing mobile (indice du thing) ; un thing absent est journalise <c>JK_MOVER_NO_MODEL</c>.</param>
     /// <param name="scale">Unites JA par metre de la scene (<c>ExportOptions.Scale</c>).</param>
     /// <param name="firstSubModel">Indice (<c>*n</c>) du premier sous-modele rendu : les suivants se numerotent a la suite.</param>
+    /// <param name="sounds">Sons d'un thing (classe de sons du gabarit, voir <see cref="JkMoverSounds"/>) : <c>target_speaker</c> tires par les cles <c>target</c>, <c>opentarget</c> et <c>closetarget</c> des portes et plateaux ; null = mobiles muets.</param>
     public static (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) Convert(IReadOnlyList<MoverBehavior> behaviors, JkPreparedScene p,
-        IReadOnlyDictionary<int, JkMd3> models, float scale, int firstSubModel, ImportLog log)
+        IReadOnlyDictionary<int, JkMd3> models, float scale, int firstSubModel, ImportLog log, Func<int, MoverSoundSet?>? sounds = null)
     {
         ArgumentNullException.ThrowIfNull(behaviors);
         ArgumentNullException.ThrowIfNull(p);
         ArgumentNullException.ThrowIfNull(models);
         ArgumentNullException.ThrowIfNull(log);
         if (!(scale > 0) || !float.IsFinite(scale)) throw new ArgumentOutOfRangeException(nameof(scale));
-        var builder = new Builder(p, models, scale, Math.Max(1, firstSubModel), log);
+        var builder = new Builder(p, models, scale, Math.Max(1, firstSubModel), log, sounds);
         foreach (var group in behaviors.Where(b => b.Thing >= 0).GroupBy(b => b.Thing).OrderBy(g => g.Key))
             builder.Thing(group.Key, [.. group]);
         builder.Finish(behaviors.OfType<SurfaceCelSwitch>().Select(b => b.Surface).Distinct().Count());
@@ -115,15 +116,72 @@ public static class MoverConverter
         private readonly SortedSet<int> _overLimit = [];
         private int _skippedTriggers;
 
-        public Builder(JkPreparedScene p, IReadOnlyDictionary<int, JkMd3> models, float scale, int first, ImportLog log)
+        // ---- sons ----
+        private readonly Func<int, MoverSoundSet?>? _sounds;
+        /// <summary>Haut-parleurs poses (nom, wav, position JA) ; deux mobiles voisins qui jouent le meme wav en partagent un (les pieces d'une porte).</summary>
+        private readonly List<(string Name, string Path, Vector3 At, bool Stop)> _speakers = [];
+        private readonly Dictionary<string, SoundAsset> _soundAssets = new(StringComparer.Ordinal);
+        /// <summary>Things qui ont des sons (les pieces qui partagent un haut-parleur y comptent), trains muets, boucles non jouees, boucles jouees une fois, things dont le COG joue des sons.</summary>
+        private readonly SortedSet<int> _withSounds = [], _silentTrains = [], _loopsDropped = [], _loopsAsStart = [], _cogSounds = [];
+        private int _startSpeakers, _stopSpeakers;
+
+        public Builder(JkPreparedScene p, IReadOnlyDictionary<int, JkMd3> models, float scale, int first, ImportLog log, Func<int, MoverSoundSet?>? sounds)
         {
-            _p = p; _level = p.Level; _models = models; _scale = scale; _first = first; _log = log;
+            _p = p; _level = p.Level; _models = models; _scale = scale; _first = first; _log = log; _sounds = sounds;
             _k = JkWorldScale.MetresPerJkUnit * scale;
             foreach (JklThing t in _level.Things) _things.TryAdd(t.Index, t);
         }
 
         public (ConvertedEntities, IReadOnlyList<SubModelInput>) Result() =>
-            (new ConvertedEntities(_entities, [.. _assets.Values.OrderBy(a => a.Path, StringComparer.Ordinal)], []), _subs);
+            (new ConvertedEntities(_entities, [.. _assets.Values.OrderBy(a => a.Path, StringComparer.Ordinal)], [])
+            { Sounds = [.. _soundAssets.Values.OrderBy(a => a.Path, StringComparer.Ordinal)] }, _subs);
+
+        // ---- sons : classe de sons du gabarit -> target_speaker tires par la porte ----
+
+        /// <summary>Distance (unites JK) en dessous de laquelle deux mobiles qui jouent le meme wav partagent un haut-parleur : les pieces d'une meme porte (door0..door3) s'ouvrent ensemble.</summary>
+        private const float SpeakerShareJku = 0.5f;
+
+        /// <summary>
+        /// Branche les sons de la classe du thing sur son <c>func_door</c> ou <c>func_plat</c> : <c>target</c> (depart) et <c>opentarget</c> / <c>closetarget</c> (arrivee) visent des <c>target_speaker</c>.
+        /// Seule la premiere piece d'un groupe de pieces voisines tire le haut-parleur partage : sinon le meme son serait joue plusieurs fois.
+        /// </summary>
+        private void WireSounds(Ctx c, int id, Dictionary<string, string> entity)
+        {
+            if (_sounds?.Invoke(id) is not { } set || (set.Start is null && set.Stop is null)) return;
+            Vector3 lo = new(float.MaxValue), hi = new(float.MinValue);
+            foreach (Vector3 corner in Corners(c)) { lo = Vector3.Min(lo, corner); hi = Vector3.Max(hi, corner); }
+            Vector3 at = c.Positions[0] + (lo + hi) * 0.5f;
+
+            _withSounds.Add(id);
+            if (set.StartFromLoop) _loopsAsStart.Add(id);
+            if (set.DropsMovingLoop) _loopsDropped.Add(id);
+            if (set.Start is not null && Speaker(set.Start, at, stop: false, out string startName))
+            {
+                entity["target"] = startName;   // g_mover.cpp, Use_BinaryMover_Go : G_UseTargets(ent) quand le mobile part
+                _startSpeakers++;
+            }
+            if (set.Stop is not null && Speaker(set.Stop, at, stop: true, out string stopName))
+            {
+                entity["opentarget"] = stopName;   // Reached_BinaryMover : arrivee en position ouverte...
+                entity["closetarget"] = stopName;  // ... puis en position fermee
+                _stopSpeakers++;
+            }
+        }
+
+        /// <summary>
+        /// Haut-parleur du wav <paramref name="sound"/> pres de <paramref name="at"/> : celui d'une piece voisine s'il existe (rend faux : cette piece ne le tire pas), sinon un nouveau (rend vrai).
+        /// </summary>
+        private bool Speaker(SoundAsset sound, Vector3 at, bool stop, out string name)
+        {
+            _soundAssets[sound.Path] = sound;
+            foreach (var s in _speakers)
+                if (s.Path == sound.Path && s.Stop == stop && Vector3.Distance(s.At, at) <= SpeakerShareJku * _k) { name = s.Name; return false; }
+            name = $"jksnd{_speakers.Count}";
+            _speakers.Add((name, sound.Path, at, stop));
+            _entities.Add(new Dictionary<string, string> { ["classname"] = "target_speaker", ["targetname"] = name, ["noise"] = sound.Path, ["origin"] = Vec(at) });
+            Count("target_speaker");
+            return true;
+        }
 
         // ---- un thing mobile ----
 
@@ -136,6 +194,7 @@ public static class MoverConverter
             if (!_things.TryGetValue(id, out JklThing? t)) { _log.Warn("JK_MOVER_NO_THING", $"Mover behavior refers to thing {id}, which the level does not contain."); return; }
             if (!_models.TryGetValue(id, out JkMd3? md3)) { _noModel.Add(id); return; }
             _assets[md3.Asset.Path] = md3.Asset;
+            if (g.Any(b => b.Sounds.Count > 0)) _cogSounds.Add(id);
             if (md3.ModelScale > 1) _scaled[id] = $"{t.Template} (model {md3.Asset.Path} x{md3.ModelScale})";
 
             var frames = FramesOf(t);
@@ -273,12 +332,14 @@ public static class MoverConverter
             if (!needsName && lift is not null && !hasTouch && vertical)
             {
                 int pi = AddBody(c, solid: true);
-                _entities.Add(new Dictionary<string, string>
+                var plat = new Dictionary<string, string>
                 {
                     ["classname"] = "func_plat", ["model"] = $"*{pi}", ["model2"] = c.Md3.Asset.Path,
                     ["origin"] = Vec(c.Positions[0] + new Vector3(0, 0, move.Z)), ["modelAngles"] = Angles(c.Thing.PitchYawRoll),
                     ["speed"] = JkObjects.Num(speed), ["height"] = JkObjects.Num(move.Z),
-                });
+                };
+                WireSounds(c, id, plat);
+                _entities.Add(plat);
                 Count("func_plat");
                 return;
             }
@@ -304,6 +365,7 @@ public static class MoverConverter
             };
             if (needsName) ent["targetname"] = name;
             if (toggle) ent["spawnflags"] = SpawnToggle.ToString(CultureInfo.InvariantCulture);
+            WireSounds(c, id, ent);
             _entities.Add(ent);
             Count("func_door");
 
@@ -352,6 +414,7 @@ public static class MoverConverter
             };
             if (cycle) train["spawnflags"] = "1"; // START_ON : sans nom, il part des le chargement
             else train["targetname"] = name;
+            if (_sounds?.Invoke(id) is { } trainSounds && (trainSounds.Start is not null || trainSounds.Stop is not null)) _silentTrains.Add(id);
             _entities.Add(train);
             Count("func_train");
             for (int i = 0; i < order.Count; i++)
@@ -466,9 +529,31 @@ public static class MoverConverter
                     + $"the drawn model is smaller. Things: {string.Join(", ", _scaled.Take(ListedThings).Select(kv => $"{kv.Key} {kv.Value}"))}{(_scaled.Count > ListedThings ? ", ..." : "")}.");
             if (_entities.Count > 0 || _static > 0)
                 _log.Warn("JK_MOVERS", "Moving things converted: " + string.Join(", ", _counts.Select(kv => $"{kv.Value} {kv.Key}")) + (_static > 0 ? $", {_static} fixed (no COG moves them)" : "")
-                    + $"; {_switchTriggers} switch trigger(s), {_approachTriggers} approach trigger(s). Sounds of movers are not converted.");
+                    + $"; {_switchTriggers} switch trigger(s), {_approachTriggers} approach trigger(s). Their sounds: see JK_MOVER_SOUND.");
+            LogSounds();
         }
 
+
+        /// <summary>Bilan des sons : ce qui est branche (info) et ce qui ne l'est pas (avertissement).</summary>
+        private void LogSounds()
+        {
+            if (_withSounds.Count > 0)
+                _log.Warn("JK_MOVER_SOUND", $"{_withSounds.Count} mover(s) have the sounds of their sound class: {_startSpeakers} start and {_stopSpeakers} stop target_speaker(s) (neighbouring pieces of one door share them), "
+                    + "fired by the target key (the mover starts) and the opentarget / closetarget keys (it arrives) of the func_door or func_plat, since Jedi Academy has no sound key a map can feed with its own wav files. "
+                    + $"{_soundAssets.Count} wav file(s) copied under {JkSounds.Folder}"
+                    + (_loopsAsStart.Count > 0 ? $"; {_loopsAsStart.Count} mover(s) whose class only has a looping 'moving' sound play it once when they start." : "."));
+
+            var parts = new List<string>();
+            if (_loopsDropped.Count > 0)
+                parts.Add($"{_loopsDropped.Count} mover(s) have a looping 'moving' sound that is not played (nothing tells a JA door when its closing movement starts, so a loop could not be stopped)");
+            if (_silentTrains.Count > 0)
+                parts.Add($"{_silentTrains.Count} train(s) are silent (a JA train replays its noise loop without ever stopping, and its target key is the next path corner): things {List(_silentTrains)}");
+            int cog = _cogSounds.Count;
+            if (cog > 0)
+                parts.Add($"{cog} mover(s) have sounds played by their COG (switch clicks, beeps, alarms), which are not the mover's own sounds and are not converted");
+            if (parts.Count > 0)
+                _log.Warn("JK_MOVER_SOUND_SKIPPED", "Mover sounds not converted: " + string.Join("; ", parts) + ".");
+        }
         // ---- corps statique ----
 
         private void EmitStatic(Ctx c, int pose, bool solid)

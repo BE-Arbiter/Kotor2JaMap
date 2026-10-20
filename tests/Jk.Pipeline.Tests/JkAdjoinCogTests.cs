@@ -76,11 +76,32 @@ public class JkAdjoinCogTests
     }
 }
 
-/// <summary>Poussee de secteur (THRUST, SetSectorThrust) : jamais convertie, mais journalisee avec les comptes.</summary>
+/// <summary>
+/// Poussee de secteur (THRUST, SetSectorThrust) : la poussee continue (fichier, ou <c>SectorThrust</c> au demarrage seulement) est convertie en <c>trigger_push</c>
+/// (voir <c>JkSectorThrustConversionTests</c>) ; seule celle que des evenements changent (interrupteur, minuterie, pulse) reste journalisee <c>JK_SECTOR_THRUST_SKIPPED</c> avec les comptes.
+/// </summary>
 public class JkSectorThrustTests
 {
+    /// <summary>Poussee allumee au demarrage puis coupee par un message : pas continue.</summary>
+    private const string SwitchedThrustCog = """
+        symbols
+            message startup
+            message activate
+            sector area
+            vector push=(0.0/0.0/3.0)
+        end
+        code
+        startup:
+            SetSectorThrust(area, push);
+            return;
+        activate:
+            SetSectorThrust(area, push, 0.0);
+            return;
+        end
+        """;
 
-    private const string ThrustCog = """
+    /// <summary>Poussee continue, comme 00_sectorthrust : converties, jamais comptees comme ignorees.</summary>
+    private const string ContinuousThrustCog = """
         symbols
             message startup
             sector area
@@ -94,7 +115,23 @@ public class JkSectorThrustTests
         """;
 
     [Fact]
-    public void SectorThrust_IsLoggedWithCounts_NotConverted()
+    public void SectorThrustChangedByEvents_IsLoggedWithCounts_NotConverted()
+    {
+        var log = new Kotor.Core.Diagnostics.ImportLog();
+        SyntheticLevel.Build(new SyntheticLevel
+        {
+            Sectors = 2,
+            Cogs = ["lift_thrust.cog 0", "lift_thrust.cog 1"],
+            CogScripts = new Dictionary<string, string> { ["lift_thrust.cog"] = SwitchedThrustCog },
+        }, log);
+        (string Code, string Message) w = Assert.Single(log.Warnings, x => x.Code == "JK_SECTOR_THRUST_SKIPPED");
+        Assert.Contains("2 COG instance(s)", w.Message);
+        Assert.Contains("1 script(s)", w.Message);
+        Assert.Contains("lift_thrust.cog", w.Message);
+    }
+
+    [Fact]
+    public void ContinuousSectorThrust_IsNotLoggedAsSkipped()
     {
         var log = new Kotor.Core.Diagnostics.ImportLog();
         SyntheticLevel.Build(new SyntheticLevel
@@ -102,12 +139,9 @@ public class JkSectorThrustTests
             Sectors = 2,
             SectorSounds = new Dictionary<int, string> { [1] = "wind.wav 1\nTHRUST 0.0 0.0 2.0" },
             Cogs = ["00_sectorthrust.cog 0", "00_sectorthrust.cog 1"],
-            CogScripts = new Dictionary<string, string> { ["00_sectorthrust.cog"] = ThrustCog },
+            CogScripts = new Dictionary<string, string> { ["00_sectorthrust.cog"] = ContinuousThrustCog },
         }, log);
-        (string Code, string Message) w = Assert.Single(log.Warnings, x => x.Code == "JK_SECTOR_THRUST_SKIPPED");
-        Assert.Contains("1 sector(s) carry a THRUST", w.Message);
-        Assert.Contains("2 COG instance(s)", w.Message);
-        Assert.Contains("1 script(s)", w.Message);
+        Assert.DoesNotContain(log.Warnings, x => x.Code == "JK_SECTOR_THRUST_SKIPPED");
     }
 
     [Fact]
@@ -122,16 +156,20 @@ public class JkSectorThrustTests
 public class JkSectorThrustVerbTests
 {
     [Fact]
-    public void SectorThrustVerb_AsInTheGameScripts_IsCounted()
+    public void SectorThrustVerb_InAnEventHandler_IsCounted()
     {
         const string cog = """
             symbols
                 message startup
+                message timer
                 sector sector0
                 vector vec0=(0.0/0.0/3.0)
             end
             code
             startup:
+                SetTimer(1.0);
+                return;
+            timer:
                 if (sector0 >= 0) SectorThrust(sector0, vec0, 1.0);
                 return;
             end

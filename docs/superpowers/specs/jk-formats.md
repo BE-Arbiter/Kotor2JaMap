@@ -224,3 +224,21 @@ Code : `Jk.Pipeline/Movers/MoverConverter.cs` (`MoverConverter`, `JkMoverSpeed`)
 - **Modele de mover** : `CG_Mover` ne tient pas compte de `modelscale` (seul `CG_General` le fait) : un modele reduit par division (plus de 511 unites) s'affiche trop petit sur un mobile, alors que sa boite de collision a la vraie taille.
   16 mobiles sur 544 sont concernes (`16grnd` x31, `cargo2` x24, `bayd` x3, `09slice` x3, `08dbrg` x2, `lift` x2, `statpole` x2, `09bogus` x2) : `JK_MOVER_MODEL_SCALE`.
 - **Choix de conversion** : voir le rapport `docs/superpowers/plans/jk/reports/T9.md`.
+
+## Constats de la tache L2 (poussee de secteur, sons des mobiles)
+
+- **Poussee [donnees]** : `00_sectorthrust.cog` (115 instances) : `SectorThrust(secteur, vecteur, vitesse)` dans le seul message `startup`, jusqu'a 8 secteurs de meme vecteur et de meme vitesse (« les poussees tournent en continu »).
+  Vecteurs unitaires ou presque (`(0/0/1)`, `(1/0/0)`...), vitesses de 0,5 a 10 (les poussees verticales de 5 a 10). Aucun `THRUST` dans les fichiers de niveau (0 secteur). `M5_ANTIGRAV` fait la meme chose avec un vecteur litteral.
+  Les autres scripts changent la poussee par message (interrupteur, minuterie, pulse : `04_specialthrust`, `08_vents2`, `10_powercore`, `10_sectorthrust`, `18_*`, `19_thrustpuzzle`, `21_Core`, `C3_FANSPUZZLE`, `M4_reactorthrust`) : non convertis.
+  Le joueur JK a `maxthrust=2.0` (unites JK par seconde) et `World Gravity 4.0` ; unite de la poussee non verifiee (lue comme une vitesse en unites JK par seconde).
+- **Entite JA [lu dans OpenJK-SWGL `code/game/g_trigger.cpp`]** : seul `trigger_push` pousse (pas de `target_push` sans clic). `touch` **affecte** `ps.velocity` du joueur a chaque image de contact (jamais addition). Trois modes :
+  arc vers un `target_position` (vitesse imposee par la hauteur de la cible), `LINEAR` (4 : direction unitaire x `speed`, mais `SP_trigger_push` remet `speed` a 1000 apres la lecture des cles) et `RELATIVE` (16 :
+  direction du joueur vers l'origine de la cible, normalisee puis multipliee par la cle `speed` ; sans `speed`, la distance). Seul RELATIVE a une vitesse reglable. `AimAtTarget` (pense a `START_TIME_LINK_ENTS`) libere le
+  trigger si sa cible est absente. `CG_TouchTriggerPrediction` copie `origin2` dans la vitesse predite (inexact en RELATIVE : seulement la derniere commande, corrigee a l'image suivante). Pas de `PUSH_CONVEYOR` ici (le joueur
+  doit etre au sol).
+- **Sons de mobiles [donnees]** : les COG des portes ne jouent aucun son de mouvement ; il vient de `soundclass=<nom>.snd` du gabarit (fichiers `misc\snd\*.snd` : lignes `mode wav drapeaux rayons`, modes `startmove`, `stopmove`, `moving`
+  = boucle `0x1`). 18 classes de mobiles (`sm_door`, `med_door`, `lg_door`, `sm_elev`, `med_elev`, `lg_elev`, `03wood_door`, `06stone_door`, `19stone_door`, `06drawbridge`, `funicular`, `payload`...) ; certaines n'ont que `moving`.
+  Les `PlaySound*` des COG sont ceux des interrupteurs (clic, bip), des alarmes et des effets, pas du mouvement.
+- **Sons de mobiles : entites JA [lu dans `g_mover.cpp`, `g_target.cpp`, `snd_ambient.cpp`]** : un `func_door` / `func_plat` n'a pas de cle de son (`sound1to2` et `soundPos1` sont en commentaire) ; `soundSet` nomme un groupe `bmodelSet` de
+  `sound/sound.txt` (un seul fichier, pas extensible par un pk3) et un nom inconnu fait echouer `AS_ParseSets` (`ERR_DROP`). `func_train` : `noise` est une boucle posee au chargement et jamais arretee. Repli : `target_speaker` tire par
+  `target` (`Use_BinaryMover_Go`, au depart), `opentarget` et `closetarget` (`Reached_BinaryMover`). Aucun evenement au depart du retour. Un `target_speaker` avec `wait` repete tout seul cote client : il n'en a pas.
