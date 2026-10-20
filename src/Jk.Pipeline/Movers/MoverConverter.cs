@@ -50,7 +50,7 @@ public static class MoverConverter
     /// <summary>Rotation (degres) en dessous de laquelle l'ecart d'orientation entre images est du bruit d'editeur (0,1 a 0,8 degre observes sur les portes).</summary>
     private const float MinRotationDegrees = 2f;
 
-    /// <summary>Course (unites JK) en dessous de laquelle un mouvement qui tourne est consideré comme une rotation seule (portes de tuyau : 0,006 a 0,02).</summary>
+    /// <summary>Course (unites JK) en dessous de laquelle un mouvement qui tourne est considere comme une rotation seule (portes de tuyau : 0,006 a 0,02).</summary>
     private const float RotationOnlyTravelJku = 0.05f;
 
     /// <summary>Course (unites JA) en dessous de laquelle deux images sont la meme position.</summary>
@@ -111,6 +111,9 @@ public static class MoverConverter
         private readonly SortedSet<int> _noModel = [];
         private readonly SortedDictionary<int, string> _scaled = [];
         private int _static, _switchTriggers, _approachTriggers;
+        /// <summary>Things degrades en decor sans sous-modele (limite du moteur atteinte) et nombre de declencheurs non places pour la meme raison.</summary>
+        private readonly SortedSet<int> _overLimit = [];
+        private int _skippedTriggers;
 
         public Builder(JkPreparedScene p, IReadOnlyDictionary<int, JkMd3> models, float scale, int first, ImportLog log)
         {
@@ -152,6 +155,20 @@ public static class MoverConverter
             var ctx = new Ctx(t, md3, $"Thing {id} ({t.Template})", cog, positions, rotations, ThreeDoModel.Rotation(t.PitchYawRoll),
                 md3.Min * _scale, md3.Max * _scale);
 
+            // Limite de sous-modeles du moteur : le corps du mobile et au moins un declencheur doivent tenir ; sinon le thing reste visible, sans mouvement ni collision.
+            if (_first + _subs.Count + 1 > JkObjects.MaxSubModels)
+            {
+                _overLimit.Add(id);
+                var fallback = new Dictionary<string, string>
+                {
+                    ["classname"] = "misc_model_static", ["model"] = md3.Asset.Path, ["origin"] = Vec(positions[0]), ["angles"] = Angles(t.PitchYawRoll),
+                };
+                if (md3.ModelScale > 1) fallback["modelscale"] = md3.ModelScale.ToString(CultureInfo.InvariantCulture);
+                _entities.Add(fallback);
+                Count("misc_model_static");
+                return;
+            }
+
             var unsupported = g.OfType<Unsupported>().FirstOrDefault();
             var real = g.Where(b => b is not (Unsupported or Approximate or SurfaceCelSwitch)).ToList();
             var approx = g.OfType<Approximate>().FirstOrDefault();
@@ -182,6 +199,10 @@ public static class MoverConverter
                     return;
                 }
             }
+
+            // Une partie du script n'est pas reproduite alors que d'autres comportements le sont : le journal doit le dire.
+            if (unsupported is not null && real.Count > 0)
+                _log.Warn("JK_COG_UNSUPPORTED", $"{ctx.Name}: part of its movement is not reproduced ({unsupported.Reason}){Via(ctx)}; only the other movements of this thing are rebuilt.");
 
             // Images atteintes (hors repos), dans l'ordre d'apparition.
             var cand = new List<int>();
@@ -363,16 +384,14 @@ public static class MoverConverter
             if (actor.Sector >= 0 && actor.Sector < _level.Sectors.Count && JkSurfaceEffects.SectorBounds(_level, actor.Sector, out Vector3 lo, out Vector3 hi))
             { min = lo * _k - new Vector3(ActorMargin); max = hi * _k + new Vector3(ActorMargin); }
             else (min, max) = ApproachBox(c);
-            AddTrigger(min, max, target, flags: 0, wait: -1f);
-            _approachTriggers++;
+            if (AddTrigger(min, max, target, flags: 0, wait: -1f)) _approachTriggers++;
             _log.Warn("JK_COG_ACTOR_TRIGGER", $"{c.Name}: COG {(actor.Cog.Length > 0 ? actor.Cog : c.Cog)} opens it when an actor dies, and actors are not placed: it opens when the player enters sector {actor.Sector}.");
         }
 
         private void AddApproachTrigger(Ctx c, string target, bool once)
         {
             var (min, max) = ApproachBox(c);
-            AddTrigger(min, max, target, flags: 0, wait: once ? -1f : 1f);
-            _approachTriggers++;
+            if (AddTrigger(min, max, target, flags: 0, wait: once ? -1f : 1f)) _approachTriggers++;
         }
 
         private (Vector3 Min, Vector3 Max) ApproachBox(Ctx c)
@@ -401,9 +420,11 @@ public static class MoverConverter
             }
         }
 
-        private void AddTrigger(Vector3 min, Vector3 max, string target, int flags, float wait)
+        /// <summary>Ajoute un declencheur ; faux (compte et journalise a la fin) quand la limite de sous-modeles est atteinte.</summary>
+        private bool AddTrigger(Vector3 min, Vector3 max, string target, int flags, float wait)
         {
             int index = _first + _subs.Count;
+            if (index > JkObjects.MaxSubModels) { _skippedTriggers++; return false; }
             _subs.Add(new SubModelInput([JkVolumeBrushes.Box(min, max)], JkObjects.TriggerShader) { Contents = BspContents.Trigger });
             _entities.Add(new Dictionary<string, string>
             {
@@ -411,6 +432,7 @@ public static class MoverConverter
                 ["spawnflags"] = flags.ToString(CultureInfo.InvariantCulture), ["wait"] = JkObjects.Num(wait),
             });
             Count("trigger_multiple");
+            return true;
         }
 
         /// <summary>Fin : declencheurs des surfaces interrupteurs (un par surface), relais pour les surfaces qui commandent plusieurs mobiles, bilan du journal.</summary>
@@ -429,10 +451,12 @@ public static class MoverConverter
                         _entities.Add(new Dictionary<string, string> { ["classname"] = "target_relay", ["targetname"] = target, ["target"] = t });
                         Count("target_relay");
                     }
-                AddTrigger(min - reach, max + reach, target, TriggerUseButton, 1f);
-                _switchTriggers++;
+                if (AddTrigger(min - reach, max + reach, target, TriggerUseButton, 1f)) _switchTriggers++;
             }
 
+            if (_overLimit.Count > 0 || _skippedTriggers > 0)
+                _log.Warn("JK_SUBMODEL_LIMIT", $"The engine accepts at most {JkObjects.MaxSubModels} BSP sub-models: {_overLimit.Count} moving thing(s) are placed as plain models without movement or collision (things {List(_overLimit)}) "
+                    + $"and {_skippedTriggers} trigger(s) are not placed.");
             if (celSwitches > 0)
                 _log.Warn("JK_COG_CEL_STATIC", $"{celSwitches} surface(s) change their texture cell under a script (lamps, panels, cut grates): they keep their first cell; the surfaces and passages are converted as the level defines them.");
             if (_noModel.Count > 0)
@@ -463,7 +487,7 @@ public static class MoverConverter
         private int AddBody(Ctx c, bool solid)
         {
             int index = _first + _subs.Count;
-            _subs.Add(new SubModelInput([OrientedBox(c)], solid ? Kotor.Pipeline.Entities.DoorConverter.ClipShader : JkObjects.NonSolidShader)
+            _subs.Add(new SubModelInput([OrientedBox(c)], solid ? DoorConverter.ClipShader : JkObjects.NonSolidShader)
             { Contents = solid ? BspContents.Solid : BspContents.None });
             return index;
         }

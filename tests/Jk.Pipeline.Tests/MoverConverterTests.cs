@@ -96,8 +96,11 @@ public sealed class MoverConverterTests : IDisposable
     public void TouchDoor_WithoutDelay_ReturnsAfterTheDefaultWait_AndThingIsPlacedWithItsRotation()
     {
         // Retard inconnu (null) : le passage reste franchissable, la porte se ferme apres le delai par defaut.
-        var level = Level(Fr(1.5f, 0.5f, 0.25f, 0, 90), Fr(1.8f, 0.5f, 0.25f, 0, 90));
-        level = new SyntheticLevel { Sectors = 3, ExtraTemplates = level.ExtraTemplates, ExtraThings = ["1: door door 1.5 0.5 0.25 0 90 0 1 numframes=2 " + Fr(1.5f, 0.5f, 0.25f, 0, 90) + " " + Fr(1.8f, 0.5f, 0.25f, 0, 90)] };
+        var level = new SyntheticLevel
+        {
+            Sectors = 3, ExtraTemplates = ["door none type=cog model3d=door.3do"],
+            ExtraThings = ["1: door door 1.5 0.5 0.25 0 90 0 1 numframes=2 " + Fr(1.5f, 0.5f, 0.25f, 0, 90) + " " + Fr(1.8f, 0.5f, 0.25f, 0, 90)],
+        };
         var (converted, _, _) = Run(level, [new TouchDoor(1) { Delay = null }]);
 
         var door = Assert.Single(Of(converted, "func_door"));
@@ -111,7 +114,7 @@ public sealed class MoverConverterTests : IDisposable
     {
         // L'ascenseur part quand le joueur utilise la surface 0 (interrupteur) ; il revient apres 2 s.
         var level = Level(Fr(1.5f, 0.5f, 0.25f), Fr(1.5f, 0.5f, 0.85f));
-        var (converted, subs, log) = Run(level, [new SwitchMove(1, 0, [1, 0]) { Cog = "00_elev_switch.cog", Speed = 4f, Delay = 2f }]);
+        var (converted, subs, _) = Run(level, [new SwitchMove(1, 0, [1, 0]) { Cog = "00_elev_switch.cog", Speed = 4f, Delay = 2f }]);
 
         var door = Assert.Single(Of(converted, "func_door"));
         Assert.Equal("jkm1", door["targetname"]);
@@ -126,7 +129,56 @@ public sealed class MoverConverterTests : IDisposable
         Assert.Equal(BspContents.Trigger, subs[1].Contents);
         Assert.Equal(JkObjects.TriggerShader, subs[1].Shader);
         Assert.Contains(subs[1].Brushes[0], p => p.Normal == Vector3.UnitZ); // boite alignee sur les axes
-        _ = log;
+    }
+
+    // ---- limite de sous-modeles et comportements perdus (correctif tour 1) ----
+
+    [Fact]
+    public void SubModelLimit_MoverBecomesAPlainModel_AndIsLogged()
+    {
+        // Plus de place pour le corps et un declencheur : le thing reste visible (decor sans sous-modele), pas d'exception.
+        var level = Level(Fr(1.5f, 0.5f, 0.25f), Fr(1.5f, 0.5f, 0.55f));
+        var (converted, subs, log) = Run(level, [new TouchDoor(1) { Speed = 8f, Delay = 2f }], firstSubModel: JkObjects.MaxSubModels);
+
+        Assert.Empty(subs);
+        Assert.Empty(Of(converted, "func_door"));
+        var stat = Assert.Single(Of(converted, "misc_model_static"));
+        Assert.Equal("models/jk/door.md3", stat["model"]);
+        Assert.Equal($"{F(1.5f * K)} {F(0.5f * K)} {F(0.25f * K)}", stat["origin"]);
+        Assert.Contains(converted.Models, m => m.Path == "models/jk/door.md3");
+        Assert.Contains(log.Warnings, w => w.Code == "JK_SUBMODEL_LIMIT" && w.Message.Contains("thing"));
+    }
+
+    [Fact]
+    public void SubModelLimit_LastTwoSlots_StillBuildTheMoverAndItsTrigger()
+    {
+        var level = Level(Fr(1.5f, 0.5f, 0.25f), Fr(1.5f, 0.5f, 0.55f));
+        var (converted, subs, log) = Run(level, [new ActorTriggered(1, 1) { Speed = 4f }], firstSubModel: JkObjects.MaxSubModels - 1);
+
+        Assert.Equal(2, subs.Count);
+        Assert.Equal($"*{JkObjects.MaxSubModels - 1}", Assert.Single(Of(converted, "func_door"))["model"]);
+        Assert.Equal($"*{JkObjects.MaxSubModels}", Assert.Single(Of(converted, "trigger_multiple"))["model"]);
+        Assert.DoesNotContain(log.Warnings, w => w.Code == "JK_SUBMODEL_LIMIT");
+    }
+
+    [Fact]
+    public void UnsupportedAlongsideRealBehavior_IsLoggedForTheLostPart()
+    {
+        var level = Level(Fr(1.5f, 0.5f, 0.25f), Fr(1.5f, 0.5f, 0.55f));
+        var (converted, _, log) = Run(level, [new TouchDoor(1) { Cog = "mix.cog", Speed = 8f, Delay = 2f }, new Unsupported(1, "script also uses SetThingVel") { Cog = "mix.cog" }]);
+
+        Assert.Single(Of(converted, "func_door"));   // la partie reproductible est conservee
+        Assert.Contains(log.Warnings, w => w.Code == "JK_COG_UNSUPPORTED" && w.Message.Contains("SetThingVel") && w.Message.Contains("mix.cog"));
+    }
+
+    [Fact]
+    public void OversizedModel_IsLoggedAsModelScale()
+    {
+        var level = Level(Fr(1.5f, 0.5f, 0.25f), Fr(1.5f, 0.5f, 0.55f));
+        var (converted, _, log) = Run(level, [new TouchDoor(1) { Speed = 8f, Delay = 2f }], Md3() with { ModelScale = 2 });
+
+        Assert.Single(Of(converted, "func_door"));
+        Assert.Contains(log.Warnings, w => w.Code == "JK_MOVER_MODEL_SCALE" && w.Message.Contains("x2") && w.Message.Contains("models/jk/door.md3"));
     }
 
     [Fact]
@@ -616,7 +668,7 @@ public sealed class MoverConverterTests : IDisposable
         Skip.IfNot(Directory.Exists(JkDir), "Jedi Knight is not installed.");
         var perEntity = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var codes = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        int levels = 0, maxSubs = 0;
+        int levels = 0, maxSubs = 0, totalMovers = 0, noModel = 0, unsupportedThings = 0, unsupportedLogged = 0;
         foreach (JkLevelRef lr in JkInstall.ListLevels(JkDir))
         {
             using JkFileSystem fs = JkFileSystem.ForEpisode(JkDir, lr.EpisodeGob);
@@ -637,14 +689,30 @@ public sealed class MoverConverterTests : IDisposable
                     $"{lr.Name}: mover thing {t} ({model}) has no entity");
             }
             maxSubs = Math.Max(maxSubs, subs.Count);
-            Assert.True(subs.Count < 511, $"{lr.Name}: {subs.Count} sub-models (MAX_SUBMODELS is 512)");
+            Assert.True(subs.Count <= JkObjects.MaxSubModels, $"{lr.Name}: {subs.Count} sub-models (MAX_SUBMODELS is 512)");
+            Assert.DoesNotContain(log.Warnings, w => w.Code == "JK_SUBMODEL_LIMIT");
+
+            // Bilan : chaque thing mobile place est soit construit (avec modele), soit un marqueur journalise JK_MOVER_NO_MODEL.
+            totalMovers += movers.All.Where(b => b.Thing >= 0).Select(b => b.Thing).Distinct().Count();
+            foreach (var w in log.Warnings.Where(w => w.Code == "JK_MOVER_NO_MODEL"))
+                noModel += int.Parse(w.Message.Split(' ')[0], CultureInfo.InvariantCulture);
+            // Chaque Unsupported (avec modele) doit apparaitre dans le journal, et JK_COG_UNSUPPORTED ne vient que d'eux.
+            unsupportedThings += movers.All.OfType<Unsupported>().Where(b => b.Thing >= 0 && thingModels.TryGetValue(b.Thing, out string? m) && !string.IsNullOrWhiteSpace(m)
+                && !m.Equals("none", StringComparison.OrdinalIgnoreCase)).Select(b => b.Thing).Distinct().Count();
+            unsupportedLogged += log.Warnings.Count(w => w.Code == "JK_COG_UNSUPPORTED");
             foreach (var e in converted.Entities) perEntity[e["classname"]] = perEntity.GetValueOrDefault(e["classname"]) + 1;
             foreach (var w in log.Warnings.Where(w => w.Code.StartsWith("JK_COG", StringComparison.Ordinal) || w.Code.StartsWith("JK_MOVER", StringComparison.Ordinal)))
                 codes[w.Code] = codes.GetValueOrDefault(w.Code) + 1;
-            Assert.DoesNotContain(log.Warnings, w => w.Code == "JK_COG_UNSUPPORTED");
             levels++;
         }
         Assert.Equal(34, levels);
+        Assert.Equal(564, totalMovers);
+        Assert.Equal(20, noModel);                       // marqueurs sans modele, journalises JK_MOVER_NO_MODEL
+        Assert.Equal(544, totalMovers - noModel);        // tous les autres sont construits avec leur modele
+        Assert.True(codes.GetValueOrDefault("JK_MOVER_NO_MODEL") > 0);
+        Assert.True(codes.GetValueOrDefault("JK_MOVER_MODEL_SCALE") > 0, "oversized mover models are reported");
+        Assert.Equal(unsupportedThings == 0, unsupportedLogged == 0);   // 0 aujourd'hui ; si le chemin est exerce, il est journalise
+        Assert.True(unsupportedLogged >= unsupportedThings);
         Console.WriteLine(string.Join(", ", perEntity.Select(kv => $"{kv.Key} {kv.Value}")));
         Console.WriteLine($"max sub-models in a level: {maxSubs}");
         Console.WriteLine(string.Join(", ", codes.Select(kv => $"{kv.Key} x{kv.Value}")));

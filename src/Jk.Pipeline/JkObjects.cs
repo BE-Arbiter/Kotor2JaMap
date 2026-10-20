@@ -44,6 +44,9 @@ public static class JkObjects
     /// <summary>Shader (contenu nul) des sous-modeles qui ne doivent rien bloquer : volume des rotatifs.</summary>
     public static readonly string NonSolidShader = ShaderNames.PrefixFor(KotorGame.JediKnight) + "mover_nonsolid";
 
+    /// <summary>Plus grand indice de sous-modele (<c>*n</c>) accepte par le moteur (MAX_SUBMODELS = 512, le monde etant le modele 0).</summary>
+    public const int MaxSubModels = 511;
+
     /// <summary>Haut-parleurs de secteur au plus par niveau (chaque entite compte dans la limite du moteur).</summary>
     public const int MaxSectorSpeakers = 96;
 
