@@ -11,6 +11,9 @@ public abstract record MoverBehavior(int Thing)
     public string Cog { get; init; } = "";
     public float? Speed { get; init; }
     public float? Delay { get; init; }
+
+    /// <summary>Pourquoi <see cref="Delay"/> est absent alors que le COG arme une minuterie qu'on ne peut pas rattacher a ce thing (<c>null</c> sinon).</summary>
+    public string? DelayNote { get; init; }
     public IReadOnlyList<string> Sounds { get; init; } = [];
     public IReadOnlyList<int> FrameSequence { get; init; } = [];
 
@@ -26,6 +29,7 @@ public abstract record MoverBehavior(int Thing)
         else if (FrameSequence.Count > 0) parts.Add($"frames {string.Join(">", FrameSequence)}");
         if (Speed is float s) parts.Add(FormattableString.Invariant($"speed {s:0.##}"));
         if (Delay is float d) parts.Add(FormattableString.Invariant($"delay {d:0.##}"));
+        if (DelayNote is not null) parts.Add("delay note: " + DelayNote);
         if (Sounds.Count > 0) parts.Add("sounds " + string.Join(" ", Sounds));
         if (this is Approximate a) parts.Add("reason: " + a.Reason);
         if (this is Unsupported u) parts.Add("reason: " + u.Reason);

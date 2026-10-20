@@ -18,9 +18,8 @@ public static class CogReader
 
     public static CogScript Read(string text)
     {
-        text = Regex.Replace(text, @"/\*.*?\*/", " ", RegexOptions.Singleline);
-        text = Regex.Replace(text, @"//[^\r\n]*", "");
-        text = Regex.Replace(text, @"#[^\r\n]*", "");
+        var warnings = new List<string>();
+        text = StripComments(text, warnings);
 
         var symbols = new List<CogSymbol>();
         var code = new StringBuilder();
@@ -37,7 +36,41 @@ public static class CogReader
         }
 
         var messageNames = new HashSet<string>(symbols.Where(s => s.Type == "message").Select(s => s.Name), StringComparer.OrdinalIgnoreCase);
-        return new CogScript(symbols, SplitHandlers(code.ToString(), messageNames));
+        if (section != "") warnings.Add($"section '{section}' is not closed by 'end' (the script looks truncated)");
+        return new CogScript(symbols, SplitHandlers(code.ToString(), messageNames, warnings)) { Warnings = warnings };
+    }
+
+    /// <summary>
+    /// Retire les commentaires <c>//</c>, <c>#</c> et <c>/* */</c> sans toucher aux litteraux entre apostrophes ou guillemets
+    /// (un litteral ne traverse pas une ligne : la fin de ligne le referme). Un commentaire de bloc non ferme est signale.
+    /// </summary>
+    internal static string StripComments(string text, List<string> warnings)
+    {
+        var sb = new StringBuilder(text.Length);
+        char quote = '\0';
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (quote != '\0')
+            {
+                if (c == quote || c == '\n') quote = '\0';
+                sb.Append(c);
+            }
+            else if (c is '\'' or '"') { quote = c; sb.Append(c); }
+            else if (c == '/' && i + 1 < text.Length && text[i + 1] == '*')
+            {
+                int end = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                if (end < 0) { warnings.Add("block comment '/*' is not closed (the script looks truncated)"); break; }
+                sb.Append(' ');
+                i = end + 1;
+            }
+            else if (c == '#' || (c == '/' && i + 1 < text.Length && text[i + 1] == '/'))
+            {
+                while (i + 1 < text.Length && text[i + 1] != '\r' && text[i + 1] != '\n') i++;
+            }
+            else sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     // ---- symboles ----
@@ -87,7 +120,7 @@ public static class CogReader
 
     // ---- code ----
 
-    private static List<CogHandler> SplitHandlers(string code, HashSet<string> messages)
+    private static List<CogHandler> SplitHandlers(string code, HashSet<string> messages, List<string> warnings)
     {
         var labels = new List<(string Name, int Start, int BodyStart)>();
         foreach (Match m in Regex.Matches(code, @"(?m)^[ \t]*([A-Za-z_]\w*)[ \t]*:(?!:)"))
@@ -98,6 +131,7 @@ public static class CogReader
             int end = i + 1 < labels.Count ? labels[i + 1].Start : code.Length;
             var parser = new StatementParser(code[labels[i].BodyStart..end]);
             List<CogCallSite> calls = parser.Run();
+            foreach (string w in parser.Problems) warnings.Add($"label '{labels[i].Name}': {w}");
             bool returns = calls.Any(c => c.Function.Equals("return", StringComparison.OrdinalIgnoreCase) && c.Conditions.Count == 0);
             handlers.Add(new CogHandler(labels[i].Name, messages.Contains(labels[i].Name), calls, returns));
         }
@@ -110,6 +144,9 @@ public static class CogReader
         private readonly string _s;
         private int _i;
         private readonly List<CogCallSite> _calls = [];
+
+        /// <summary>Anomalies de structure rencontrees (parenthese ou accolade jamais fermee, accolade fermante en trop).</summary>
+        public List<string> Problems { get; } = [];
 
         public StatementParser(string body) => _s = body;
 
@@ -149,6 +186,7 @@ public static class CogReader
                 if (_s[_i] == '(') depth++;
                 else if (_s[_i] == ')' && --depth == 0) { string r = _s[start.._i]; _i++; return r.Trim(); }
             }
+            Problems.Add("'(' is never closed");
             return _s[start..].Trim();
         }
 
@@ -168,9 +206,11 @@ public static class CogReader
                     Statement(conds, loop);
                     if (_i == before) _i++;
                 }
+                Problems.Add("'{' is never closed");
                 return;
             }
-            if (c == ';' || c == '}') { _i++; return; }
+            if (c == '}') { Problems.Add("'}' without a matching '{'"); _i++; return; }
+            if (c == ';') { _i++; return; }
 
             string word = PeekWord();
             string lower = word.ToLowerInvariant();
@@ -221,12 +261,12 @@ public static class CogReader
 
             // Instruction simple : jusqu'au ';' de premier niveau.
             int start = _i, depth = 0;
-            bool quoted = false;
+            char quote = '\0'; // litteral en cours : apostrophe ou guillemet (une apostrophe dans "..." n est pas un delimiteur)
             for (; _i < _s.Length; _i++)
             {
                 char ch = _s[_i];
-                if (ch == '\'') quoted = !quoted;
-                else if (quoted) continue;
+                if (quote != '\0') { if (ch == quote) quote = '\0'; continue; }
+                else if (ch is '\'' or '"') { quote = ch; continue; }
                 else if (ch == '(') depth++;
                 else if (ch == ')') depth--;
                 else if (ch == ';' && depth <= 0) break;
@@ -264,12 +304,12 @@ public static class CogReader
     {
         var parts = new List<string>();
         int depth = 0, last = 0;
-        bool quoted = false;
+        char quote = '\0';
         for (int i = 0; i < args.Length; i++)
         {
             char c = args[i];
-            if (c == '\'') quoted = !quoted;
-            else if (quoted) continue;
+            if (quote != '\0') { if (c == quote) quote = '\0'; continue; }
+            else if (c is '\'' or '"') { quote = c; continue; }
             else if (c is '(' or '[') depth++;
             else if (c is ')' or ']') depth--;
             else if (c == ',' && depth == 0) { parts.Add(args[last..i].Trim()); last = i + 1; }

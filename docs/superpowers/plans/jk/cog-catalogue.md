@@ -24,7 +24,7 @@ Date : 2026-10-20. Généré par le classifieur (`CogClassifier.ClassifyLevel`, 
 - 354 fichiers COG distincts, 1436 instances (158 fichiers ont au moins un comportement de mouvement).
 - Éléments mobiles (things à images, hors acteurs, ou déplacés par un COG) : 564, tous classés.
 - Comportements par type (doublons d'un même niveau retirés) : `SwitchMove` 380, `SurfaceCelSwitch` 244, `TouchDoor` 186, `TwoStopLift` 128, `Approximate` 65, `MultiStepPath` 43, `ActorTriggered` 9.
-- `Unsupported` : 0. Script absent des GOB : `17a_Stream.cog` (cité par un niveau, introuvable ; effets inconnus, journal `JK_COG_MISSING`).
+- `Unsupported` : 0. Script absent des GOB : `17a_Stream.cog`, uniquement pour `m_boss17` (1 instance sur les 3 ; les 2 autres niveaux le trouvent ; effets inconnus, journal `JK_COG_MISSING`). Scripts tronqués (`JK_COG_MALFORMED`) : `06_thirddoor.cog` (niveau `06bbarons`) et `08_vents2a.cog` (niveau `08escape88`), sans `end` final.
 - Things à images sans COG qui les déplace : 25 (`Approximate`, ghosts qui servent de points d'apparition de caisses, lumières cachées, etc.).
 
 ## Fichiers
@@ -104,7 +104,7 @@ Triés par nombre d'instances. Colonne comportement : nombre de comportements pr
 | `10_FFieldswitch.cog` | 3 | 1 | SurfaceCelSwitch x3 |  |
 | `10_sectorthrust.cog` | 3 | 1 | no mover: sector thrust (wind, push) |  |
 | `14_oopstroop.cog` | 3 | 2 | TwoStopLift x3 |  |
-| `17a_Stream.cog` | 3 | 3 | no mover: surface or sky effect (T5) |  |
+| `17a_Stream.cog` | 3 | 3 | no mover: surface or sky effect (T5) | **MISSING from GOB** for `m_boss17` only (1 of the 3 instances: not in `JK1MP.GOB` nor `Res2.gob`, journal `JK_COG_MISSING`); the other 2 instances (2 other levels) read the script normally |
 | `CTF_DISPLAYSCORE.COG` | 3 | 3 | SurfaceCelSwitch x18 |  |
 | `CTF_ICONSCLIENT.COG` | 3 | 3 | no mover: no visible movement |  |
 | `CTF_MAIN.cog` | 3 | 3 | SurfaceCelSwitch x21 |  |

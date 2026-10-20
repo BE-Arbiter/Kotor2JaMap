@@ -27,6 +27,9 @@ public sealed class CogScript
 
     public IReadOnlyList<CogSymbol> Symbols { get; }
 
+    /// <summary>Anomalies de lecture (script tronque ou mal forme) ; vide pour un script correct. Le script est quand meme lu au mieux.</summary>
+    public IReadOnlyList<string> Warnings { get; internal set; } = [];
+
     /// <summary>Etiquettes dans l'ordre du texte.</summary>
     public IReadOnlyList<CogHandler> Handlers => _order.Select(n => _handlers[n]).ToList();
 

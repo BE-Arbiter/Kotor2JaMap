@@ -22,6 +22,9 @@ public sealed record LevelMovers(IReadOnlyList<ClassifiedCog> Cogs, IReadOnlyLis
     /// <summary>Fichiers COG cites par le niveau mais absents des GOB du jeu (effets inconnus ; journal <c>JK_COG_MISSING</c>).</summary>
     public IReadOnlyList<string> MissingScripts { get; init; } = [];
 
+    /// <summary>Scripts lus avec des anomalies (tronques, parentheses ou accolades non fermees...) : fichier -> anomalies (journal <c>JK_COG_MALFORMED</c>).</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> MalformedScripts { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
+
     public IReadOnlyList<MoverBehavior> All { get; } =
         Cogs.SelectMany(c => c.Behaviors).Concat(Unclaimed).DistinctBy(b => b.Key).ToList();
 }
@@ -114,6 +117,7 @@ public static class CogClassifier
         var referencedBy = new Dictionary<int, SortedSet<string>>();
         var movers = new HashSet<int>(FramedThings(lvl));
         var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var malformed = new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (JklCogInstance inst in lvl.Cogs)
         {
@@ -121,6 +125,7 @@ public static class CogClassifier
             {
                 string? text = readCog(inst.CogFile);
                 scripts[inst.CogFile] = script = text is null ? null : CogReader.Read(text);
+                if (script is { Warnings.Count: > 0 }) malformed[inst.CogFile] = script.Warnings;
             }
             if (script is null)
             {
@@ -149,7 +154,7 @@ public static class CogClassifier
                 ? new Approximate(t, $"COG {string.Join(", ", by)} references this thing but none of its messages moves it with a known verb; the frames are kept as a path.")
                 : new Approximate(t, "no COG moves this thing; the frames are kept as a path."));
         }
-        return new LevelMovers(cogs, unclaimed, movers) { MissingScripts = [.. missing] };
+        return new LevelMovers(cogs, unclaimed, movers) { MissingScripts = [.. missing], MalformedScripts = malformed };
     }
 
     // ---- une instance ----
@@ -189,7 +194,7 @@ public static class CogClassifier
         var result = new List<MoverBehavior>();
         var thingsMoved = moves.SelectMany(m => m.Things).Distinct().Order().ToList();
         foreach (int t in thingsMoved)
-            ClassifyThing(cog, lvl, info, t, moves.Where(m => m.Things.Contains(t)).ToList(), contexts, result);
+            ClassifyThing(cog, lvl, info, t, moves.Where(m => m.Things.Contains(t)).ToList(), moves, contexts, result);
 
         foreach (var (t, verbSet) in others.Where(o => !thingsMoved.Contains(o.Key)).OrderBy(o => o.Key))
         {
@@ -205,17 +210,17 @@ public static class CogClassifier
         return [.. result.DistinctBy(b => b.Key)];
     }
 
-    private static void ClassifyThing(BoundCog cog, JklLevel lvl, LevelInfo info, int thing, List<Move> moves,
+    private static void ClassifyThing(BoundCog cog, JklLevel lvl, LevelInfo info, int thing, List<Move> moves, List<Move> allMoves,
         Dictionary<string, IReadOnlyList<CogCallSite>> contexts, List<MoverBehavior> result)
     {
         string file = cog.File;
         var sequence = moves.Where(m => m.Frame is not null).Select(m => m.Frame!.Value).ToList();
         int[] distinct = sequence.Distinct().ToArray();
         float? speed = moves.Select(m => m.Speed).FirstOrDefault(s => s is not null);
-        float? delay = Delay(cog, moves, contexts);
+        (float? delay, string? delayNote) = Delay(cog, thing, moves, allMoves, contexts);
         IReadOnlyList<string> sounds = Sounds(cog, moves);
 
-        MoverBehavior With(MoverBehavior b) => b with { Cog = file, Speed = speed, Delay = delay, Sounds = sounds, FrameSequence = distinct };
+        MoverBehavior With(MoverBehavior b) => b with { Cog = file, Speed = speed, Delay = delay, DelayNote = delayNote, Sounds = sounds, FrameSequence = distinct };
 
         if (info.Frames[thing] < 2)
         {
@@ -266,8 +271,12 @@ public static class CogClassifier
         var used = triggers.Where(m => m.Kind == Trigger.Use && switches.Count == 0).ToList();
         if (switches.Count == 0 && (automatic.Count > 0 || used.Count > 0) && IsSequential(moves))
         {
-            result.Add(With(new MultiStepPath(thing, [.. sequence.Distinct()], delay ?? 0f, sequence.Skip(1).Contains(0) || sequence.Skip(1).Contains(sequence[0]))));
-            return;
+            // Garde : sans image resolue (MoveToFrame vers une variable d'execution) il n'y a pas de suite a reconstruire.
+            if (sequence.Count > 0)
+            {
+                result.Add(With(new MultiStepPath(thing, [.. sequence.Distinct()], delay ?? 0f, sequence.Skip(1).Contains(0) || sequence.Skip(1).Contains(sequence[0]))));
+                return;
+            }
         }
         if (automatic.Count > 0)
         {
@@ -367,21 +376,41 @@ public static class CogClassifier
     /// Delai avant le retour : premier <c>SetTimer</c> / <c>SetTimerEx</c> hors demarrage ; sinon un <c>Sleep</c> place apres un
     /// <c>MoveToFrame</c> du meme message. <c>null</c> si absent ou negatif (la porte reste ouverte).
     /// </summary>
-    private static float? Delay(BoundCog cog, List<Move> moves, Dictionary<string, IReadOnlyList<CogCallSite>> contexts)
+    private static (float? Delay, string? Note) Delay(BoundCog cog, int thing, List<Move> moves, List<Move> allMoves,
+        Dictionary<string, IReadOnlyList<CogCallSite>> contexts)
     {
+        // Things relies entre eux par un meme deplacement (une porte a plusieurs pieces) : ils partagent la minuterie.
+        HashSet<int> group = [thing];
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            foreach (Move m in allMoves)
+                if (m.Things.Any(group.Contains)) foreach (int t in m.Things) grew |= group.Add(t);
+        }
+        // Un seul groupe de things dans le COG : toutes ses minuteries sont les siennes. Sinon une minuterie ne compte que si son message
+        // deplace ce groupe ou cite l'un de ses things.
+        bool single = allMoves.All(m => m.Things.Any(group.Contains));
+        bool Relevant(string message, IReadOnlyList<CogCallSite> sites) =>
+            single || allMoves.Any(m => m.Message.Equals(message, StringComparison.OrdinalIgnoreCase) && m.Things.Any(group.Contains)) || Mentions(cog, sites, group);
+
+        double? foreign = null;
         foreach (var (message, sites) in contexts)
         {
             if (KindOf(message) == Trigger.Startup) continue;
+            bool relevant = Relevant(message, sites);
             foreach (CogCallSite c in sites)
                 if (TimerVerbs.Contains(c.Function) && c.Args.Length > 0 && cog.Number(c.Args[0]) is double d)
-                    return d >= 0 ? (float)d : null;
+                {
+                    if (relevant) return (d >= 0 ? (float)d : null, null);
+                    foreign ??= d;
+                }
         }
         foreach (var (message, sites) in contexts)
         {
-            if (KindOf(message) != Trigger.FollowUp) continue;
+            if (KindOf(message) != Trigger.FollowUp || !Relevant(message, sites)) continue;
             foreach (CogCallSite c in sites)
                 if (c.Function.Equals("Sleep", StringComparison.OrdinalIgnoreCase) && c.Args.Length > 0 && cog.Number(c.Args[0]) is double d)
-                    return d >= 0 ? (float)d : null;
+                    return (d >= 0 ? (float)d : null, null);
         }
         foreach (Move m in moves)
         {
@@ -390,10 +419,27 @@ public static class CogClassifier
             {
                 if (ReferenceEquals(c, m.Site)) afterMove = true;
                 else if (afterMove && c.Function.Equals("Sleep", StringComparison.OrdinalIgnoreCase) && c.Args.Length > 0 && cog.Number(c.Args[0]) is double d)
-                    return d >= 0 ? (float)d : null;
+                    return (d >= 0 ? (float)d : null, null);
             }
         }
-        return null;
+        return (null, foreign is double f
+            ? FormattableString.Invariant($"{cog.File} arms a timer ({f:0.##} s) that cannot be tied to this thing (the COG moves several independent things); the delay is left unset.")
+            : null);
+    }
+
+    /// <summary>Vrai si un appel cite un thing du groupe (symbole <c>nom</c>, ou <c>nom[i]</c> : toute la famille) dans ses arguments ou ses conditions.</summary>
+    private static bool Mentions(BoundCog cog, IEnumerable<CogCallSite> sites, HashSet<int> group)
+    {
+        foreach (CogCallSite c in sites)
+            foreach (string text in c.Args.Concat(c.Conditions))
+                foreach (Match m in Regex.Matches(text, @"\b([A-Za-z_]\w*)\b(\s*\[)?"))
+                {
+                    CogSymbol? sym = cog.Script.Symbol(m.Groups[1].Value);
+                    if (sym is not { Type: "thing" }) continue;
+                    IEnumerable<CogSymbol> members = m.Groups[2].Success ? cog.Script.Family(sym.Name) : [sym];
+                    if (members.Any(s => cog.Int(s.Name) is int v && group.Contains(v))) return true;
+                }
+        return false;
     }
 
     private static IReadOnlyList<string> Sounds(BoundCog cog, List<Move> moves)

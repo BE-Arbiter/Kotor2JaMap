@@ -489,11 +489,118 @@ public class CogClassifierTests
     }
 
     [Fact]
-    public void MalformedScript_DoesNotThrow()
+    public void MalformedScript_DoesNotThrow_AndLeavesADiagnostic()
     {
         JklLevel lvl = Level(FramesTwo);
-        foreach (string text in new[] { "", "symbols\nthing t\n", "code\nactivated: if ( MoveToFrame(", "symbols\nmessage a\nend\ncode\na: { { if else ;;; }\nend" })
+        foreach (string text in new[] { "symbols\nthing t\n", "code\nactivated: if ( MoveToFrame(", "symbols\nmessage a\nend\ncode\na: { { if else ;;; }\nend", "code\na: MoveToFrame(t, 1 /* never closed" })
+        {
             Assert.NotNull(Classify(text, "1", lvl));
+            Assert.NotEmpty(CogReader.Read(text).Warnings);
+        }
+        Assert.Empty(CogReader.Read("").Warnings);
+        Assert.Empty(CogReader.Read(DoorCog).Warnings);
+    }
+
+    [Fact]
+    public void MalformedScript_IsReportedByTheLevelClassification()
+    {
+        JklLevel lvl = Level(FramesTwo) with { Cogs = [new JklCogInstance(0, "cut.cog", ["1"])] };
+        const string cut = "symbols\nmessage activated\nthing door\nend\ncode\nactivated:\n  MoveToFrame(door, 1, 2";
+
+        LevelMovers report = CogClassifier.ClassifyLevel(lvl, _ => cut);
+
+        Assert.NotEmpty(report.MalformedScripts["cut.cog"]);
+        Assert.Empty(report.MissingScripts);
+    }
+
+    [Fact]
+    public void Reader_KeepsCommentMarkersInsideQuotedLiterals()
+    {
+        const string text = """
+            symbols
+                message activated
+                string  url='http://x//y#z'  // commentaire final
+                thing   t desc='Door #1'
+            end
+            code
+            activated:
+                PlaySong('a//b#c', 1); // commentaire
+                MoveToFrame(t, 1, 2); /* bloc */
+                return;
+            end
+            """;
+
+        CogScript s = CogReader.Read(text);
+
+        Assert.Equal("http://x//y#z", s.Symbol("url")!.Default);
+        Assert.Contains("#1", s.Symbol("t")!.Description);
+        IReadOnlyList<CogCallSite> sites = s.Expand("activated");
+        Assert.Equal(["PlaySong", "MoveToFrame", "return"], sites.Select(c => c.Function));
+        Assert.Equal("'a//b#c'", sites[0].Args[0]);
+        Assert.Empty(s.Warnings);
+    }
+
+    private const string TwoDoorHeader = """
+        symbols
+            message activated
+            message touched
+            message arrived
+            thing   a
+            thing   b
+            flex    sp=4.0
+        end
+        code
+        """;
+
+    [Fact]
+    public void Delay_IsTheTimerOfTheMessageThatMovesThatThing()
+    {
+        string text = TwoDoorHeader + """
+
+            activated:
+                MoveToFrame(a, 1, sp);
+                SetTimer(7.0);
+                return;
+            touched:
+                MoveToFrame(b, 1, sp);
+                SetTimer(3.0);
+                return;
+            end
+            """;
+        JklLevel lvl = Level(FramesTwo, 2);
+
+        var found = Classify(text, "1 2", lvl).OfType<TouchDoor>().ToDictionary(d => d.Thing);
+
+        Assert.Equal(7.0f, found[1].Delay);
+        Assert.Equal(3.0f, found[2].Delay);
+    }
+
+    [Fact]
+    public void Delay_IsLeftEmptyWithANote_WhenTheTimerCannotBeAttributed()
+    {
+        string text = TwoDoorHeader + """
+
+            activated:
+                MoveToFrame(a, 1, sp);
+                return;
+            touched:
+                MoveToFrame(b, 1, sp);
+                return;
+            arrived:
+                SetTimer(2.0);
+                return;
+            end
+            """;
+        JklLevel lvl = Level(FramesTwo, 2);
+
+        var found = Classify(text, "1 2", lvl).OfType<TouchDoor>().OrderBy(d => d.Thing).ToList();
+
+        Assert.Equal(2, found.Count);
+        foreach (TouchDoor d in found)
+        {
+            Assert.Null(d.Delay);
+            Assert.Contains("timer", d.DelayNote);
+        }
     }
 
     // ---- donnees reelles ----
@@ -518,6 +625,8 @@ public class CogClassifierTests
             }
             unsupported += report.All.Count(b => b is Unsupported);
             approximate += report.All.Count(b => b is Approximate);
+            foreach (string m in report.MissingScripts) Console.WriteLine($"MISSING {level.Name}: {m}");
+            foreach (var (file, warnings) in report.MalformedScripts) Console.WriteLine($"MALFORMED {level.Name}: {file}: {string.Join("; ", warnings)}");
             unsupportedList.AddRange(report.All.OfType<Unsupported>().Select(u => $"{level.Name}: {u.Reason}"));
             levels++;
         }

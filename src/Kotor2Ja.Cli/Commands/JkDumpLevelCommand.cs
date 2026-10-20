@@ -98,6 +98,7 @@ public static class JkDumpLevelCommand
         }
         foreach (MoverBehavior b in report.Unclaimed) output.WriteLine("  (no COG) " + b.Describe());
         if (report.MissingScripts.Count > 0) output.WriteLine("JK_COG_MISSING: " + string.Join(", ", report.MissingScripts));
+        foreach (var (file, warnings) in report.MalformedScripts) output.WriteLine($"JK_COG_MALFORMED: {file}: {string.Join("; ", warnings)}");
         output.WriteLine($"Movers: {report.Movers.Count} (approximate {report.All.Count(b => b is Approximate)}, unsupported {report.All.Count(b => b is Unsupported)})");
     }
 }
