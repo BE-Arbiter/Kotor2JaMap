@@ -17,4 +17,8 @@
     <ProjectReference Include="..\Jk.Core\Jk.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="NVorbis" Version="0.10.5" />
+  </ItemGroup>
+
 </Project>

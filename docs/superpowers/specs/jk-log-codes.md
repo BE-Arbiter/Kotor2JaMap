@@ -74,6 +74,12 @@ La colonne « Perte » dit ce qui manque en jeu quand le code apparaît. Variabl
 | `JK_SOUND_SKIPPED` | avertissement | Groupes de sons non placés : plus de haut-parleurs que le plafond, même après fusion. | ces sons |
 | `JK_SOUND_MISSING` | avertissement | Son absent des archives du jeu. | ce son |
 | `JK_SOUND_UNREADABLE` | avertissement | Son illisible : le fichier est copié tel quel. | peut-être le son |
+| `JK_MUSIC` | info | Musique du niveau convertie : `PlaySong(début, fin, retour)` du COG, pistes CD (`MUSIC\TrackNN.ogg`) dans l'ordre de lecture, un wav 22 050 Hz stéréo 16 bits `music/jk/<niveau>.wav` (durée, taille) joué en boucle par la clé `music` du worldspawn. Non vérifié en jeu. | aucune |
+| `JK_MUSIC_NONE` | info / avertissement | Pas de musique : aucun `PlaySong` dans le niveau (multijoueur, CTF), ou aucune des pistes demandées n'est lisible (niveaux 06a et 09 : pistes 6-7 et 2-4 absentes de l'installation Steam). | la musique |
+| `JK_MUSIC_TRACK_MISSING` | avertissement | Pistes demandées par le COG sans fichier dans `MUSIC` : elles sont omises de la boucle. | ces pistes |
+| `JK_MUSIC_UNREADABLE` | avertissement | Piste ogg illisible (décodage impossible) : omise de la boucle. | cette piste |
+| `JK_MUSIC_LOOP_APPROX` | avertissement | `PlaySong` dont le début n'est pas dans le cycle (aucun niveau réel) : les pistes `début..fin` sont jouées dans l'ordre en boucle. | l'intro distincte |
+| `JK_MUSIC_VOLUME_SCRIPT` | avertissement | Des COG changent le volume de la musique (`SetMusicVol` : fondus, baisse pendant les dialogues ; niveau 01 : muette sauf dans le bar) ; JA n'a pas d'équivalent, la musique joue à volume constant partout. | les fondus et la musique localisée |
 
 ## Modèles et animations
 

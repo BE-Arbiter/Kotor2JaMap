@@ -85,7 +85,8 @@ public static class JkObjects
         // Poussees de secteur puis zones secretes : leurs declencheurs prennent les derniers sous-modeles (apres les mobiles, dont les indices sont deja fixes).
         ConvertedEntities thrust = JkSectorThrust.Convert(prepared, fs, opt, log, subs);
         ConvertedEntities secrets = JkSecrets.Convert(prepared, fs, opt, log, subs);
-        return (things.Merge(volumes).Merge(sounds).Merge(mobile).Merge(thrust).Merge(secrets), subs.Items);
+        ConvertedEntities music = JkMusic.Convert(prepared, fs, opt, log);
+        return (things.Merge(volumes).Merge(sounds).Merge(mobile).Merge(thrust).Merge(secrets).Merge(music), subs.Items);
     }
 
     /// <summary>Crochet <see cref="SceneObjects"/> d'une scene JK (voir <c>PipelineSteps.Import</c> et <c>KotorWorkflowSteps.UseScene</c>) ; <paramref name="fs"/> doit rester ouvert tant que l'etape Importer peut tourner.</summary>

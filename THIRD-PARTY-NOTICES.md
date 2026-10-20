@@ -10,6 +10,13 @@
 
 No image library is used. The PNG is written by a minimal internal encoder (`src/Kotor.Core/Export/PngWriter.cs`), and the TGA by `TgaWriter` / `TgaReader`. The original TFU project used Pfim for DDS; this dependency is not carried over.
 
+## NVorbis 0.10.5 (Jedi Knight music)
+
+- License: MIT.
+- Author: Andrew Ward (Ioctyl) and contributors.
+- Project: https://github.com/NVorbis/NVorbis
+- Usage: `src/Jk.Pipeline/JkMusic.cs` decodes the Ogg Vorbis tracks of Jedi Knight (`MUSIC\TrackNN.ogg`) before they are written as wav files. Managed code, no native library.
+
 ## Test dependencies
 
 The test packages (xUnit, Xunit.SkippableFact, Microsoft.NET.Test.Sdk, coverlet) are not distributed with the tool.

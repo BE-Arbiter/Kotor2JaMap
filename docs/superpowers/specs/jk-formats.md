@@ -242,3 +242,10 @@ Code : `Jk.Pipeline/Movers/MoverConverter.cs` (`MoverConverter`, `JkMoverSpeed`)
 - **Sons de mobiles : entites JA [lu dans `g_mover.cpp`, `g_target.cpp`, `snd_ambient.cpp`]** : un `func_door` / `func_plat` n'a pas de cle de son (`sound1to2` et `soundPos1` sont en commentaire) ; `soundSet` nomme un groupe `bmodelSet` de
   `sound/sound.txt` (un seul fichier, pas extensible par un pk3) et un nom inconnu fait echouer `AS_ParseSets` (`ERR_DROP`). `func_train` : `noise` est une boucle posee au chargement et jamais arretee. Repli : `target_speaker` tire par
   `target` (`Use_BinaryMover_Go`, au depart), `opentarget` et `closetarget` (`Reached_BinaryMover`). Aucun evenement au depart du retour. Un `target_speaker` avec `wait` repete tout seul cote client : il n'en a pas.
+
+## Constats de la tache M1 (musique)
+
+- **Pistes** : `MUSIC\Track12..18.ogg` et `Track22..32.ogg` (18 fichiers, Ogg Vorbis stereo 44 100 Hz, ~320 kbit/s, 115 a 254 s, 105,7 Mo). Pas de pistes 1 a 11 ni 19 a 21.
+- **Choix de la musique** : un COG par niveau, au `startup` : `PlaySong(debut, fin, retour)` (pistes CD). `00_soundtrack.cog` (arguments de l'instance), `01_SoundTrack.cog` (meme appel puis `SetMusicVol(0.0)` : muette jusqu'au bar), `06a_startlevel.cog` et `09_startlevel.cog` (litteraux 6/7/6 et 2/4/2, pistes absentes), `levelsong.cog` (une piste, jamais instancie). Suite jouee = le cycle `retour..fin` a partir de `debut`. Multi et CTF : aucun script.
+- **JA / SWGL** : cle `music` du worldspawn (`g_spawn.cpp:1499`, `cg_main.cpp:CG_StartMusic`) ; un fichier existant avec un `/` dans son nom est joue en boucle sans `.mus` (`snd_dma.cpp:S_StartBackgroundTrack`) ; MP3 ou wav PCM (reechantillonnage au plus proche voisin), jamais ogg.
+- Detail et chiffres : `plans/jk/reports/M1.md`.

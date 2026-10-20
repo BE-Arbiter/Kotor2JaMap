@@ -227,7 +227,7 @@ Ces règles ne viennent pas de l'utilisateur ; ce sont des choix de conception, 
 - **Limites du BSP.** Si un niveau dépasse `Limits`, on peut fusionner des secteurs pour la visibilité ou découper les surfaces. On ne
   supprime jamais de géométrie visible.
 - **Portes à clé.** Elles s'ouvrent sans clé (pas de clés à trouver), pour que le passage reste franchissable.
-- **Sons.** Les sons d'ambiance des secteurs sont convertis comme pour KOTOR ; la musique (pistes `.ogg`) est hors périmètre.
+- **Sons.** Les sons d'ambiance des secteurs sont convertis comme pour KOTOR. **La musique n'est plus hors périmètre** (demande de l'utilisateur, étude `plans/jk/reports/M1.md`) : JK joue des pistes CD (`MUSIC\TrackNN.ogg`) choisies par un `PlaySong(début, fin, retour)` du COG du niveau ; JA ne lit que le MP3 et le wav PCM, jamais l'ogg. Chaque niveau qui a une musique reçoit donc un wav stéréo 22 050 Hz 16 bits `music/jk/<niveau>.wav` (pistes du cycle décodées par NVorbis et mises bout à bout dans l'ordre de JK), joué en boucle par la clé `music` du worldspawn (ni `.mus` ni entité). Sans musique exploitable (pistes absentes de l'édition Steam : niveaux 06a et 09 ; aucun script : multijoueur et CTF), le journal le dit (`JK_MUSIC_NONE`). `SetMusicVol` (fondus, baisse pendant les dialogues, musique du bar du niveau 01) n'a pas d'équivalent : volume constant (`JK_MUSIC_VOLUME_SCRIPT`).
 
 ## 9. Réponses de l'utilisateur aux questions ouvertes
 
