@@ -242,7 +242,11 @@ public static class JkThingConverter
     /// <c>info_player_deathmatch</c> dans un niveau multijoueur, <c>team_CTF_redplayer</c> / <c>team_CTF_blueplayer</c> dans un niveau CTF (equipe du drapeau le plus proche)
     /// et ne sont pas places dans un niveau solo (SWGL choisit au hasard parmi les <c>info_player_deathmatch</c> : le joueur ne demarrerait plus au bon endroit).
     /// </summary>
-    public static ConvertedEntities Convert(JkPreparedScene prepared, JkFileSystem fs, ExportOptions opt, ImportLog log, JkSubModels subs, IReadOnlySet<int>? handledElsewhere = null)
+    public static ConvertedEntities Convert(JkPreparedScene prepared, JkFileSystem fs, ExportOptions opt, ImportLog log, JkSubModels subs, IReadOnlySet<int>? handledElsewhere = null) =>
+        Convert(prepared, fs, opt, log, subs, handledElsewhere, null);
+
+    /// <summary><paramref name="sharedPool"/> : modeles deja charges par l appelant (les mobiles de la tache 9) ; leurs MD3 et textures sont rendus avec ceux des decors.</summary>
+    internal static ConvertedEntities Convert(JkPreparedScene prepared, JkFileSystem fs, ExportOptions opt, ImportLog log, JkSubModels subs, IReadOnlySet<int>? handledElsewhere, JkModelPool? sharedPool)
     {
         ArgumentNullException.ThrowIfNull(prepared);
         ArgumentNullException.ThrowIfNull(fs);
@@ -251,7 +255,7 @@ public static class JkThingConverter
         ArgumentNullException.ThrowIfNull(subs);
         JklLevel level = prepared.Level;
         float k = JkWorldScale.MetresPerJkUnit * opt.Scale;
-        var pool = new JkModelPool(fs, prepared, opt, log);
+        var pool = sharedPool ?? new JkModelPool(fs, prepared, opt, log);
         var scripts = new Dictionary<string, CogLite?>(StringComparer.OrdinalIgnoreCase);
         CogLite? Script(string file)
         {

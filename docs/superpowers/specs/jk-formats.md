@@ -208,3 +208,19 @@ Code : `Jk.Core/Cog` (`CogReader`, `CogScript`, `CogBinding`/`BoundCog`), `Jk.Pi
   `pulse` / `timer` (suite), `userN` (message envoye par un autre COG). Les chaines `crossed -> SetTimer -> timer -> MoveToFrame` sont frequentes (`16a_calamity`).
 - **Acteurs [donnees]** : `00_AIFramePatrol` / `00_AIFrameMove` deplacent un acteur le long de ses images (`AISetMoveFrame`) : acteurs ignores, donc pas d'element mobile.
 - **COG absent [donnees]** : `17a_Stream.cog` (niveau `m_boss17`) est cite mais absent de `JK1MP.GOB` et de `Res2.gob`.
+
+## Constats de la tache 9 (elements mobiles -> entites JA)
+
+Code : `Jk.Pipeline/Movers/MoverConverter.cs` (`MoverConverter`, `JkMoverSpeed`), branche dans `JkObjects.Convert` (classement des COG, modeles charges dans le meme lot que les decors, sous-modeles numerotes a la suite).
+
+- **Images d'un thing [donnees]** : `frame=(x/y/z:p/y/r)` sont des positions et orientations **absolues** ; l'image 0 est la position du thing (ecart nul sur les 811 comportements verifies). Seuls les ecarts a l'image 0
+  servent (l'orientation de la ligne du thing peut differer de l'image 0 : 180 degres pour `09slice`). Beaucoup de portes ont 0,1 a 0,8 degre d'ecart d'orientation entre images : du bruit d'editeur, ignore sous 2 degres.
+- **Vitesse d'un `MoveToFrame` [hypothese, non verifiee en jeu]** : lue comme 0,1 unite JK par seconde par unite de vitesse (`00_door` : 8 -> 0,3 s pour 0,25 u ; `00_elev_switch` : 4 -> 6 s pour 2,4 u). Lue comme des unites JK par seconde,
+  une porte s'ouvrirait en 0,03 s. A confirmer par l'utilisateur au premier essai.
+- **Entites de SWGL [lu dans OpenJK-SWGL `code/game`]** : `func_door_rotating` n'existe pas (table de `g_spawn.cpp`) ; `func_rotating` arrete (`func_rotating_use`) repasse a son angle de base (le `trBase` n'est pas mis a jour) : une porte qui tourne
+  puis s'arrete n'a pas d'equivalent. `func_door` avec `targetname` n'a pas de plaque de proximite (`SP_func_door`) ; `wait` negatif : la porte reste ouverte pour toujours et ne se reutilise plus ; `TOGGLE` (8) : la porte attend la pression suivante.
+  Un `func_train` repart au coin suivant de lui-meme (`Reached_Train`) et un second `use` en cours de course saute au coin suivant. `func_plat` : l'origine est la position haute, repos en bas de `height`, plaque de declenchement du moteur.
+  `trigger_multiple` : `USE_BUTTON` (4) demande l'appui sur « utiliser » ; deux `use` pendant la course d'une porte inversent son sens (d'ou `wait` 1 s sur les declencheurs). `MAX_SUBMODELS` 512 : le niveau le plus charge en utilise 111.
+- **Modele de mover** : `CG_Mover` ne tient pas compte de `modelscale` (seul `CG_General` le fait) : un modele reduit par division (plus de 511 unites) s'affiche trop petit sur un mobile, alors que sa boite de collision a la vraie taille.
+  16 mobiles sur 544 sont concernes (`16grnd` x31, `cargo2` x24, `bayd` x3, `09slice` x3, `08dbrg` x2, `lift` x2, `statpole` x2, `09bogus` x2) : `JK_MOVER_MODEL_SCALE`.
+- **Choix de conversion** : voir le rapport `docs/superpowers/plans/jk/reports/T9.md`.

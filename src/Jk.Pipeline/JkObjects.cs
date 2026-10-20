@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Numerics;
+using System.Text;
 using Jk.Core.Gob;
 using Jk.Core.Jkl;
+using Jk.Pipeline.Movers;
 using Kotor.Compiler;
 using Kotor.Compiler.Bsp;
 using Kotor.Core;
@@ -13,7 +15,7 @@ using Kotor.Pipeline.Entities;
 namespace Jk.Pipeline;
 
 /// <summary>
-/// Sous-modeles BSP d'un niveau JK, numerotes a partir de 1 (<c>*1</c>...). Chaque convertisseur (objets, volumes, plus tard les elements mobiles)
+/// Sous-modeles BSP d'un niveau JK, numerotes a partir de 1 (<c>*1</c>...). Chaque convertisseur (objets, volumes, elements mobiles)
 /// y ajoute les siens ; l'indice rendu est celui de la cle <c>model</c> de l'entite.
 /// </summary>
 public sealed class JkSubModels
@@ -32,7 +34,7 @@ public sealed class JkSubModels
 
 /// <summary>
 /// Objets d'un niveau JK pour le pipeline : things (departs, objets a ramasser, decors, rotatifs, lumieres), volumes d'eau et de blessure,
-/// sons de secteurs. Les elements mobiles (portes, ascenseurs) s'y brancheront avec la tache 9, par <see cref="JkSubModels"/>.
+/// sons de secteurs. Les elements mobiles (portes, ascenseurs, ponts : <see cref="MoverConverter"/>) numerotent leurs sous-modeles a la suite, par <see cref="JkSubModels"/>.
 /// </summary>
 public static class JkObjects
 {
@@ -62,14 +64,39 @@ public static class JkObjects
         ArgumentNullException.ThrowIfNull(opt);
         ArgumentNullException.ThrowIfNull(log);
         var subs = new JkSubModels();
-        ConvertedEntities things = JkThingConverter.Convert(prepared, fs, opt, log, subs);
+        // Elements mobiles : classes d'abord (COG), leurs modeles charges dans le meme lot que les decors, puis convertis apres les volumes (sous-modeles a la suite).
+        var pool = new JkModelPool(fs, prepared, opt, log);
+        LevelMovers movers = ClassifyMovers(prepared, fs, log);
+        var moverModels = new Dictionary<int, JkMd3>();
+        foreach (int thing in movers.All.Where(b => b.Thing >= 0).Select(b => b.Thing).Distinct().Order())
+            if (prepared.Level.Things.FirstOrDefault(t => t.Index == thing) is { } t
+                && prepared.Templates.Resolve(t.Template).GetValueOrDefault("model3d") is { } model && !string.IsNullOrWhiteSpace(model) && !model.Equals("none", StringComparison.OrdinalIgnoreCase)
+                && pool.Get(model, null) is { } md3)
+                moverModels[thing] = md3;
+
+        ConvertedEntities things = JkThingConverter.Convert(prepared, fs, opt, log, subs, movers.Movers, pool);
         ConvertedEntities volumes = ConvertVolumes(prepared, opt, log, subs);
         ConvertedEntities sounds = ConvertSectorSounds(prepared, fs, opt, log);
-        return (things.Merge(volumes).Merge(sounds), subs.Items);
+        var (mobile, mobileSubs) = MoverConverter.Convert(movers.All, prepared, moverModels, opt.Scale, subs.Items.Count + 1, log);
+        foreach (SubModelInput sub in mobileSubs) subs.Add(sub);
+        return (things.Merge(volumes).Merge(sounds).Merge(mobile), subs.Items);
     }
 
     /// <summary>Crochet <see cref="SceneObjects"/> d'une scene JK (voir <c>PipelineSteps.Import</c> et <c>KotorWorkflowSteps.UseScene</c>) ; <paramref name="fs"/> doit rester ouvert tant que l'etape Importer peut tourner.</summary>
     public static SceneObjects ForPipeline(JkPreparedScene prepared, JkFileSystem fs) => (scene, opt, log) => Convert(prepared, fs, opt, log);
+
+    // ---------------------------------------------------------------- elements mobiles
+
+    /// <summary>Classe les COG du niveau (lus dans les GOB) et journalise les scripts absents (<c>JK_COG_MISSING</c>) ou mal formes (<c>JK_COG_MALFORMED</c>).</summary>
+    private static LevelMovers ClassifyMovers(JkPreparedScene prepared, JkFileSystem fs, ImportLog log)
+    {
+        LevelMovers movers = CogClassifier.ClassifyLevel(prepared.Level, file => fs.TryRead(@"cog\" + file) is { } raw ? Encoding.Latin1.GetString(raw) : null);
+        if (movers.MissingScripts.Count > 0)
+            log.Warn("JK_COG_MISSING", $"{movers.MissingScripts.Count} COG script(s) of this level are not in the game archives, so what they do is unknown: {string.Join(", ", movers.MissingScripts)}.");
+        foreach (var (file, problems) in movers.MalformedScripts)
+            log.Warn("JK_COG_MALFORMED", $"COG script {file} is malformed ({string.Join("; ", problems)}); what could be read was used.");
+        return movers;
+    }
 
     // ---------------------------------------------------------------- volumes
 
