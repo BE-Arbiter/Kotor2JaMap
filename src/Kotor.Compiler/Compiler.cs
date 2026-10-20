@@ -149,6 +149,7 @@ public static class Compiler
             File.WriteAllBytes(bspPath, ms.ToArray());
             // Le .map source accompagne le .bsp (meme dossier, donc dans le pk3).
             File.WriteAllText(Path.ChangeExtension(bspPath, ".map"), MapWriter.Write(input.Entities, finalBrushes, subModels), new UTF8Encoding(false));
+            if (input.VisualMapPath is { Length: > 0 } editMap) WriteEditMap(input, editMap, finalBrushes, subModels, log);
         }
         catch (BspLimitException ex) { error = ex.Message; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException)
@@ -158,6 +159,31 @@ public static class Compiler
 
         if (error is not null) log.Warn("BSP_ERROR", error);
         return new CompileResult(error is null, warnings, error);
+    }
+
+    /// <summary>
+    /// <c>.map</c> d'edition : celui du pk3 (entites, collision, portes) plus la geometrie visible texturee dans un <c>func_group</c>.
+    /// Ecrit apres le BSP et le <c>.map</c> du pk3, qu'il ne modifie jamais ; une erreur d'ecriture est un avertissement, pas un echec.
+    /// </summary>
+    private static void WriteEditMap(CompileInput input, string path, IReadOnlyList<Brush> brushes, IReadOnlyList<BspSubModel> subModels, ImportLog log)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            VisualMapStats? st;
+            using (var w = new StreamWriter(path, false, new UTF8Encoding(false), 1 << 16) { NewLine = "\n" })
+                st = MapWriter.Write(w, input.Entities, brushes, subModels, input.Surfaces);
+            if (st is null) return;
+            log.Info($"Edit map: {st.Brushes} visual brushes, {st.Textures.Count} textures, {st.DegenerateTriangles} degenerate triangle(s) skipped, max texture mapping error {st.MaxUvError:0.0000} of a texture.");
+            if (st.CappedTriangles > 0)
+                log.Warn("MAP_VISUAL_CAPPED", $"Edit map: {st.CappedTriangles} smallest render triangle(s) left out ({st.Brushes} visual brushes kept, limit {VisualMapWriter.DefaultMaxBrushes}).");
+            if (st.InexactFaces > 0)
+                log.Warn("MAP_VISUAL_UV_APPROX", $"Edit map: {st.InexactFaces} face(s) have a texture mapping the editor can only approximate (skewed UV).");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.Warn("MAP_VISUAL_WRITE_FAILED", $"Edit map not written ({ex.Message}).");
+        }
     }
 
     /// <summary>Marge (unites JA) ajoutee aux boites de pieces : evite qu'une surface posee exactement sur une face soit hors de sa piece.</summary>

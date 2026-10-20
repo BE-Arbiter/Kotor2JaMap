@@ -6,13 +6,14 @@ namespace Kotor.Core.Export;
 /// dans les options de base ; <see cref="ForGame"/> en tire les options d'un jeu.
 /// <see cref="SwtorDir"/> : racine des ressources SWTOR extraites (cle swtorAssetsDir, variable SWTOR_ASSETS).
 /// <see cref="JediKnightDir"/> : dossier d'installation de Star Wars Jedi Knight (cle jediKnightDir, variable JK_DIR).
+/// <see cref="MapVisuals"/> : vrai (defaut) = ecrire aussi le .map d'edition avec la geometrie visible texturee (dossier de travail, jamais dans le pk3).
 /// <see cref="NoVis"/> : vrai = pas de visibilite par piece (un seul cluster toujours visible, comme q3map2 -novis).
 /// <see cref="SwtorFromGame"/> : vrai = lire les zones SWTOR directement dans les archives du jeu (<see cref="SwtorGameDir"/>, detecte si vide) avec un cache dans le dossier de travail ; faux = dossier extrait (<see cref="SwtorDir"/>).
 /// </summary>
 public sealed record ExportOptions(string KotorDir, string JaBaseDir, string WorkDir, float Scale = ExportOptions.DefaultScale,
     float LightmapBrightness = 1.0f, string BspLimits = ExportOptions.DefaultBspLimits,
     KotorGame Game = KotorGame.Kotor1, string? Kotor2Dir = null, string? SwtorDir = null, bool NoVis = false,
-    string? SwtorGameDir = null, bool SwtorFromGame = false, string? JediKnightDir = null)
+    string? SwtorGameDir = null, bool SwtorFromGame = false, string? JediKnightDir = null, bool MapVisuals = true)
 {
     public const float DefaultScale = 40f;
     public const string DefaultBspLimits = "swgl";

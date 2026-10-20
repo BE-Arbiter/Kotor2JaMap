@@ -11,6 +11,16 @@ public sealed record SurfaceInput(string Shader, Vector3[] Positions, Vector3[] 
 {
     /// <summary>Alpha des couleurs de sommet (0 a 255, meme indice que <see cref="Positions"/>) lu par <c>alphaGen vertex</c> ; null = 255.</summary>
     public byte[]? VertexAlpha { get; init; }
+
+    /// <summary>
+    /// Texture de base de la surface (chemin sans extension, ex. <c>textures/jk/01wbolts</c>), celle que l'editeur de cartes sait afficher :
+    /// le shader du jeu peut etre un shader a lightmap (<c>..__lm01</c>) qu'un editeur ne resout pas. Null : <see cref="Shader"/>.
+    /// Uniquement lu par le <c>.map</c> d'edition, jamais par le BSP.
+    /// </summary>
+    public string? VisualTexture { get; init; }
+
+    /// <summary>Taille en pixels de <see cref="VisualTexture"/> (les UV sont en fraction de texture, le <c>.map</c> en pixels). Defaut 128 x 128.</summary>
+    public Vector2 VisualTextureSize { get; init; } = new(128f, 128f);
 }
 
 /// <summary>Scène complète en mémoire, en unités JA. <c>Entities</c>[0] est le worldspawn.</summary>
@@ -29,4 +39,10 @@ public sealed record CompileInput(string MapName, IReadOnlyList<IReadOnlyDiction
 
     /// <summary>Boites ou un spectateur peut se trouver, par piece (unites JA, voir <see cref="Compiler.ViewBox"/>). Une piece sans boite n a pas de cluster : ses surfaces sont toujours visibles (ciel, pieces sans walkmesh). Null : boites deduites des surfaces de chaque piece.</summary>
     public IReadOnlyList<RoomBox>? RoomViewBoxes { get; init; }
+
+    /// <summary>
+    /// Chemin du <c>.map</c> d'edition (collision + entites + geometrie visible texturee). Null par defaut : seul le <c>.map</c> de collision,
+    /// a cote du <c>.bsp</c>, est ecrit. Ne change ni le BSP ni ce <c>.map</c>.
+    /// </summary>
+    public string? VisualMapPath { get; init; }
 }

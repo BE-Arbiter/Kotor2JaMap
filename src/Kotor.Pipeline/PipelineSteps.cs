@@ -222,7 +222,11 @@ public static class PipelineSteps
             Directory.CreateDirectory(stage);
 
             string bsp = Path.Combine(stage, "maps", name + ".bsp");
-            var cr = global::Kotor.Compiler.Compiler.Compile(plan.Input, bsp, Limits.FromName(opt.BspLimits), log);
+            // .map d'edition (geometrie visible texturee) : hors du pk3, dans <travail>\<carte>\edit.
+            string editDir = EditDir(opt, name);
+            if (Directory.Exists(editDir)) Directory.Delete(editDir, true);
+            var input = opt.MapVisuals ? plan.Input with { VisualMapPath = EditMapPath(opt, name) } : plan.Input;
+            var cr = global::Kotor.Compiler.Compiler.Compile(input, bsp, Limits.FromName(opt.BspLimits), log);
             if (!cr.Ok) throw new PipelineStepException("BSP_ERROR", cr.Error ?? "Compilation failed."); // deja journalise par le compilateur
 
             Directory.CreateDirectory(Path.Combine(stage, "shaders")); // le moteur SWGL ne liste que shaders/*.shader (tr_shader.cpp)
@@ -255,12 +259,57 @@ public static class PipelineSteps
                     t.Lightmap ? ModuleExporter.Brighten(t.Texture.Rgba, opt.LightmapBrightness) : t.Texture.Rgba);
             }
 
+            if (opt.MapVisuals) PrepareEditFolder(stage, editDir, EditMapPath(opt, name), log);
             return new ExportStepResult(bsp, ReadBack(File.ReadAllBytes(bsp), plan, log), stage);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw Fail(log, "EXPORT_IO_ERROR", ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Dossier d'edition de la carte : <c>&lt;travail&gt;\&lt;carte&gt;\edit</c>. C'est le « chemin du moteur » de l'editeur de cartes : il contient
+    /// <c>base\maps</c>, <c>base\textures</c> et <c>base\shaders</c> (la structure d'un dossier de jeu Jedi Academy).
+    /// </summary>
+    public static string EditDir(ExportOptions opt, string name) => Path.Combine(opt.WorkDir, name, "edit");
+
+    /// <summary>Le .map d'edition : <c>&lt;travail&gt;\&lt;carte&gt;\edit\base\maps\&lt;carte&gt;.map</c>.</summary>
+    public static string EditMapPath(ExportOptions opt, string name) => Path.Combine(EditDir(opt, name), "base", "maps", name + ".map");
+
+    /// <summary>
+    /// Complete le dossier d'edition pour qu'il soit une base d'editeur autonome : copie de <c>textures</c> et <c>shaders</c> du staging, et
+    /// un caulk gris (<c>textures/common/caulk.tga</c>, absent du pk3 car fourni par le jeu). Ne touche jamais au staging ni au pk3.
+    /// </summary>
+    private static void PrepareEditFolder(string stage, string editDir, string editMap, ImportLog log)
+    {
+        if (!File.Exists(editMap)) return; // ecriture du .map en echec (deja journalisee) : rien a completer
+        try { CopyEditFiles(stage, editDir, editMap, log); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.Warn("MAP_VISUAL_WRITE_FAILED", $"Edit folder incomplete ({ex.Message}); the pk3 is not affected.");
+        }
+    }
+
+    private static void CopyEditFiles(string stage, string editDir, string editMap, ImportLog log)
+    {
+        foreach (string sub in new[] { "textures", "shaders" })
+        {
+            string src = Path.Combine(stage, sub);
+            if (!Directory.Exists(src)) continue;
+            foreach (string f in Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories))
+            {
+                string dst = Path.Combine(editDir, "base", Path.GetRelativePath(stage, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                File.Copy(f, dst, true);
+            }
+        }
+        string caulk = Path.Combine(editDir, "base", "textures", "common", "caulk.tga");
+        Directory.CreateDirectory(Path.GetDirectoryName(caulk)!);
+        var grey = new byte[8 * 8 * 4];
+        for (int i = 0; i < grey.Length; i += 4) { grey[i] = grey[i + 1] = grey[i + 2] = 96; grey[i + 3] = 255; }
+        using (var fs = File.Create(caulk)) TgaWriter.Write(fs, 8, 8, grey);
+        log.Info($"Edit folder: {editDir}: open base/maps/{Path.GetFileName(editMap)} in the map editor with the engine path set to this folder.");
     }
 
     /// <summary>Relit le .bsp ecrit et verifie qu'il correspond au plan (au moins une surface, meme nombre total d'index).</summary>

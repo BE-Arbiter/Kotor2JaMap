@@ -161,7 +161,12 @@ public static class ModuleExporter
             surfaces.Add(new SurfaceInput(planned.Name, pos, mesh.Normals, FlipV(mesh.Uv0),
                 planned.Lightmap is null || mesh.Uv1 is null ? null : FlipV(mesh.Uv1), mesh.Triangles, planned.DoubleSided,
                 useVis ? RoomOf(mesh.Room, roomNames, roomIndex) : -1)
-            { VertexAlpha = planned.Overlay is not null && mesh.VertexAlpha?.Length == mesh.Positions.Length ? mesh.VertexAlpha : null });
+            {
+                VertexAlpha = planned.Overlay is not null && mesh.VertexAlpha?.Length == mesh.Positions.Length ? mesh.VertexAlpha : null,
+                // Pour le .map d'edition : la texture de base (un editeur ne resout pas le shader a lightmap) et sa taille en pixels.
+                VisualTexture = ShaderNames.PrefixFor(opt.Game) + planned.Texture,
+                VisualTextureSize = tex is null ? new Vector2(8f, 8f) : new Vector2(tex.Width, tex.Height),
+            });
             if (scene.RenderMeshesAreSolid && planned.Kind is not (ShaderKind.Additive or ShaderKind.Blend or ShaderKind.Multiply))
                 solid.Add(new SubMesh { MaterialName = planned.Name, Positions = pos, Triangles = mesh.Triangles });
             meshCount++;

@@ -27,13 +27,22 @@ public static class ExportJaCommand
         var cfgOpt = new Option<string?>("--config") { Description = "JSON configuration file (default: kotor2ja.config.json next to the executable)." };
         var assetsOpt = new Option<string?>("--assets") { Description = "With --game swtor: root of the extracted SWTOR resources (default: SWTOR_ASSETS, then the default resources folder)." };
         var noVisOpt = new Option<bool>("--novis") { Description = "Disable the room visibility (PVS): one always-visible cluster, the engine draws everything in the frustum." };
+        var mapVisualsOpt = new Option<string?>("--map-visuals") { Description = "on (default) or off: also write the editing map with the textured visible geometry to <work>/<map>/edit (never in the pk3)." };
         cmd.Arguments.Add(module);
-        foreach (Option o in new Option[] { nameOpt, refOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption, gameOption, assetsOpt, noVisOpt }) cmd.Options.Add(o);
+        foreach (Option o in new Option[] { nameOpt, refOpt, scaleOpt, lmOpt, limOpt, cfgOpt, kotorOption, gameOption, assetsOpt, noVisOpt, mapVisualsOpt }) cmd.Options.Add(o);
         cmd.SetAction(pr =>
         {
             string? cfgPath = pr.GetValue(cfgOpt) ?? GameOption.DefaultConfigPath;
             if (!TryLoadConfig(cfgPath, Console.Error, out ExportOptions opt)) return 1;
             if (pr.GetValue(noVisOpt)) opt = opt with { NoVis = true };
+            switch (pr.GetValue(mapVisualsOpt)?.Trim().ToLowerInvariant())
+            {
+                case null or "": case "on": break;
+                case "off": opt = opt with { MapVisuals = false }; break;
+                default:
+                    Console.Error.WriteLine($"Invalid --map-visuals value: {pr.GetValue(mapVisualsOpt)} (expected on or off).");
+                    return 1;
+            }
             if (string.Equals(pr.GetValue(gameOption)?.Trim(), "swtor", StringComparison.OrdinalIgnoreCase))
                 return ExportSwtorCommand.Run(opt, pr.GetValue(module)!, pr.GetValue(nameOpt), pr.GetValue(assetsOpt), pr.GetValue(scaleOpt),
                     pr.GetValue(limOpt), null, false, null, Console.Out, Console.Error);

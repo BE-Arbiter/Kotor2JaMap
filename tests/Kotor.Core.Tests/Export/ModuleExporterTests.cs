@@ -212,6 +212,58 @@ public sealed class ModuleExporterTests : IDisposable
         Assert.Equal(2, r.Triangles);
     }
 
+    [Fact]
+    public void Surfaces_carry_the_base_texture_and_its_size_for_the_edit_map()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        var plan = ModuleExporter.BuildPlan(scene, null, Opt(), new ImportLog());
+        var s = Assert.Single(plan.Input.Surfaces);
+        Assert.Contains("__l", s.Shader);                    // shader a lightmap : un editeur ne le resout pas
+        Assert.Equal("textures/kotor/t", s.VisualTexture);   // la texture de base, elle, existe en .tga
+        Assert.Equal(new Vector2(2, 2), s.VisualTextureSize);
+    }
+
+    [Fact]
+    public void Export_writes_the_textured_edit_map_next_to_the_work_files_and_not_in_the_pk3()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        var r = ModuleExporter.Export(scene, "emap", Opt(), new ImportLog());
+        Assert.True(r.Ok, r.Error);
+
+        string edit = Path.Combine(_root, "work", "emap", "edit", "base");
+        string map = File.ReadAllText(Path.Combine(edit, "maps", "emap.map"));
+        Assert.Contains("\"_kotor_visual\" \"1\"", map);
+        Assert.Contains(" kotor/t ", map);                  // nom sans « textures/ » comme l'attendent Radiant et q3map2
+        Assert.DoesNotContain("__l", map);
+        Assert.True(File.Exists(Path.Combine(edit, "textures", "kotor", "t.tga")));
+        Assert.True(File.Exists(Path.Combine(edit, "textures", "common", "caulk.tga")));
+        Assert.True(File.Exists(Path.Combine(edit, "shaders", "emap.shader")));
+
+        using var z = ZipFile.OpenRead(r.Pk3Path!);
+        Assert.DoesNotContain(z.Entries, e => e.FullName.Contains("edit", StringComparison.Ordinal));
+        using var pk3Map = new StreamReader(z.GetEntry("maps/emap.map")!.Open());
+        string light = pk3Map.ReadToEnd();
+        Assert.DoesNotContain("_kotor_visual", light);       // le .map du pk3 reste la collision seule
+        Assert.Equal(File.ReadAllText(Path.Combine(_root, "work", "emap", "pk3", "maps", "emap.map")), light);
+    }
+
+    [Fact]
+    public void Map_visuals_off_writes_no_edit_folder_and_leaves_the_bsp_and_pk3_map_byte_identical()
+    {
+        var scene = Scene([Quad("t", "l")], ["t", "l"]);
+        string bsp = Path.Combine(_root, "work", "mv", "pk3", "maps", "mv.bsp");
+        string map = Path.ChangeExtension(bsp, ".map");
+
+        Assert.True(ModuleExporter.Export(scene, "mv", Opt(), new ImportLog()).Ok);
+        byte[] bspOn = File.ReadAllBytes(bsp), mapOn = File.ReadAllBytes(map);
+        Assert.True(Directory.Exists(Path.Combine(_root, "work", "mv", "edit")));
+
+        Assert.True(ModuleExporter.Export(scene, "mv", Opt() with { MapVisuals = false }, new ImportLog()).Ok);
+        Assert.Equal(bspOn, File.ReadAllBytes(bsp));
+        Assert.Equal(mapOn, File.ReadAllBytes(map));
+        Assert.False(Directory.Exists(Path.Combine(_root, "work", "mv", "edit"))); // l'ancien dossier d'edition est retire
+    }
+
     [SkippableFact]
     public void Real_export_tar_m02aa()
     {

@@ -7,7 +7,8 @@ namespace Kotor.Compiler.Bsp;
 
 /// <summary>
 /// Ecrit le <c>.map</c> source (format Quake 3 / Radiant) de la carte compilee : entites, brushes de collision (monde) et brushes
-/// des sous-modeles (portes). Le <c>.map</c> est range dans le pk3 a cote du <c>.bsp</c>.
+/// des sous-modeles (portes). Le <c>.map</c> de collision est range dans le pk3 a cote du <c>.bsp</c> ; le <c>.map</c> d'edition y ajoute
+/// la geometrie visible texturee (<see cref="VisualMapWriter"/>) et reste dans le dossier de travail.
 /// </summary>
 public static class MapWriter
 {
@@ -18,6 +19,22 @@ public static class MapWriter
     public static string Write(IReadOnlyList<IReadOnlyDictionary<string, string>> entities, IReadOnlyList<Brush> worldBrushes,
         IReadOnlyList<BspSubModel> subModels)
     {
+        var sw = new StringWriter { NewLine = "\n" };
+        Write(sw, entities, worldBrushes, subModels, null);
+        return sw.ToString();
+    }
+
+    /// <summary>
+    /// Ecrit le <c>.map</c> sur <paramref name="w"/>. Avec <paramref name="visual"/> non nul, ajoute en fin de fichier l'entite
+    /// <c>func_group</c> de la geometrie visible texturee (voir <see cref="VisualMapWriter"/>) ; sans, la sortie est identique octet pour octet
+    /// a celle de la version qui renvoie une chaine.
+    /// </summary>
+    public static VisualMapStats? Write(TextWriter w, IReadOnlyList<IReadOnlyDictionary<string, string>> entities, IReadOnlyList<Brush> worldBrushes,
+        IReadOnlyList<BspSubModel> subModels, IReadOnlyList<SurfaceInput>? visual, int maxVisualBrushes = VisualMapWriter.DefaultMaxBrushes)
+    {
+        // .map d'edition (geometrie visible demandee) : les editeurs et q3map2 comptent les noms de texture a partir de « textures/ »
+        // (ils ajoutent eux-memes le prefixe), donc « common/caulk ». Le .map du pk3 garde ses noms complets, octet pour octet.
+        string Sh(string shader) => visual is null ? shader : VisualMapWriter.EditorName(shader);
         var sb = new StringBuilder();
         bool worldDone = false;
         foreach (var e in entities)
@@ -33,24 +50,25 @@ public static class MapWriter
             if (isWorld && !worldDone)
             {
                 worldDone = true;
-                AppendBrushes(sb, worldBrushes, CollisionShader);
+                AppendBrushes(sb, worldBrushes, Sh(CollisionShader));
             }
             else if (e.TryGetValue("model", out string? model) && model.StartsWith('*')
                 && int.TryParse(model.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int idx)
                 && idx >= 1 && idx <= subModels.Count)
             {
-                AppendBrushes(sb, subModels[idx - 1].Brushes, string.IsNullOrWhiteSpace(subModels[idx - 1].Shader) ? CollisionShader : subModels[idx - 1].Shader);
+                AppendBrushes(sb, subModels[idx - 1].Brushes, Sh(string.IsNullOrWhiteSpace(subModels[idx - 1].Shader) ? CollisionShader : subModels[idx - 1].Shader));
             }
             sb.Append("}\n");
         }
         if (!worldDone)
         {
-            var w = new StringBuilder("{\n\"classname\" \"worldspawn\"\n");
-            AppendBrushes(w, worldBrushes, CollisionShader);
-            w.Append("}\n");
-            sb.Insert(0, w.ToString());
+            var wb = new StringBuilder("{\n\"classname\" \"worldspawn\"\n");
+            AppendBrushes(wb, worldBrushes, Sh(CollisionShader));
+            wb.Append("}\n");
+            sb.Insert(0, wb.ToString());
         }
-        return sb.ToString();
+        w.Write(sb.ToString());
+        return visual is null ? null : VisualMapWriter.Write(w, visual, maxVisualBrushes);
     }
 
     private static void AppendBrushes(StringBuilder sb, IReadOnlyList<Brush> brushes, string shader)
