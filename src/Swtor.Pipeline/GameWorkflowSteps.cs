@@ -1,3 +1,4 @@
+using Jk.Pipeline;
 using Kotor.Core;
 using Kotor.Pipeline.Assembly;
 using Kotor.Pipeline.Preview;
@@ -6,20 +7,33 @@ using Kotor.Pipeline.Workflow;
 namespace Swtor.Pipeline;
 
 /// <summary>
-/// Les etapes de l'application pour tous les jeux : KOTOR 1 / 2 (<see cref="KotorWorkflowSteps"/>) et SWTOR (<see cref="SwtorWorkflowSteps"/>).
-/// L'apercu choisit l'implementation ; les etapes suivantes vont a celle de la derniere apercu reussie.
+/// Les etapes de l'application pour tous les jeux : KOTOR 1 / 2 (<see cref="KotorWorkflowSteps"/>), SWTOR (<see cref="SwtorWorkflowSteps"/>)
+/// et Jedi Knight (<see cref="JkWorkflowSteps"/>). L'apercu choisit l'implementation ; les etapes suivantes vont a celle de la derniere apercu reussie.
 /// </summary>
-public sealed class GameWorkflowSteps(KotorWorkflowSteps kotor, SwtorWorkflowSteps swtor) : IWorkflowSteps
+public sealed class GameWorkflowSteps(KotorWorkflowSteps kotor, SwtorWorkflowSteps swtor, JkWorkflowSteps jk) : IWorkflowSteps
 {
     private volatile IWorkflowSteps _active = kotor;
 
     public KotorWorkflowSteps Kotor => kotor;
     public SwtorWorkflowSteps Swtor => swtor;
+    public JkWorkflowSteps Jk => jk;
 
-    public IReadOnlyList<ModuleListItem> Modules() => kotor.Modules();
-    public bool IsInstalled(KotorGame game) => game == KotorGame.Swtor ? swtor.IsInstalled(game) : kotor.IsInstalled(game);
+    /// <summary>Les modules de KOTOR / KOTOR 2 et les niveaux de Jedi Knight (les zones SWTOR viennent de leur catalogue).</summary>
+    public IReadOnlyList<ModuleListItem> Modules() => [.. kotor.Modules(), .. jk.Modules()];
 
-    private IWorkflowSteps For(KotorGame game) => game == KotorGame.Swtor ? swtor : kotor;
+    public bool IsInstalled(KotorGame game) => game switch
+    {
+        KotorGame.Swtor => swtor.IsInstalled(game),
+        KotorGame.JediKnight => jk.IsInstalled(game),
+        _ => kotor.IsInstalled(game),
+    };
+
+    private IWorkflowSteps For(KotorGame game) => game switch
+    {
+        KotorGame.Swtor => swtor,
+        KotorGame.JediKnight => jk,
+        _ => kotor,
+    };
 
     public PreviewModel Preview(KotorGame game, string module, IProgress<string> log) => Chosen(game, s => s.Preview(game, module, log));
     public PreviewModel Preview(KotorGame game, IReadOnlyList<string> modules, IProgress<string> log) => Chosen(game, s => s.Preview(game, modules, log));

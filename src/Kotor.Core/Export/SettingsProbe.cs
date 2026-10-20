@@ -1,7 +1,7 @@
 namespace Kotor.Core.Export;
 
-/// <summary>Which of the four Settings paths are usable. Computed off the render thread (it touches the disk).</summary>
-public readonly record struct PathStatus(bool Kotor, bool Kotor2, bool Ja, bool Work)
+/// <summary>Which of the Settings paths are usable (the Jedi Knight folder is optional: empty counts as valid). Computed off the render thread (it touches the disk).</summary>
+public readonly record struct PathStatus(bool Kotor, bool Kotor2, bool Ja, bool Work, bool JediKnight = true)
 {
     /// <summary>Everything still unknown is shown as valid until the first check finishes.</summary>
     public static PathStatus Unknown => new(true, true, true, true);
@@ -10,12 +10,13 @@ public readonly record struct PathStatus(bool Kotor, bool Kotor2, bool Ja, bool 
 /// <summary>Disk checks and merge rules of the Settings panel, kept out of the UI so they can be tested.</summary>
 public static class SettingsProbe
 {
-    /// <summary>Checks the four paths. Slow on a dead network share: never call from the render thread.</summary>
-    public static PathStatus Check(string kotor, string kotor2, string ja, string work) =>
+    /// <summary>Checks the paths. Slow on a dead network share: never call from the render thread.</summary>
+    public static PathStatus Check(string kotor, string kotor2, string ja, string work, string jediKnight = "") =>
         new(FolderOk(kotor, needChitin: true),
             (kotor2 ?? "").Trim().Length == 0 || FolderOk(kotor2, needChitin: true),   // KOTOR 2 is optional
             FolderOk(ja, needChitin: false),
-            WorkOk(work));
+            WorkOk(work),
+            (jediKnight ?? "").Trim().Length == 0 || JediKnightOk(jediKnight));   // Jedi Knight is optional
 
     public static bool FolderOk(string? path, bool needChitin)
     {
@@ -24,6 +25,17 @@ public static class SettingsProbe
             string p = (path ?? "").Trim();
             if (p.Length == 0 || !Directory.Exists(p)) return false;
             return !needChitin || File.Exists(Path.Combine(p, "chitin.key"));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return false; }
+    }
+
+    /// <summary>Dossier de Jedi Knight : il contient <c>Episode\JK1.GOB</c>.</summary>
+    public static bool JediKnightOk(string? path)
+    {
+        try
+        {
+            string p = (path ?? "").Trim();
+            return p.Length > 0 && File.Exists(Path.Combine(p, "Episode", "JK1.GOB"));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return false; }
     }
@@ -51,6 +63,7 @@ public static class SettingsProbe
             Kotor2Dir = Pick(current.Kotor2Dir ?? "", status.Kotor2 && !string.IsNullOrWhiteSpace(current.Kotor2Dir), found.Kotor2Dir),
             JaBaseDir = Pick(current.JaBaseDir ?? "", status.Ja, found.JaBaseDir),
             WorkDir = Pick(current.WorkDir ?? "", status.Work, found.WorkDir),
+            JediKnightDir = Pick(current.JediKnightDir ?? "", status.JediKnight && !string.IsNullOrWhiteSpace(current.JediKnightDir), found.JediKnightDir),
         };
     }
 }

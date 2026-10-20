@@ -14,12 +14,12 @@ public static class ExportJaCommand
     public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
         gameOption ??= GameOption.Create();
-        var cmd = new Command("export-ja", "Exports a KOTOR module (or several linked modules assembled into one map) as a pk3 for Jedi Academy (BSP, shaders, textures).");
+        var cmd = new Command("export-ja", "Exports a KOTOR module (or several linked modules assembled into one map), or with --game jk a Jedi Knight level, as a pk3 for Jedi Academy (BSP, shaders, textures).");
         var module = new Argument<string>("module")
         {
-            Description = "Module name (e.g. tar_m02aa), or several comma-separated modules assembled into one map (e.g. end_m01aa,end_m01ab).",
+            Description = "Module name (e.g. tar_m02aa), or several comma-separated modules assembled into one map (e.g. end_m01aa,end_m01ab). With --game jk: a level name (e.g. 01narshadda, m10, c1).",
         };
-        var nameOpt = new Option<string?>("--name") { Description = "Map name (default: the module name; several modules: <reference>_<count>, e.g. end_m01aa_2)." };
+        var nameOpt = new Option<string?>("--name") { Description = "Map name (default: the module name; several modules: <reference>_<count>, e.g. end_m01aa_2; Jedi Knight: jk_<level>)." };
         var refOpt = new Option<string?>("--reference") { Description = "Reference module of an assembly: it keeps its position, lighting and spawn point (default: the first module)." };
         var scaleOpt = new Option<float?>("--scale") { Description = "Scale from KOTOR metres to JA units (default: config, 40)." };
         var lmOpt = new Option<float?>("--lightmap-brightness") { Description = "Lightmap brightness multiplier." };
@@ -90,6 +90,7 @@ public static class ExportJaCommand
             error.WriteLine($"Invalid module list: {listError}");
             return 1;
         }
+        if (opt.Game == KotorGame.JediKnight) return RunJk(opt, modules, mapName, output, error);
         int referenceIndex = 0;
         if (!string.IsNullOrWhiteSpace(reference))
         {
@@ -115,6 +116,35 @@ public static class ExportJaCommand
         return modules.Count == 1
             ? RunSingle(opt, modules[0], mapName, output, error)
             : RunAssembly(opt, modules, referenceIndex, mapName, output, error);
+    }
+
+    /// <summary>
+    /// Niveau Jedi Knight : une seule scene (pas d'assemblage), objets et mobiles convertis comme dans l'application.
+    /// Code de sortie : 0 si OK, 1 si echec (ou plusieurs niveaux), 2 si le niveau ou l'installation est inconnu.
+    /// </summary>
+    private static int RunJk(ExportOptions opt, IReadOnlyList<string> levels, string? mapName, TextWriter output, TextWriter error)
+    {
+        if (levels.Count != 1)
+        {
+            error.WriteLine("Jedi Knight levels cannot be assembled: give a single level.");
+            return 1;
+        }
+        if (!Jk.Core.JkInstall.IsInstalled(opt.JediKnightDir))
+        {
+            error.WriteLine(GameOption.NotFound(KotorGame.JediKnight, opt.JediKnightDir));
+            return 2;
+        }
+        Jk.Core.JkLevelRef? level = Jk.Core.JkInstall.ListLevels(opt.JediKnightDir!)
+            .FirstOrDefault(l => string.Equals(l.Name, levels[0], StringComparison.OrdinalIgnoreCase));
+        if (level is null)
+        {
+            error.WriteLine($"Unknown level: {levels[0]} (use list-modules --game jk to see the 34 levels).");
+            return 2;
+        }
+        var log = new ImportLog();
+        ExportResult r = Jk.Pipeline.JkExporter.Export(level, mapName, opt, log);
+        output.WriteLine($"Level {level.Name} ({level.Kind}) -> map {MapNames.Normalize(string.IsNullOrWhiteSpace(mapName) ? Jk.Pipeline.JkWorkflowSteps.DefaultMapName(level.Name) : mapName)}");
+        return Report(r, log, output, error);
     }
 
     private static int RunSingle(ExportOptions opt, string module, string? mapName, TextWriter output, TextWriter error)

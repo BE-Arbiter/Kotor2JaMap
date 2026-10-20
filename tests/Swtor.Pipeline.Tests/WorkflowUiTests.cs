@@ -176,7 +176,7 @@ public class WorkflowUiTests
             var opt = new ExportOptions("", Path.Combine(tmp, "base"), Path.Combine(tmp, "work"));
             Directory.CreateDirectory(opt.JaBaseDir);
             var swtor = new SwtorWorkflowSteps(opt, new SwtorAssets(root));
-            var steps = new GameWorkflowSteps(new KotorWorkflowSteps(opt), swtor);
+            var steps = new GameWorkflowSteps(new KotorWorkflowSteps(opt), swtor, new Jk.Pipeline.JkWorkflowSteps(opt));
             var ctl = new WorkflowController(steps);
             Assert.True(ctl.SelectModules(KotorGame.Swtor, [$"{CouncilAreaId}:{CouncilRoom}"]));
             ctl.PreviewAsync().Wait();
@@ -217,7 +217,7 @@ public class WorkflowUiTests
         try
         {
             var swtor = new SwtorWorkflowSteps(new ExportOptions("", root, root), new SwtorAssets(root));
-            var composite = new GameWorkflowSteps(new KotorWorkflowSteps(new ExportOptions("", "", "")), swtor);
+            var composite = new GameWorkflowSteps(new KotorWorkflowSteps(new ExportOptions("", "", "")), swtor, new Jk.Pipeline.JkWorkflowSteps(new ExportOptions("", "", "")));
             Assert.False(composite.IsInstalled(KotorGame.Swtor));
             // Un apercu SWTOR qui echoue ne change pas l'implementation active.
             Assert.Throws<PipelineStepException>(() => composite.Preview(KotorGame.Swtor, "x", new Log()));

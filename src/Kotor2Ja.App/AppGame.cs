@@ -56,6 +56,7 @@ public sealed class AppGame : Game
     private PreviewModel? _failedPreview;
     private Swtor.Pipeline.SwtorWorkflowSteps? _swtorSteps;
     private KotorWorkflowSteps? _kotorSteps;
+    private Jk.Pipeline.JkWorkflowSteps? _jkSteps;
 
     // The back buffer follows the window when it is resized, maximized or the screen resolution changes.
     private void OnClientSizeChanged(object? sender, EventArgs e)
@@ -101,6 +102,7 @@ public sealed class AppGame : Game
         _screen = new MainScreen(_workflow, _options);
         _screen.SetSwtor(_swtorSteps!);
         _screen.SetKotor(_kotorSteps!);
+        _screen.SetJk(_jkSteps!);
         _screen.SaveSettings = SaveSettings;
         _screen.DetectSettings = () => GameLocator.Detect();
         if (_auto is not null) _screen.LogSink = Console.WriteLine;
@@ -112,20 +114,24 @@ public sealed class AppGame : Game
         base.Initialize();
     }
 
-    // KOTOR 1 / 2 et SWTOR derriere un meme flux de travail ; la branche SWTOR de l'arbre reprend les etapes SWTOR.
+    // KOTOR 1 / 2, SWTOR et Jedi Knight derriere un meme flux de travail ; les branches SWTOR et Jedi Knight de l arbre reprennent leurs etapes.
     private WorkflowController NewWorkflow(ExportOptions options)
     {
         var swtor = _swtorSteps = new Swtor.Pipeline.SwtorWorkflowSteps(options);
         var kotor = _kotorSteps = new KotorWorkflowSteps(options);
+        _jkSteps?.Dispose();   // referme les archives GOB du niveau precedent
+        var jk = _jkSteps = new Jk.Pipeline.JkWorkflowSteps(options);
         _screen?.SetSwtor(swtor);
         _screen?.SetKotor(kotor);
-        return new WorkflowController(new Swtor.Pipeline.GameWorkflowSteps(kotor, swtor));
+        _screen?.SetJk(jk);
+        return new WorkflowController(new Swtor.Pipeline.GameWorkflowSteps(kotor, swtor, jk));
     }
 
     private void LogFolders(ExportOptions options)
     {
         _screen.AddLog($"KOTOR: {options.KotorDir} (scale {options.Scale:0.##})");
         _screen.AddLog($"KOTOR 2: {(string.IsNullOrWhiteSpace(options.Kotor2Dir) ? "(not configured)" : options.Kotor2Dir)}");
+        _screen.AddLog($"Jedi Knight: {(_jkSteps is { } jk && jk.IsInstalled(Kotor.Core.KotorGame.JediKnight) ? jk.JkDir : string.IsNullOrWhiteSpace(options.JediKnightDir) ? "(not configured, node greyed out)" : options.JediKnightDir + " (not found, node greyed out)")}");
         if (_swtorSteps is { } sw) _screen.AddLog($"SWTOR: {(sw.IsInstalled(Kotor.Core.KotorGame.Swtor) ? sw.Assets.Root : sw.Assets.Root + " (not found, branch hidden)")}");
     }
 

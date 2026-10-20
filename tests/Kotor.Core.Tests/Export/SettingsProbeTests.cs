@@ -22,6 +22,37 @@ public class SettingsProbeTests
         finally { foreach (var d in new[] { game, ja }) if (Directory.Exists(d)) Directory.Delete(d, true); }
     }
 
+
+    [Fact]
+    public void Check_reports_the_jedi_knight_folder_which_is_optional()
+    {
+        string jk = Temp();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(jk, "Episode"));
+            Assert.False(SettingsProbe.Check("", "", "", "", jk).JediKnight);                      // no JK1.GOB
+            File.WriteAllText(Path.Combine(jk, "Episode", "JK1.GOB"), "");
+            Assert.True(SettingsProbe.Check("", "", "", "", jk).JediKnight);
+            Assert.False(SettingsProbe.Check("", "", "", "", jk + "_missing").JediKnight);
+            Assert.True(SettingsProbe.Check("", "", "", "", "").JediKnight);                       // empty: not configured, not an error
+            Assert.True(SettingsProbe.Check("", "", "", "").JediKnight);
+        }
+        finally { Directory.Delete(jk, true); }
+    }
+
+    [Fact]
+    public void ApplyDetected_fills_or_keeps_the_jedi_knight_folder()
+    {
+        var found = new GamePaths(null, null, null, @"F:\w", @"F:\steam\jk");
+        var empty = SettingsProbe.ApplyDetected(new ExportOptions("", "", ""), found, new PathStatus(false, true, false, false, JediKnight: true));
+        Assert.Equal(@"F:\steam\jk", empty.JediKnightDir);                                        // empty: filled
+        var bad = SettingsProbe.ApplyDetected(new ExportOptions("", "", "") { JediKnightDir = @"C:\bad" }, found, new PathStatus(false, true, false, false, JediKnight: false));
+        Assert.Equal(@"F:\steam\jk", bad.JediKnightDir);                                          // invalid and found: replaced
+        var keep = SettingsProbe.ApplyDetected(new ExportOptions("", "", "") { JediKnightDir = @"C:\mine\jk" }, found, new PathStatus(false, true, false, false, JediKnight: true));
+        Assert.Equal(@"C:\mine\jk", keep.JediKnightDir);                                          // valid: kept
+        var none = SettingsProbe.ApplyDetected(new ExportOptions("", "", "") { JediKnightDir = @"C:\bad" }, new GamePaths(null, null, null, "w"), new PathStatus(false, true, false, false, JediKnight: false));
+        Assert.Equal(@"C:\bad", none.JediKnightDir);                                              // nothing found: not erased
+    }
     [Fact]
     public void ApplyDetected_keeps_valid_fields_and_unfound_games()
     {

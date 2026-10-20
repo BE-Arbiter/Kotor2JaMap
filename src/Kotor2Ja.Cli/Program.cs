@@ -16,11 +16,11 @@ public static class Program
     {
         var kotorOption = new Option<string?>("--kotor")
         {
-            Description = "Install folder of the chosen game (default: KOTOR_PATH / KOTOR2_PATH, then the config file, then the Steam path).",
+            Description = "Install folder of the chosen game (default: KOTOR_PATH / KOTOR2_PATH / JK_DIR, then the config file, then the Steam path).",
         };
         var gameOption = new Option<string>("--game")
         {
-            Description = "Game to read: kotor (default), kotor2 or swtor (export-ja only: the module argument is then a SWTOR area).",
+            Description = "Game to read: kotor (default), kotor2, jk (Jedi Knight: the module argument is a level such as 01narshadda, m10 or c1) or swtor (export-ja only: the module argument is then a SWTOR area).",
             DefaultValueFactory = _ => "kotor",
         };
         var root = new RootCommand("Converts KOTOR modules to Jedi Academy.");

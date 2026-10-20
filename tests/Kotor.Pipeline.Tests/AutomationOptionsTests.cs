@@ -38,6 +38,18 @@ public class AutomationOptionsTests
     }
 
     [Fact]
+    public void Automation_parse_jk_level_is_a_single_module()
+    {
+        var o = AutomationParser.Parse(["--game", "jk", "--module", "01narshadda", "--run-to", "export", "--screenshot", "s.png"], out string? error);
+        Assert.Null(error);
+        Assert.NotNull(o);
+        Assert.Equal(KotorGame.JediKnight, o.Game);
+        Assert.Equal(["01narshadda"], o.Modules);
+        Assert.Contains("jk", AutomationParser.Usage);
+        Assert.Equal(KotorGame.JediKnight, AutomationParser.Parse(["--game", "JK", "--module", "m10"], out _)!.Game);
+    }
+
+    [Fact]
     public void Automation_parse_invalid_runto()
     {
         Assert.Null(AutomationParser.Parse(["--module", "m", "--run-to", "bsp"], out string? error));

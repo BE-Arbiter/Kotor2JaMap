@@ -28,6 +28,11 @@ public static class ExportObjCommand
                 Console.Error.WriteLine(GameOption.BadValue(pr.GetValue(gameOption)));
                 return 1;
             }
+            if (game == KotorGame.JediKnight)
+            {
+                Console.Error.WriteLine("export-obj reads KOTOR modules only; use export-ja --game jk for Jedi Knight levels.");
+                return 1;
+            }
             return Run(GameOption.ResolveDir(pr.GetValue(kotorOption), game), pr.GetValue(module)!, pr.GetValue(outOpt)!,
                 Console.Out, Console.Error, game);
         });

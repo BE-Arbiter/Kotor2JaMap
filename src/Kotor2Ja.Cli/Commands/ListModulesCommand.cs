@@ -12,7 +12,7 @@ public static class ListModulesCommand
     public static Command Create(Option<string?> kotorOption, Option<string>? gameOption = null)
     {
         gameOption ??= GameOption.Create();
-        var cmd = new Command("list-modules", "Lists the KOTOR modules with their area name.");
+        var cmd = new Command("list-modules", "Lists the KOTOR modules with their area name (with --game jk: the 34 Jedi Knight levels with their names).");
         cmd.Options.Add(kotorOption);
         cmd.Options.Add(gameOption);
         cmd.SetAction(pr =>
@@ -29,6 +29,17 @@ public static class ListModulesCommand
 
     public static int Run(string? kotorDir, TextWriter output, TextWriter error, KotorGame game = KotorGame.Kotor1)
     {
+        if (game == KotorGame.JediKnight)
+        {
+            if (!Jk.Core.JkInstall.IsInstalled(kotorDir))
+            {
+                error.WriteLine(GameOption.NotFound(game, kotorDir));
+                return 2;
+            }
+            foreach (Jk.Core.JkLevelEntry level in Jk.Core.JkInstall.LevelNames(kotorDir!, Jk.Core.JkInstall.ListLevels(kotorDir!)))
+                output.WriteLine($"{level.Level.Name}\t{level.DisplayName}");
+            return 0;
+        }
         if (kotorDir is null || !Directory.Exists(kotorDir))
         {
             error.WriteLine(GameOption.NotFound(game, kotorDir));

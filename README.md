@@ -66,7 +66,7 @@ Camera: hold the right mouse button to look around, `W`/`Z` `A`/`Q` `S` `D` to m
 The application accepts command line options to run the workflow and take a screenshot unattended:
 
 ```
-Kotor2Ja.App [--game kotor|kotor2] --module <module>[,<module>...] [--run-to preview|import|export|pk3]
+Kotor2Ja.App [--game kotor|kotor2|swtor|jk] --module <module>[,<module>...] [--run-to preview|import|export|pk3]
              [--camera "x y z yaw pitch"] [--screenshot <png>] [--exit]
 ```
 
@@ -90,7 +90,7 @@ dotnet run --project src/Kotor2Ja.Cli -- <command> [options]
 
 Options common to all commands:
 
-- `--game kotor|kotor2` (default `kotor`).
+- `--game kotor|kotor2|jk` (default `kotor`; `export-ja` also accepts `swtor`).
 - `--kotor <folder>` installation folder of the chosen game.
 
 Options of `export-ja`:
@@ -155,6 +155,7 @@ Settings are read from `kotor2ja.config.json`, next to the executable (see also 
 | --- | --- |
 | `kotorDir` | KOTOR installation folder. |
 | `kotor2Dir` | KOTOR 2 installation folder. |
+| `jediKnightDir` | Jedi Knight installation folder (optional). |
 | `jaBaseDir` | The Jedi Academy `base` folder where the `.pk3` files are written. |
 | `workDir` | Work folder: staging files, journals and caches, one sub-folder per map (default `%LOCALAPPDATA%\Kotor2Ja\work`). |
 | `scale` | Scale from KOTOR metres to Jedi Academy units (default 40). Must be a finite number greater than 0. |
@@ -165,8 +166,20 @@ For the game folders the order is: environment variable, then configuration file
 
 - `KOTOR_PATH` overrides `kotorDir`.
 - `KOTOR2_PATH` overrides `kotor2Dir`.
+- `JK_DIR` overrides `jediKnightDir`.
 
 The command line option `--kotor` takes priority over both.
+
+## Jedi Knight: Dark Forces II
+
+The application and the command line tool also convert the levels of *Star Wars Jedi Knight: Dark Forces II* (Steam). The game is only read, never modified.
+
+- **Folder**: detected through Steam (`steamapps\common\Star Wars Jedi Knight`, which must contain `Episode\JK1.GOB`); fallback `C:\Program Files (x86)\Steam\steamapps\common\Star Wars Jedi Knight`. Configuration key `jediKnightDir`, environment variable `JK_DIR`, `Settings` field `Jedi Knight` (red when invalid; `Detect` fills it).
+- **Levels**: the 34 levels, grouped in the tree under `Jedi Knight` as `Single player` (25), `Multiplayer` (6) and `CTF` (3). Names come from the game (`episode.jk` and its string table), else the file name. Levels are converted one at a time (no assembly).
+- **Output**: `jk_<level>.pk3` (for example `jk_01narshadda.pk3`), with assets under `textures/jk/`, `models/jk/` and `sound/jk/`.
+- **Converted**: geometry with its textures, animated and scrolling textures, sky, water, lava and killing zones, JK lighting, placed objects with their models, pick-ups (weapons, ammunition, health, shields) as Jedi Academy items, start points, sector sounds, and moving things (doors, lifts, bridges, traps, switches) as moving Jedi Academy entities.
+- **Not converted**: enemies and NPCs (no actors: the log has `JK_ACTOR_SKIPPED` with their number). Approximations and skipped details are listed by code (`JK_*`) in the log and in `<map>.journal.txt`.
+- **Command line**: `list-modules --game jk` and `export-ja <level> --game jk` (`--kotor <folder>` gives the Jedi Knight folder). Application: `Kotor2Ja.App --game jk --module 01narshadda --run-to export --screenshot out.png`.
 
 ## What is converted
 

@@ -84,6 +84,20 @@ public sealed class MainScreen
         steps.MapNameOverride = _kotorNameEdited ? _kotorName : null;
     }
 
+    /// <summary>Etapes Jedi Knight : donnent le type de chaque niveau (sous-groupes de l'arbre) et recoivent le nom de carte saisi.</summary>
+    public void SetJk(Jk.Pipeline.JkWorkflowSteps steps)
+    {
+        _jk = steps;
+        steps.MapNameOverride = _kotorNameEdited ? _kotorName : null;
+    }
+
+    private Jk.Pipeline.JkWorkflowSteps? _jk;
+
+    // Intitule d'une ligne de la liste : « module - nom » ; Jedi Knight : le nom lisible du jeu puis le nom du niveau entre crochets.
+    private static string ModuleLabel(ModuleListItem m) =>
+        m.Game != KotorGame.JediKnight ? $"{m.Module} - {m.AreaName}"
+        : string.Equals(m.Module, m.AreaName, StringComparison.OrdinalIgnoreCase) ? m.Module : $"{m.AreaName} [{m.Module}]";
+
     private KotorWorkflowSteps? _kotor;
     private string _kotorName = "";
     private bool _kotorNameEdited;   // faux : le champ suit le nom par defaut de la selection
@@ -92,7 +106,12 @@ public sealed class MainScreen
     public void SetModules(IReadOnlyList<ModuleListItem> modules)
     {
         ModuleListItem[] items = modules.ToArray();
-        _labels = items.Select(m => $"{m.Module} - {m.AreaName}").ToArray();
+        _labels = items.Select(ModuleLabel).ToArray();
+        var kinds = new Dictionary<string, Jk.Core.JkLevelKind>(StringComparer.OrdinalIgnoreCase);
+        if (_jk is { } jk)
+            foreach (ModuleListItem m in items.Where(m => m.Game == KotorGame.JediKnight))
+                if (jk.KindOf(m.Module) is { } kind) kinds[m.Module] = kind;
+        _jkKinds = kinds;
         _modules = items;
     }
 
@@ -135,6 +154,7 @@ public sealed class MainScreen
 
         foreach (KotorGame game in new[] { KotorGame.Kotor1, KotorGame.Kotor2 })
             DrawGameNode(game, height * 0.15f, busy);
+        DrawJkNode(height * 0.16f, busy);
         _swtor?.Draw(_workflow, busy, height * 0.16f);
         ImGui.TextDisabled("Ctrl+click: select several modules of one game.");
         DrawAssemblySelection(busy);
@@ -177,7 +197,7 @@ public sealed class MainScreen
     // ---- Settings panel -------------------------------------------------------------------------------------------------------------
 
     private ExportOptions _settings = new("", "", "");
-    private string _kotorText = "", _kotor2Text = "", _jaText = "", _workText = "";
+    private string _kotorText = "", _kotor2Text = "", _jaText = "", _workText = "", _jkText = "";
     // SWTOR : source des ressources (dossier extrait ou archives du jeu).
     private bool _swtorFromGame;
     private string _swtorExtractedText = "", _swtorGameText = "";
@@ -185,10 +205,10 @@ public sealed class MainScreen
     private bool _settingsMessageIsError;
     // Disk and registry access (path checks, Detect) runs on background tasks; the render thread only reads their results.
     private PathStatus _status = PathStatus.Unknown;
-    private (string, string, string, string)? _checkedFor;       // texts the current _status was computed for
-    private (string, string, string, string) _lastSeen;
+    private (string, string, string, string, string)? _checkedFor;       // texts the current _status was computed for
+    private (string, string, string, string, string) _lastSeen;
     private long _editAt;
-    private readonly BackgroundJob<(PathStatus Status, (string, string, string, string) Texts)> _checkJob = new();
+    private readonly BackgroundJob<(PathStatus Status, (string, string, string, string, string) Texts)> _checkJob = new();
     private readonly BackgroundJob<ExportOptions> _detectJob = new();
 
     /// <summary>Called by Save with the edited options; returns an error message, or null when saved.</summary>
@@ -211,6 +231,7 @@ public sealed class MainScreen
         _kotor2Text = o.Kotor2Dir ?? "";
         _jaText = o.JaBaseDir ?? "";
         _workText = o.WorkDir ?? "";
+        _jkText = o.JediKnightDir ?? "";
         _swtorFromGame = o.SwtorFromGame;
         _swtorExtractedText = o.SwtorDir ?? "";
         _swtorGameText = o.SwtorGameDir ?? "";
@@ -225,28 +246,30 @@ public sealed class MainScreen
         if (_detectJob.TryTake(out ExportOptions? detected) && detected is not null)
         {
             _kotorText = detected.KotorDir ?? ""; _kotor2Text = detected.Kotor2Dir ?? ""; _jaText = detected.JaBaseDir ?? ""; _workText = detected.WorkDir ?? "";
+            _jkText = detected.JediKnightDir ?? "";
             if (!string.IsNullOrWhiteSpace(detected.SwtorGameDir)) _swtorGameText = detected.SwtorGameDir;
             _settingsMessage = "Folders detected through Steam (valid fields were kept). Click Save to keep them.";
             _settingsMessageIsError = false;
         }
-        var texts = (_kotorText, _kotor2Text, _jaText, _workText);
+        var texts = (_kotorText, _kotor2Text, _jaText, _workText, _jkText);
         if (texts != _lastSeen) { _lastSeen = texts; _editAt = now; }
         if (_checkedFor != texts && now - _editAt > 300 && !_checkJob.IsRunning)
-            _checkJob.TryStart(() => (SettingsProbe.Check(texts.Item1, texts.Item2, texts.Item3, texts.Item4), texts));
+            _checkJob.TryStart(() => (SettingsProbe.Check(texts.Item1, texts.Item2, texts.Item3, texts.Item4, texts.Item5), texts));
         PathField("KOTOR", ref _kotorText, _status.Kotor);
         PathField("KOTOR 2", ref _kotor2Text, _status.Kotor2);
         PathField("JA base", ref _jaText, _status.Ja);
         PathField("Work dir", ref _workText, _status.Work);
+        PathField("Jedi Knight (empty = not used)", ref _jkText, _status.JediKnight);
         DrawSwtorSource();
         bool busy = _workflow.IsBusy;
         ImGui.BeginDisabled(_detectJob.IsRunning);
         if (ImGui.Button("Detect") && DetectSettings is { } detect)
         {
-            ExportOptions snapshot = _settings with { KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim() };
+            ExportOptions snapshot = _settings with { KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim(), JediKnightDir = _jkText.Trim() };
             _settingsMessage = "Detecting...";
             _settingsMessageIsError = false;
             _detectJob.TryStart(() => SettingsProbe.ApplyDetected(snapshot, detect(),
-                SettingsProbe.Check(snapshot.KotorDir, snapshot.Kotor2Dir ?? "", snapshot.JaBaseDir, snapshot.WorkDir))
+                SettingsProbe.Check(snapshot.KotorDir, snapshot.Kotor2Dir ?? "", snapshot.JaBaseDir, snapshot.WorkDir, snapshot.JediKnightDir ?? ""))
                 with { SwtorGameDir = Swtor.Core.Myp.SwtorGameLocator.Detect() ?? snapshot.SwtorGameDir });
         }
         ImGui.EndDisabled();
@@ -271,6 +294,7 @@ public sealed class MainScreen
     private ExportOptions SettingsFromFields() => _settings with
     {
         KotorDir = _kotorText.Trim(), Kotor2Dir = _kotor2Text.Trim(), JaBaseDir = _jaText.Trim(), WorkDir = _workText.Trim(),
+        JediKnightDir = string.IsNullOrWhiteSpace(_jkText) ? null : _jkText.Trim(),
         SwtorFromGame = _swtorFromGame,
         SwtorDir = string.IsNullOrWhiteSpace(_swtorExtractedText) ? null : _swtorExtractedText.Trim(),
         SwtorGameDir = string.IsNullOrWhiteSpace(_swtorGameText) ? null : _swtorGameText.Trim(),
@@ -304,6 +328,53 @@ public sealed class MainScreen
         ImGui.InputText("##set" + label, ref text, 520);
         if (!ok) ImGui.PopStyleColor();
         if (!ok && ImGui.IsItemHovered()) ImGui.SetTooltip("Folder not found");
+    }
+
+    // Type de chaque niveau Jedi Knight (calcule hors du fil de rendu avec la liste des modules).
+    private volatile Dictionary<string, Jk.Core.JkLevelKind> _jkKinds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Noeud Jedi Knight : trois sous-groupes (Single player, Multiplayer, CTF) ; grise et marque "(not found)" si le dossier du jeu manque.</summary>
+    private void DrawJkNode(float height, bool busy)
+    {
+        const KotorGame game = KotorGame.JediKnight;
+        bool installed = _workflow.IsInstalled(game);
+        string label = installed ? KotorGames.DisplayName(game) : KotorGames.DisplayName(game) + " (not found)";
+        ImGui.BeginDisabled(!installed);
+        if (ImGui.TreeNodeEx(label + "###game" + (int)game, installed ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None))
+        {
+            if (ImGui.BeginChild("##modules" + (int)game, new Vector2(-1, height), ImGuiChildFlags.Borders))
+            {
+                ModuleListItem[]? modules = _modules;
+                string[] labels = _labels;
+                if (modules is null) ImGui.TextDisabled("Loading modules...");
+                else
+                {
+                    IReadOnlyList<string> selection = _workflow.SelectedGame == game ? _workflow.SelectedModules : [];
+                    var kinds = _jkKinds;
+                    foreach (Jk.Core.JkLevelKind kind in new[] { Jk.Core.JkLevelKind.SinglePlayer, Jk.Core.JkLevelKind.Multiplayer, Jk.Core.JkLevelKind.Ctf })
+                    {
+                        int count = 0;
+                        for (int i = 0; i < modules.Length; i++)
+                            if (modules[i].Game == game && kinds.TryGetValue(modules[i].Module, out var k) && k == kind) count++;
+                        if (count == 0) continue;
+                        string group = $"{Jk.Pipeline.JkWorkflowSteps.GroupLabel(kind)} ({count})###jkgroup{(int)kind}";
+                        if (!ImGui.TreeNodeEx(group, ImGuiTreeNodeFlags.DefaultOpen)) continue;
+                        for (int i = 0; i < modules.Length; i++)
+                        {
+                            if (modules[i].Game != game || !kinds.TryGetValue(modules[i].Module, out var k) || k != kind) continue;
+                            string module = modules[i].Module;
+                            // Un niveau a la fois : les niveaux JK ne s'assemblent pas.
+                            if (ImGui.Selectable(labels[i] + "###" + game + module, selection.Contains(module, StringComparer.OrdinalIgnoreCase)) && !busy)
+                                _workflow.SelectModule(game, module);
+                        }
+                        ImGui.TreePop();
+                    }
+                }
+            }
+            ImGui.EndChild();
+            ImGui.TreePop();
+        }
+        ImGui.EndDisabled();
     }
 
     /// <summary>One tree node per game; a game whose folder is missing is greyed out and labelled "(not found)".</summary>
@@ -384,7 +455,8 @@ public sealed class MainScreen
     {
         IReadOnlyList<string> selection = _workflow.SelectedModules;
         if (_kotor is null || _workflow.SelectedGame == KotorGame.Swtor || selection.Count == 0) return;
-        if (!_kotorNameEdited) _kotorName = KotorWorkflowSteps.DefaultMapName(selection, _workflow.Assembly?.ReferenceIndex ?? 0);
+        bool jkGame = _workflow.SelectedGame == KotorGame.JediKnight;
+        if (!_kotorNameEdited) _kotorName = jkGame ? Jk.Pipeline.JkWorkflowSteps.DefaultMapName(selection[0]) : KotorWorkflowSteps.DefaultMapName(selection, _workflow.Assembly?.ReferenceIndex ?? 0);
 
         ImGui.TextUnformatted("Map name");
         ImGui.SetNextItemWidth(-1);
@@ -400,6 +472,7 @@ public sealed class MainScreen
             ImGui.PopStyleColor();
         }
         _kotor.MapNameOverride = _kotorNameEdited ? _kotorName : null;
+        if (_jk is not null) _jk.MapNameOverride = _kotorNameEdited ? _kotorName : null;
     }
 
     /// <summary>Assemblage previsualise : « Link modules » quand il faut lier ou appliquer, « Edit placement » sinon.</summary>

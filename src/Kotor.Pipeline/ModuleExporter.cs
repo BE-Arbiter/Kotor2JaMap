@@ -53,8 +53,8 @@ public static class ModuleExporter
         return Export(scene, mapName, opt, log);
     }
 
-    /// <summary>Exporte une scene deja assemblee (le nom de carte par defaut est le module de la scene).</summary>
-    public static ExportResult Export(ModuleScene scene, string? mapName, ExportOptions opt, ImportLog log)
+    /// <summary>Exporte une scene deja assemblee (le nom de carte par defaut est le module de la scene). <paramref name="objects"/> : conversion des objets d une scene Jedi Knight (null : objets KOTOR).</summary>
+    public static ExportResult Export(ModuleScene scene, string? mapName, ExportOptions opt, ImportLog log, SceneObjects? objects = null)
     {
         string name = MapNames.Normalize(mapName ?? scene.Info.Module);
         if (opt.Validate() is { } invalid) return new ExportResult(false, null, invalid, 0, 0, 0);
@@ -63,7 +63,7 @@ public static class ModuleExporter
             log.Warn("MAP_NAME_INVALID", badName);
             return new ExportResult(false, null, badName, 0, 0, 0);
         }
-        ImportStepResult imported = PipelineSteps.Import(scene, mapName, opt, log);
+        ImportStepResult imported = PipelineSteps.Import(scene, mapName, opt, log, objects);
         ExportPlan plan = imported.Plan;
         ExportResult result;
         try
