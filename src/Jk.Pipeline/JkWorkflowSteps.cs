@@ -38,6 +38,8 @@ public sealed class JkWorkflowSteps : IWorkflowSteps, IDisposable
         ArgumentNullException.ThrowIfNull(options);
         _opt = options.ForGame(KotorGame.JediKnight);
         _pipeline = new KotorWorkflowSteps(_opt);
+        string? dir = _opt.JediKnightDir;
+        _installed = new Lazy<bool>(() => JkInstall.IsInstalled(dir));
     }
 
     /// <summary>Dossier d'installation de Jedi Knight (configure ou detecte) ; null ou vide s'il n'est pas renseigne.</summary>
@@ -60,7 +62,11 @@ public sealed class JkWorkflowSteps : IWorkflowSteps, IDisposable
         _ => "Single player",
     };
 
-    public bool IsInstalled(KotorGame game) => game == KotorGame.JediKnight && JkInstall.IsInstalled(JkDir);
+    // Present ou non : lu une seule fois par instance (l'arbre l'interroge a chaque image, sur le fil de rendu) ; l'application
+    // reconstruit l'instance quand les Settings sont enregistrees, ce qui relit le disque.
+    private readonly Lazy<bool> _installed;
+
+    public bool IsInstalled(KotorGame game) => game == KotorGame.JediKnight && _installed.Value;
 
     /// <summary>Les niveaux de l'installation (les 34 du jeu), dans l'ordre de leur <c>episode.jk</c>, avec leur nom lisible ; vide si le jeu est absent.</summary>
     public IReadOnlyList<ModuleListItem> Modules()

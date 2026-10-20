@@ -18,36 +18,8 @@ public class JkGameOptionTests
         return d;
     }
 
-    private static void WriteGob(string dir, string name, params (string Path, string Content)[] files)
-    {
-        Directory.CreateDirectory(Path.Combine(dir, "Episode"));
-        using var ms = new MemoryStream();
-        using var w = new BinaryWriter(ms);
-        w.Write(Encoding.ASCII.GetBytes("GOB "));
-        w.Write(0x14);
-        w.Write(0);
-        var offsets = new List<(int Off, int Size)>();
-        foreach (var f in files)
-        {
-            byte[] data = Encoding.ASCII.GetBytes(f.Content);
-            offsets.Add(((int)ms.Position, data.Length));
-            w.Write(data);
-        }
-        int indexOffset = (int)ms.Position;
-        w.Write(files.Length);
-        for (int i = 0; i < files.Length; i++)
-        {
-            w.Write(offsets[i].Off);
-            w.Write(offsets[i].Size);
-            byte[] n = new byte[128];
-            Encoding.ASCII.GetBytes(files[i].Path).CopyTo(n, 0);
-            w.Write(n);
-        }
-        w.Flush();
-        byte[] bytes = ms.ToArray();
-        BitConverter.GetBytes(indexOffset).CopyTo(bytes, 8);
-        File.WriteAllBytes(Path.Combine(dir, "Episode", name), bytes);
-    }
+    private static void WriteGob(string dir, string name, params (string Path, string Content)[] files) =>
+        Jk.Core.Tests.GobBuilder.WriteGob(dir, "Episode", name, files);   // source partagee avec Jk.Core.Tests (voir le csproj)
 
     [Theory]
     [InlineData("jk")]
@@ -113,6 +85,43 @@ public class JkGameOptionTests
         Assert.Contains("Jedi Knight installation not found", err.ToString());
     }
 
+
+    [Fact]
+    public void ExportJa_Jk_KotorOption_IsTheJkFolder_ThroughTheRealCommandLine()
+    {
+        var oldErr = Console.Error;
+        string dir = Temp();
+        try
+        {
+            string cfg = Path.Combine(dir, "c.json");
+            File.WriteAllText(cfg, "{ \"jediKnightDir\": \"" + Path.Combine(dir, "from-config").Replace("\\", "\\\\") + "\" }");
+            string absent = Path.Combine(dir, "absent");
+            var cmdErr = new StringWriter();
+            Console.SetError(cmdErr);   // les commandes ecrivent sur Console.Error ; restaure dans le finally
+            int rc = Program.BuildRoot().Parse(["export-ja", "01narshadda", "--game", "jk", "--kotor", absent, "--config", cfg])
+                .Invoke();
+            Assert.Equal(2, rc);
+            Assert.Contains(absent, cmdErr.ToString());   // --kotor prime sur la config pour JK
+
+            string jk = Path.Combine(dir, "jk");
+            WriteGob(jk, "JK1.GOB", (@"jkl\01narshadda.jkl", "x"));
+            cmdErr = new StringWriter();
+            Console.SetError(cmdErr);
+            rc = Program.BuildRoot().Parse(["export-ja", "nope", "--game", "jk", "--kotor", jk, "--config", cfg])
+                .Invoke();
+            Assert.Equal(2, rc);
+            Assert.Contains("Unknown level: nope", cmdErr.ToString());   // l'installation donnee par --kotor est bien lue
+        }
+        finally { Console.SetError(oldErr); Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void BadValue_MentionsSwtorOnlyWhereItIsAccepted()
+    {
+        Assert.DoesNotContain("swtor", GameOption.BadValue("x"));
+        Assert.Contains("swtor", GameOption.BadValue("x", allowSwtor: true));
+        Assert.Contains("jk", GameOption.BadValue("x"));
+    }
     [SkippableFact]
     public void ListModules_Jk_Real_Lists34Levels()
     {

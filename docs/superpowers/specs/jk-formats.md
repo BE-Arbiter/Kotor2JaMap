@@ -118,7 +118,7 @@ Sert surtout au mouvement : `0x400448` et `0x408` sur les portes, ascenseurs et 
 ## Commande de diagnostic
 
 `kotor2ja jk-dump-level <niveau> [--jk <dossier>]` : comptes (sommets, surfaces, secteurs, materiaux, things par type resolu,
-COG par fichier), gabarits non resolus et sections sautees. Dossier JK : `--jk`, puis `JK_PATH`, puis le chemin Steam par defaut.
+COG par fichier), gabarits non resolus et sections sautees. Dossier JK : `--jk`, puis `JK_DIR`, puis `JK_PATH` (ancien nom), puis le chemin Steam par defaut.
 
 ## Constats de la tache 4 (scene : geometrie, lumiere, echelle)
 

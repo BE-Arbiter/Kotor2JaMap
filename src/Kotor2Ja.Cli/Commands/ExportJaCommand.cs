@@ -39,12 +39,13 @@ public static class ExportJaCommand
                     pr.GetValue(limOpt), null, false, null, Console.Out, Console.Error);
             if (!GameOption.TryParse(pr.GetValue(gameOption), out KotorGame game))
             {
-                Console.Error.WriteLine(GameOption.BadValue(pr.GetValue(gameOption)));
+                Console.Error.WriteLine(GameOption.BadValue(pr.GetValue(gameOption), allowSwtor: true));
                 return 1;
             }
             opt = opt.ForGame(game);
             string? kotor = pr.GetValue(kotorOption);
-            if (!string.IsNullOrWhiteSpace(kotor)) opt = opt with { KotorDir = kotor };
+            // --kotor est le dossier du jeu choisi : pour Jedi Knight, c'est JediKnightDir (lu par JkExporter), pas KotorDir.
+            if (!string.IsNullOrWhiteSpace(kotor)) opt = game == KotorGame.JediKnight ? opt with { JediKnightDir = kotor } : opt with { KotorDir = kotor };
             if (pr.GetValue(scaleOpt) is { } s) opt = opt with { Scale = s };
             if (pr.GetValue(lmOpt) is { } b) opt = opt with { LightmapBrightness = b };
             if (!string.IsNullOrWhiteSpace(pr.GetValue(limOpt))) opt = opt with { BspLimits = pr.GetValue(limOpt)! };

@@ -18,4 +18,14 @@ public class JkDumpLevelCommandTests
         Assert.Matches(@"00_door\.cog: TouchDoor \(thing \d+", text);
         Assert.Matches(@"Movers: \d+ \(approximate \d+, unsupported \d+\)", text);
     }
+
+    [Fact]
+    public void ResolveDir_IsOptionThenJkDirThenJkPathThenSteamDefault()
+    {
+        Func<string, string?> both = n => n == "JK_DIR" ? @"E:\dir" : n == "JK_PATH" ? @"E:\path" : null;
+        Assert.Equal(@"O:\x", JkDumpLevelCommand.ResolveDir(@"O:\x", both));
+        Assert.Equal(@"E:\dir", JkDumpLevelCommand.ResolveDir(null, both));
+        Assert.Equal(@"E:\path", JkDumpLevelCommand.ResolveDir(null, n => n == "JK_PATH" ? @"E:\path" : null));
+        Assert.Equal(JkDumpLevelCommand.DefaultJkDir, JkDumpLevelCommand.ResolveDir(" ", _ => null));
+    }
 }

@@ -24,7 +24,9 @@ public static class GameOption
         }
     }
 
-    public static string BadValue(string? text) => $"Unknown game: {text} (expected kotor, kotor2, swtor or jk).";
+    /// <summary>Message pour une valeur de --game inconnue ; swtor n'est annonce que pour les commandes qui l'acceptent (export-ja).</summary>
+    public static string BadValue(string? text, bool allowSwtor = false) =>
+        $"Unknown game: {text} (expected {(allowSwtor ? "kotor, kotor2, swtor or jk" : "kotor, kotor2 or jk")}).";
 
     /// <summary>
     /// Install folder of a game: the --kotor value, else the shared rule of <see cref="ConfigLoader"/>

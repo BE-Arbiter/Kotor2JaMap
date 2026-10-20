@@ -32,37 +32,8 @@ public class JkWorkflowStepsTests
     private static ExportOptions Options(string? jkDir, string work) =>
         new("", Path.Combine(work, "base"), Path.Combine(work, "work")) { JediKnightDir = jkDir };
 
-    /// <summary>GOB minimal (meme format que les tests de Jk.Core) pour une installation synthetique.</summary>
-    private static void WriteGob(string dir, string sub, string name, params (string Path, string Content)[] files)
-    {
-        Directory.CreateDirectory(Path.Combine(dir, sub));
-        using var ms = new MemoryStream();
-        using var w = new BinaryWriter(ms);
-        w.Write(Encoding.ASCII.GetBytes("GOB "));
-        w.Write(0x14);
-        w.Write(0);
-        var offsets = new List<(int Off, int Size)>();
-        foreach (var f in files)
-        {
-            byte[] data = Encoding.ASCII.GetBytes(f.Content);
-            offsets.Add(((int)ms.Position, data.Length));
-            w.Write(data);
-        }
-        int indexOffset = (int)ms.Position;
-        w.Write(files.Length);
-        for (int i = 0; i < files.Length; i++)
-        {
-            w.Write(offsets[i].Off);
-            w.Write(offsets[i].Size);
-            byte[] n = new byte[128];
-            Encoding.ASCII.GetBytes(files[i].Path).CopyTo(n, 0);
-            w.Write(n);
-        }
-        w.Flush();
-        byte[] bytes = ms.ToArray();
-        BitConverter.GetBytes(indexOffset).CopyTo(bytes, 8);
-        File.WriteAllBytes(Path.Combine(dir, sub, name), bytes);
-    }
+    private static void WriteGob(string dir, string sub, string name, params (string Path, string Content)[] files) =>
+        Jk.Core.Tests.GobBuilder.WriteGob(dir, sub, name, files);   // source partagee avec Jk.Core.Tests (voir le csproj)
 
     private static string FakeInstall(string root)
     {
@@ -73,6 +44,22 @@ public class JkWorkflowStepsTests
         WriteGob(jk, "Episode", "JK1MP.GOB", (@"jkl\m2.jkl", "SECTION: GEORESOURCE\nWorld vertices abc\n"));
         WriteGob(jk, "Episode", "JK1CTF.GOB", (@"jkl\c1.jkl", "x"));
         return jk;
+    }
+
+    [Fact]
+    public void IsInstalled_IsCachedPerInstance_SoTheRenderThreadDoesNoDiskAccess()
+    {
+        string root = Temp();
+        try
+        {
+            string jk = FakeInstall(root);
+            var steps = new JkWorkflowSteps(Options(jk, root));
+            Assert.True(steps.IsInstalled(KotorGame.JediKnight));
+            File.Delete(Path.Combine(jk, "Episode", "JK1.GOB"));
+            Assert.True(steps.IsInstalled(KotorGame.JediKnight));                            // memorise : pas de nouvel acces disque
+            Assert.False(new JkWorkflowSteps(Options(jk, root)).IsInstalled(KotorGame.JediKnight));   // une nouvelle instance (Settings) relit
+        }
+        finally { Directory.Delete(root, true); }
     }
 
     [Fact]

@@ -28,4 +28,8 @@
     <ProjectReference Include="..\..\src\Swtor.Pipeline\Swtor.Pipeline.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../Jk.Core.Tests/GobBuilder.cs" Link="GobBuilder.cs" />
+  </ItemGroup>
+
 </Project>

@@ -17,7 +17,7 @@ public static class JkDumpLevelCommand
         var levelArg = new Argument<string>("level") { Description = "Level name without extension (e.g. 01narshadda, m10, c1)." };
         var jkOption = new Option<string?>("--jk")
         {
-            Description = "Jedi Knight install folder (default: JK_PATH, then the Steam path).",
+            Description = "Jedi Knight install folder (default: JK_DIR, then JK_PATH, then the Steam path).",
         };
         var cmd = new Command("jk-dump-level", "Dumps the counts of a Jedi Knight level: vertices, surfaces, sectors, things by resolved type, COGs by file.");
         cmd.Arguments.Add(levelArg);
@@ -26,10 +26,18 @@ public static class JkDumpLevelCommand
         return cmd;
     }
 
+    /// <summary>Dossier JK : l'option --jk, puis JK_DIR (comme le reste de l'outil), puis JK_PATH (ancien nom), puis le chemin Steam par defaut.</summary>
+    public static string ResolveDir(string? fromOption, Func<string, string?> getEnv)
+    {
+        if (!string.IsNullOrWhiteSpace(fromOption)) return fromOption;
+        foreach (string name in new[] { "JK_DIR", "JK_PATH" })
+            if (getEnv(name) is { } v && !string.IsNullOrWhiteSpace(v)) return v;
+        return DefaultJkDir;
+    }
+
     public static int Run(string levelName, string? jkDir, TextWriter output, TextWriter error)
     {
-        jkDir ??= Environment.GetEnvironmentVariable("JK_PATH");
-        if (string.IsNullOrWhiteSpace(jkDir)) jkDir = DefaultJkDir;
+        jkDir = ResolveDir(jkDir, Environment.GetEnvironmentVariable);
 
         JkLevelRef? level = JkInstall.ListLevels(jkDir)
             .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
