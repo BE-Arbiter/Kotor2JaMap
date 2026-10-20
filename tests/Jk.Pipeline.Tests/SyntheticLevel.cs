@@ -37,6 +37,11 @@ internal sealed class SyntheticLevel
     public float Intensity { get; init; } = 0.5f;
     public string ThingLine { get; init; } = "0: walkplayer walkplayer 0.5 0.25 0.12 0 90 0 0 thingflags=0x20000401";
 
+    /// <summary>Gabarits (apres le gabarit « walkplayer ») et things (apres le thing 0) ajoutes tels quels ; <see cref="SectorSounds"/> : ligne <c>SOUND nom volume</c> par secteur.</summary>
+    public IReadOnlyList<string> ExtraTemplates { get; init; } = [];
+    public IReadOnlyList<string> ExtraThings { get; init; } = [];
+    public IReadOnlyDictionary<int, string> SectorSounds { get; init; } = new Dictionary<int, string>();
+
     public const float Height = 0.5f;
 
     private static string F(float v) => v.ToString("0.######", CultureInfo.InvariantCulture);
@@ -100,7 +105,7 @@ internal sealed class SyntheticLevel
 
         sb.AppendLine($"SECTION: SECTORS\nWorld sectors {n}");
         for (int i = 0; i < n; i++)
-            sb.AppendLine($"SECTOR {i}\nFLAGS 0x{(SectorFlags.TryGetValue(i, out uint sf) ? sf : 0):x}\nAMBIENT LIGHT 0.1\nEXTRA LIGHT 0.0\nCOLORMAP 0\nTINT {(SectorTints.TryGetValue(i, out string? tint) ? tint : "0 0 0")}\nSURFACES {sectorFirst[i]} {sectorCount[i]}");
+            sb.AppendLine($"SECTOR {i}\nFLAGS 0x{(SectorFlags.TryGetValue(i, out uint sf) ? sf : 0):x}\nAMBIENT LIGHT 0.1\nEXTRA LIGHT 0.0\nCOLORMAP 0\nTINT {(SectorTints.TryGetValue(i, out string? tint) ? tint : "0 0 0")}\n{(SectorSounds.TryGetValue(i, out string? snd) ? "SOUND " + snd + "\n" : "")}SURFACES {sectorFirst[i]} {sectorCount[i]}");
 
         if (Cogs.Count > 0)
         {
@@ -108,8 +113,10 @@ internal sealed class SyntheticLevel
             for (int c = 0; c < Cogs.Count; c++) sb.AppendLine($"{c}: {Cogs[c]}");
         }
         sb.AppendLine("SECTION: TEMPLATES\nWorld templates 2\n_actor none type=actor\nwalkplayer _actor type=player");
+        foreach (string t in ExtraTemplates) sb.AppendLine(t);
         sb.AppendLine("SECTION: THINGS\nWorld things 1");
         sb.AppendLine(ThingLine);
+        foreach (string t in ExtraThings) sb.AppendLine(t);
         return sb.ToString();
     }
 

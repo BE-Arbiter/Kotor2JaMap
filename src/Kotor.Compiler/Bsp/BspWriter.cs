@@ -10,7 +10,7 @@ namespace Kotor.Compiler.Bsp;
 /// Tout est construit en mémoire avant écriture : en cas de dépassement de limite, rien n'est écrit.
 /// </summary>
 /// <summary>Sous-modele a ecrire : brushes (bornes comprises) et shader de collision.</summary>
-public sealed record BspSubModel(IReadOnlyList<Brush> Brushes, string Shader);
+public sealed record BspSubModel(IReadOnlyList<Brush> Brushes, string Shader, int Contents = BspContents.Solid);
 
 public static class BspWriter
 {
@@ -146,12 +146,13 @@ public static class BspWriter
         // le moteur les atteint par le lump des modeles (CMod_LoadSubmodels, cm_load.cpp:127-184 : "leaf" propre fabrique
         // avec firstBrush..firstBrush+numBrushes). Les 6 premiers cotes d'un brush sont ses bornes axiales (CM_BoundBrush, cm_load.cpp:229-238) ;
         // les plans du brush qui coincident avec un de ces six ne sont pas repetes.
-        var solidShaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { CollisionShader };
+        // Contenu des shaders de sous-modeles (OU des contenus declares) ; le shader de collision du monde reste solide.
+        var subContents = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var models = new List<(Vector3 Min, Vector3 Max, int FirstBrush, int BrushCount)>();
         foreach (BspSubModel sm in subModels)
         {
             if (!shaderIndex.ContainsKey(sm.Shader)) { shaderIndex[sm.Shader] = shaderNames.Count; shaderNames.Add(sm.Shader); }
-            solidShaders.Add(sm.Shader);
+            subContents[sm.Shader] = subContents.GetValueOrDefault(sm.Shader) | sm.Contents;
             int shader = shaderIndex[sm.Shader];
             int firstBrush = brushes.Count;
             Vector3 mlo = new(float.MaxValue), mhi = new(float.MinValue);
@@ -203,7 +204,7 @@ public static class BspWriter
             {
                 byte[] name = new byte[64];
                 Encoding.ASCII.GetBytes(shaderNames[i]).Take(63).ToArray().CopyTo(name, 0);
-                w.Write(name); w.Write(skyShaders.Contains(shaderNames[i]) ? SurfaceSky : 0); w.Write(i == 0 || solidShaders.Contains(shaderNames[i]) ? ContentsSolid : 0);
+                w.Write(name); w.Write(skyShaders.Contains(shaderNames[i]) ? SurfaceSky : 0); w.Write(i == 0 ? ContentsSolid : subContents.GetValueOrDefault(shaderNames[i]));
             }
         });
         lumps[LumpPlanes] = Make(w =>

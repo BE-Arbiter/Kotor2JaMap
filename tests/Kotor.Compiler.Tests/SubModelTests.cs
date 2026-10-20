@@ -89,4 +89,33 @@ public sealed class SubModelTests : IDisposable
         Assert.Equal(-door.Maxs.X, door.Mins.X, 2);
         Assert.Equal(10, bsp.BrushSideCounts[door.FirstBrush]); // 6 bornes axiales + 4 plans orientes (les deux Z coincident avec les bornes)
     }
+
+    private static int ContentsOf(BspFile bsp, string shader) => bsp.ShaderContents[bsp.Shaders.ToList().FindIndex(s => string.Equals(s, shader, StringComparison.OrdinalIgnoreCase))];
+
+    [Fact]
+    public void Submodel_default_shader_contents_is_solid()
+    {
+        var bsp = BspReader.Read(CompileBytes(WithDoor(new(-10, -2, 0), new(10, 2, 100))));
+        Assert.Equal(BspContents.Solid, ContentsOf(bsp, "textures/system/clip"));
+    }
+
+    [Fact]
+    public void Submodel_with_water_or_trigger_contents_is_not_solid()
+    {
+        var input = TestScenes.Input(sky: "textures/skies/test") with
+        {
+            SubModels =
+            [
+                new SubModelInput([BoxPlanes(new(-10, -2, 0), new(10, 2, 100))], "textures/jk/water_336699") { Contents = BspContents.Water },
+                new SubModelInput([BoxPlanes(new(20, -2, 0), new(30, 2, 100))], "textures/system/trigger") { Contents = BspContents.Trigger },
+                new SubModelInput([BoxPlanes(new(40, -2, 0), new(50, 2, 100))], "textures/system/clip"),
+            ],
+        };
+        var bsp = BspReader.Read(CompileBytes(input));
+
+        Assert.Equal(BspContents.Water, ContentsOf(bsp, "textures/jk/water_336699"));
+        Assert.Equal(BspContents.Trigger, ContentsOf(bsp, "textures/system/trigger"));
+        Assert.Equal(BspContents.Solid, ContentsOf(bsp, "textures/system/clip")); // le sous-modele de collision reste solide
+        Assert.Equal(4, bsp.Models.Count);
+    }
 }

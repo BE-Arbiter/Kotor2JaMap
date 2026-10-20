@@ -81,7 +81,7 @@ public static class Compiler
                     if (BrushBounds.FromPlanes(planes) is { } bb) brushesOfModel.Add(new Brush([.. planes], bb.Min, bb.Max));
                     else Warn($"Sub-model *{sm + 1}: degenerate or unbounded brush ignored.");
                 }
-                subModels.Add(new BspSubModel(brushesOfModel, input.SubModels[sm].Shader));
+                subModels.Add(new BspSubModel(brushesOfModel, input.SubModels[sm].Shader, input.SubModels[sm].Contents));
             }
             using var ms = new MemoryStream();
             IReadOnlyList<Brush> finalBrushes = [];

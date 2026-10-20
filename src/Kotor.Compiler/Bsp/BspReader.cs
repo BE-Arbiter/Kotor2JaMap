@@ -20,6 +20,8 @@ public sealed record BspFile(IReadOnlyList<string> Shaders, IReadOnlyList<BspSur
 {
     /// <summary>Lump des modeles : le monde, puis les sous-modeles (portes).</summary>
     public IReadOnlyList<BspModelInfo> Models { get; init; } = [];
+    /// <summary>Contenu (contentFlags) de chaque shader du lump des shaders, dans le meme ordre que <see cref="Shaders"/>.</summary>
+    public IReadOnlyList<int> ShaderContents { get; init; } = [];
     /// <summary>Nombre de cotes de chaque brush du lump des brushes.</summary>
     public IReadOnlyList<int> BrushSideCounts { get; init; } = [];
     /// <summary>Contenu du lump des leaf brushes : indices de brushes references par les feuilles de l arbre.</summary>
@@ -107,12 +109,14 @@ public static class BspReader
 
         int shaderCount = Count(BspWriter.LumpShaders, ShaderSize);
         var shaders = new string[shaderCount];
+        var shaderContents = new int[shaderCount];
         for (int i = 0; i < shaderCount; i++)
         {
             int o = lumps[BspWriter.LumpShaders].Ofs + i * ShaderSize;
             int n = 0;
             while (n < 64 && data[o + n] != 0) n++;
             shaders[i] = Encoding.ASCII.GetString(data, o, n);
+            shaderContents[i] = BitConverter.ToInt32(data, o + 68);
         }
 
         int vertCount = Count(BspWriter.LumpDrawVerts, DrawVertSize);
@@ -208,7 +212,7 @@ public static class BspReader
         }
         return new BspFile(shaders, surfaces, entities, collision)
         {
-            Models = models, BrushSideCounts = sideCounts, LeafBrushes = leafBrushes, Leaves = leafInfos, LeafSurfaces = leafSurfaces,
+            ShaderContents = shaderContents, Models = models, BrushSideCounts = sideCounts, LeafBrushes = leafBrushes, Leaves = leafInfos, LeafSurfaces = leafSurfaces,
             Nodes = nodes, Planes = planes, NumClusters = numClusters, ClusterBytes = clusterBytes, VisBits = visBits,
         };
     }

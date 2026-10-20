@@ -43,6 +43,9 @@ public sealed record JkPreparedScene(ModuleScene Scene, JklLevel Level, JkTempla
 {
     /// <summary>Volumes d'eau, de blessure et de mort (unites JK, voir <see cref="JkSurfaceEffects"/>) ; les entites correspondantes sont produites avec les objets du niveau.</summary>
     public IReadOnlyList<JkVolume> Volumes { get; init; } = [];
+
+    /// <summary>Type du niveau (solo, multijoueur, CTF) : fixe par <see cref="JkSceneBuilder.Build(JkFileSystem, JkLevelRef, ImportLog, JkSceneOptions?)"/>, solo pour une scene construite autrement. Sert au choix des entites de depart.</summary>
+    public JkLevelKind Kind { get; init; } = JkLevelKind.SinglePlayer;
 }
 
 /// <summary>
@@ -81,7 +84,7 @@ public static class JkSceneBuilder
             try { common = JklReader.Read(Encoding.Latin1.GetString(staticData)); }
             catch (InvalidDataException ex) { log.Warn("JK_STATIC_UNREADABLE", $"static.jkl could not be read ({ex.Message}); its templates are ignored."); }
         }
-        return Build(jkl, JkTemplates.FromLevels(common, jkl), fs.TryRead, level.Name, log, options);
+        return Build(jkl, JkTemplates.FromLevels(common, jkl), fs.TryRead, level.Name, log, options) with { Kind = level.Kind };
     }
 
     /// <summary>Construit la scene d'un niveau deja lu ; <paramref name="read"/> donne le contenu d'un fichier du jeu (<c>mat\x.mat</c>...) ou null.</summary>
@@ -340,7 +343,7 @@ public static class JkSceneBuilder
 
     private sealed record MatEntry(string Key, int Width, int Height, bool HasTransparency);
 
-    private static CmpPalette LoadPalette(JklLevel level, Func<string, byte[]?> read, ImportLog log)
+    internal static CmpPalette LoadPalette(JklLevel level, Func<string, byte[]?> read, ImportLog log)
     {
         string? cmp = level.Colormaps.Count > 0 ? level.Colormaps[0] : null;
         byte[]? data = cmp is null ? null : read(@"misc\cmp\" + cmp);

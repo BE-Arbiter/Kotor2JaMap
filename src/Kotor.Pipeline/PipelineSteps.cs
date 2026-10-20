@@ -16,6 +16,13 @@ using Kotor.Pipeline.Entities;
 
 namespace Kotor.Pipeline;
 
+/// <summary>
+/// Conversion des objets d'une scene fournie par un jeu autre que KOTOR (Jedi Knight) : entites JA, MD3, sons, textures de modeles et sous-modeles BSP
+/// (numerotes a partir de 1 : <c>*1</c>...). Quand elle est donnee a <see cref="PipelineSteps.Import"/>, elle remplace la lecture des objets KOTOR
+/// (GIT, portes, sons) ; <c>null</c> : comportement inchange pour KOTOR et SWTOR.
+/// </summary>
+public delegate (ConvertedEntities Converted, IReadOnlyList<SubModelInput> SubModels) SceneObjects(ModuleScene scene, ExportOptions opt, ImportLog log);
+
 /// <summary>Les quatre etapes (Previsualiser, Importer, Exporter, Creer PK3), utilisables separement par la CLI et l'application.</summary>
 public static class PipelineSteps
 {
@@ -49,7 +56,7 @@ public static class PipelineSteps
     }
 
     /// <summary>Convertit la scene en plan d'export (unites JA, shaders, textures). N'ecrit rien.</summary>
-    public static ImportStepResult Import(ModuleScene scene, string? mapName, ExportOptions opt, ImportLog log)
+    public static ImportStepResult Import(ModuleScene scene, string? mapName, ExportOptions opt, ImportLog log, SceneObjects? objects = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(opt);
@@ -63,7 +70,8 @@ public static class PipelineSteps
         // Modeles places (SWTOR) : MD3 + misc_model_static sous le plafond du moteur, le reste remis dans les maillages du BSP.
         (ConvertedEntities statics, ModuleScene compiled) = StaticModelConverter.Convert(scene, name, opt, log);
         ExportPlan plan = ModuleExporter.BuildPlan(compiled, mapName, opt, log);
-        (ConvertedEntities converted, IReadOnlyList<SubModelInput> subModels) = ConvertObjects(scene, opt, log);
+        // Crochet (Jedi Knight) : il remplace la conversion des objets KOTOR ; sans lui, rien ne change.
+        (ConvertedEntities converted, IReadOnlyList<SubModelInput> subModels) = objects is null ? ConvertObjects(scene, opt, log) : objects(scene, opt, log);
         converted = statics.Merge(converted);
         return new ImportStepResult(scene, ApplyObjects(plan, converted, subModels, opt.Game), name, converted);
     }

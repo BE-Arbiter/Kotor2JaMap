@@ -101,7 +101,7 @@ public static class JkSurfaceEffects
             water++;
         }
         if (water > 0)
-            log.Warn("JK_WATER_VOLUME", $"{water} underwater sector(s) found: only the water look (translucent surface, tint) is converted for now; walkable or swimmable water volumes are not supported yet, so the water stays solid.");
+            log.Warn("JK_WATER_VOLUME", $"{water} underwater sector(s) found: the scene converts the water look (translucent surface, tint); the swimmable volume (water contents) is created with the placed objects (JK_WATER_BRUSH), without underwater fog.");
 
         if (readCog is null) return result;
 
