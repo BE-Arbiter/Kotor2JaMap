@@ -39,8 +39,11 @@ internal static class JkSectorThrust
     /// <summary>Vitesse de poussee maximale (unites JA par seconde) : celle des plaques d'elan de JA ; les ventilateurs verticaux de JK (vitesse 8 a 10) enverraient le joueur a plus de 2000 u/s, et a travers le plafond.</summary>
     public const float MaxPushSpeed = 1000f;
 
+    /// <summary>Vitesse minimale emise (u/s). Sous ce seuil la zone est omise : « speed 0 » (arrondi de <c>Num</c>) ferait envoyer le joueur a la distance entiere de la cible (<c>if (self->speed)</c> faux), et une vitesse de 1 u/s figerait le joueur.</summary>
+    public const float MinPushSpeed = 1f;
+
     /// <summary>Drapeau <c>RELATIVE</c> de <c>trigger_push</c> (g_trigger.cpp).</summary>
-    private const int Relative = 16;
+    private const int Relative = 16, PlayerOnly = 1;
 
     private const string StartupMessage = "startup";
 
@@ -158,7 +161,7 @@ internal static class JkSectorThrust
         float k = JkWorldScale.MetresPerJkUnit * opt.Scale;
         float speedScale = JaSpeedPerThrust * opt.Scale / ExportOptions.DefaultScale;
         var entities = new List<IReadOnlyDictionary<string, string>>();
-        int zones = 0, exact = 0, boxes = 0, skipped = 0, capped = 0, targets = 0;
+        int zones = 0, exact = 0, boxes = 0, skipped = 0, capped = 0, targets = 0, tooWeak = 0;
         for (int g = 0; g < plan.Groups.Count; g++)
         {
             Group group = plan.Groups[g];
@@ -177,13 +180,16 @@ internal static class JkSectorThrust
             }
             if (placed.Count == 0) continue;
 
+            // Vitesse trop faible : Num l'arrondirait a 0 et « speed 0 » enverrait le joueur a la distance entiere de la cible ; on omet la zone (journalisee).
+            float raw = group.Strength * speedScale;
+            if (!(raw >= MinPushSpeed)) { skipped += placed.Count; tooWeak += placed.Count; continue; }
+
             // Cible commune : au centre de l'ensemble, tres loin dans la direction de la poussee.
             Vector3 centre = placed.Aggregate(Vector3.Zero, (a, p) => a + p.Centre) / placed.Count;
             float size = placed.Max(p => (p.Centre - centre).Length() + p.Radius);
             float distance = Math.Clamp(size * TargetSizeFactor, MinTargetDistance, MaxTargetDistance);
             Vector3 targetAt = centre + group.Direction * distance;
             string name = TargetPrefix + targets++.ToString(CultureInfo.InvariantCulture);
-            float raw = group.Strength * speedScale;
             if (raw > MaxPushSpeed) capped += placed.Count;
             string speed = JkObjects.Num(MathF.Min(raw, MaxPushSpeed));
 
@@ -196,7 +202,7 @@ internal static class JkSectorThrust
                     ["model"] = $"*{index}",
                     ["origin"] = "0 0 0",
                     ["target"] = name,
-                    ["spawnflags"] = Relative.ToString(CultureInfo.InvariantCulture),
+                    ["spawnflags"] = (Relative | PlayerOnly).ToString(CultureInfo.InvariantCulture), // PLAYERONLY : sinon toute entite non-client en mouvement recoit origin2 (position monde de la cible) comme vitesse
                     ["speed"] = speed,
                 });
                 zones++;
@@ -215,7 +221,7 @@ internal static class JkSectorThrust
                 + $"Speed: {JaSpeedPerThrust:0.#} JA units/s per unit of JK thrust, at most {MaxPushSpeed:0.#}" + (capped > 0 ? $" ({capped} zone(s) are capped)" : "")
                 + ". A JA push overrides the player's velocity instead of adding to it, so it cannot be walked against; not verified in game.");
         if (skipped > 0)
-            log.Warn("JK_SECTOR_THRUST_SKIPPED", $"{skipped} sector thrust zone(s) are not placed (sector missing from the level, degenerate sector, or no sub-model left).");
+            log.Warn("JK_SECTOR_THRUST_SKIPPED", $"{skipped} sector thrust zone(s) are not placed (sector missing from the level, degenerate sector, or no sub-model left)" + (tooWeak > 0 ? $"; {tooWeak} of them are too weak (under {MinPushSpeed:0.#} JA unit/s: a trigger_push with speed 0 would throw the player the whole distance to its target)" : "") + ".");
         return new ConvertedEntities(entities, [], []);
     }
 }

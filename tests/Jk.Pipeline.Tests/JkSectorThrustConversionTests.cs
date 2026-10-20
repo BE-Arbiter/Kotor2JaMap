@@ -89,7 +89,7 @@ public sealed partial class JkThingConverterTests
         var (converted, subModels) = Run(e);
 
         var push = Assert.Single(Of(converted, "trigger_push"));
-        Assert.Equal("16", push["spawnflags"]);          // RELATIVE : on est pousse vers la cible, a la vitesse « speed »
+        Assert.Equal("17", push["spawnflags"]);          // RELATIVE (16) | PLAYERONLY (1) : sans PLAYERONLY, trigger_push_touch donne origin2 (position monde de la cible) comme vitesse aux entites non-client en mouvement
         Assert.Equal("250", push["speed"]);             // 2 x 125 u/s par unite de poussee
         SubModelInput sub = subModels[int.Parse(push["model"][1..]) - 1];
         Assert.Equal(BspContents.Trigger, sub.Contents); // jamais solide
@@ -154,6 +154,23 @@ public sealed partial class JkThingConverterTests
         var (converted, _) = Run(e);
 
         Assert.Equal("1000", Assert.Single(Of(converted, "trigger_push"))["speed"]);
+    }
+
+    [Fact]
+    public void SectorThrust_TinyForce_NeverEmitsAZeroSpeedPush()
+    {
+        // speed 0 : « if (self->speed) » est faux dans trigger_push_touch, la direction n'est pas normalisee et le joueur est envoye a la distance entiere de la cible.
+        // Force 0,004 -> 0,5 u/s : sous le plancher, la zone est omise (et journalisee) au lieu de sortir avec « speed 0 ».
+        using Env tiny = Make(ThrustLevel("(0.0/0.0/1.0) 0.004 1 " + NoSector));
+        var (converted, _) = Run(tiny);
+        Assert.Empty(Of(converted, "trigger_push"));
+        Assert.Empty(Of(converted, "target_position"));
+        Assert.Contains(tiny.Log.Warnings, w => w.Code == "JK_SECTOR_THRUST_SKIPPED");
+
+        // Juste au-dessus du plancher : emise, avec une vitesse non nulle.
+        using Env small = Make(ThrustLevel("(0.0/0.0/1.0) 0.01 1 " + NoSector));
+        var push = Assert.Single(Of(Run(small).Converted, "trigger_push"));
+        Assert.True(float.Parse(push["speed"], CultureInfo.InvariantCulture) >= JkSectorThrust.MinPushSpeed);
     }
 
     [Fact]
@@ -263,7 +280,7 @@ public sealed partial class JkThingConverterTests
             var (converted, subs) = JkObjects.Convert(prepared, fs, opt, log);
             Assert.True(subs.Count <= JkObjects.MaxSubModels, $"{level.Name}: {subs.Count} sub-models");
             int pushes = Of(converted, "trigger_push").Count, targets = Of(converted, "target_position").Count;
-            Assert.All(Of(converted, "trigger_push"), p => Assert.Equal("16", p["spawnflags"]));
+            Assert.All(Of(converted, "trigger_push"), p => Assert.Equal("17", p["spawnflags"]));
             Assert.Equal(Of(converted, "trigger_push").Select(p => p["target"]).Distinct().Count(), targets);
             Assert.DoesNotContain(log.Warnings, w => w.Code == "JK_SUBMODEL_LIMIT");
             if (pushes > 0)

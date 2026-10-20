@@ -43,6 +43,12 @@ public static class JkStairRamps
     /// <summary>Rapport maximal entre les hauteurs de deux contremarches consecutives d'un escalier.</summary>
     public const float MaxRiseRatio = 1.5f;
 
+    /// <summary>Profondeur (unites JK) minimale du palier au-dessus d'une contremarche isolee pour que ce soit un seuil de passage et non un comptoir : 0,6 = 206 u JA, plus que n'importe quel comptoir, bar ou caisse mesure.</summary>
+    public const float LandingMinDepth = 0.6f;
+
+    /// <summary>Recouvrement minimal (unites JK) entre l'arete basse du passage et une arete de la contremarche.</summary>
+    public const float ThresholdMinOverlap = 0.05f;
+
     /// <summary>Decalage de la rampe par rapport a la hauteur de la marche : pente atan(1 / 1,2) = 40 degres, marchable (>= 0,7 de normale Z).</summary>
     public const float RunPerRise = 1.2f;
 
@@ -50,9 +56,10 @@ public static class JkStairRamps
 
     /// <summary>
     /// Bilan : <see cref="Placed"/> rampes posees ; <see cref="Steep"/> trop raides faute de profondeur ; <see cref="Isolated"/> contremarches hautes sans
-    /// serie (comptoirs, rebords, caisses) laissees bloquantes ; <see cref="Narrow"/> plus etroites que le joueur.
+    /// serie (comptoirs, rebords, caisses) laissees bloquantes ; <see cref="Narrow"/> plus etroites que le joueur ;
+    /// <see cref="Thresholds"/> (comptees dans <see cref="Placed"/>) contremarches isolees qui ont recu une rampe parce qu'elles sont un seuil de passage.
     /// </summary>
-    public sealed record Stats(int Placed, int Steep, int Isolated, int Narrow);
+    public sealed record Stats(int Placed, int Steep, int Isolated, int Narrow, int Thresholds = 0);
 
     /// <summary>Rampes (quadrilateres en unites JK) des vraies marches de plus de <paramref name="minRise"/> unites JK, avec le bilan (posees, trop raides, isolees laissees bloquantes, trop etroites).</summary>
     public static List<Ramp> Compute(JklLevel level, Func<JklSurface, bool> isSolid, float minRise, out Stats stats)
@@ -99,7 +106,7 @@ public static class JkStairRamps
                 var dir = new Vector3(s.Normal.X, s.Normal.Y, 0f);
                 if (dir.LengthSquared() < 1e-6f) continue;
                 dir = Vector3.Normalize(dir);
-                risers.Add(new Riser(sector, t0, t1, b0, b1, dir, h, zMin, zMax, lowerTreads));
+                risers.Add(new Riser(sector, t0, t1, b0, b1, dir, h, zMin, zMax, lowerTreads, floorByEdge[Edge(t0, t1)]));
             }
         }
 
@@ -162,14 +169,31 @@ public static class JkStairRamps
         var groupWidth = new float[risers.Count];
         for (int i = 0; i < risers.Count; i++) groupWidth[Find(i)] += (level.Vertices[risers[i].T1] - level.Vertices[risers[i].T0]).Length();
 
+        // Passages franchissables : arete basse (z, extremites) des surfaces d'adjoin verticales dont le joueur peut traverser l'ouverture (fenetres et adjoins fermes exclus).
+        var portals = new List<(float Z, Vector3 A, Vector3 B)>();
+        foreach (JklSurface s in level.Surfaces)
+        {
+            if (s.Adjoin < 0 || MathF.Abs(s.Normal.Z) > 0.3f || isSolid(s) || s.VertexIndices.Length < 3) continue;
+            Vector3[] v = [.. s.VertexIndices.Select(x => level.Vertices[x])];
+            float zLow = v.Min(p => p.Z);
+            Vector3[] low = [.. v.Where(p => p.Z < zLow + 5e-3f)];
+            if (low.Length >= 2) portals.Add((zLow, low[0], low[1]));
+        }
+
         // 3) Decision et construction des rampes.
-        int steep = 0, isolated = 0, narrow = 0;
+        int steep = 0, isolated = 0, narrow = 0, thresholds = 0;
         for (int i = 0; i < risers.Count; i++)
         {
             Riser r = risers[i];
             if (groupWidth[Find(i)] < MinWidth) { narrow++; continue; }
             int series = above[i] + below[i] + 1;
             bool stair = r.H <= CurbMaxRise || (r.H <= StairMaxRise ? series >= 2 : series >= 3);
+            bool threshold = false;
+            if (!stair && IsThreshold(level, r, portals))
+            {
+                // Seuil de passage : une marche isolee sous un passage franchissable, qui mene a un palier (pas un comptoir) ; la laisser bloquante murerait le passage.
+                stair = true; threshold = true;
+            }
             if (!stair) { isolated++; continue; }
 
             // Profondeur de la marche du dessous, mesuree depuis l'arete basse dans le sens de la contremarche.
@@ -184,12 +208,45 @@ public static class JkStairRamps
             Vector3 ta = level.Vertices[r.T0], tb = level.Vertices[r.T1];
             if (Vector3.Cross(pb1 - pb0, tb - pb0).Z < 0f) ramps.Add(new Ramp(r.Sector, ta, tb, pb1, pb0));
             else ramps.Add(new Ramp(r.Sector, pb0, pb1, tb, ta));
+            if (threshold) thresholds++;
         }
-        stats = new Stats(ramps.Count, steep, isolated, narrow);
+        stats = new Stats(ramps.Count, steep, isolated, narrow, thresholds);
         return ramps;
     }
 
-    private sealed record Riser(int Sector, int T0, int T1, int B0, int B1, Vector3 Dir, float H, float ZBottom, float ZTop, List<int> LowerTreads);
+    /// <summary>
+    /// Seuil de passage : un passage franchissable (surface d'adjoin verticale) a son arete basse sur l'arete haute ou basse de la contremarche (sur au moins <see cref="ThresholdMinOverlap"/>),
+    /// et la marche du dessus est un palier d'au moins <see cref="LandingMinDepth"/> de profondeur. Un comptoir, un bar ou une caisse ont aussi un passage au-dessus de leur rebord (le volume
+    /// au-dessus est un autre secteur) mais un dessus etroit : la profondeur du palier les distingue.
+    /// </summary>
+    private static bool IsThreshold(JklLevel level, Riser r, List<(float Z, Vector3 A, Vector3 B)> portals)
+    {
+        float landing = 0f;
+        foreach (int f in r.UpperTreads)
+            foreach (int vi in level.Surfaces[f].VertexIndices)
+                landing = MathF.Max(landing, Vector3.Dot(level.Vertices[vi] - level.Vertices[r.T0], -r.Dir));
+        if (landing < LandingMinDepth) return false;
+        foreach (var (z, a, b) in portals)
+        {
+            if (MathF.Abs(z - r.ZTop) < 0.01f && Overlap(a, b, level.Vertices[r.T0], level.Vertices[r.T1]) >= ThresholdMinOverlap) return true;
+            if (MathF.Abs(z - r.ZBottom) < 0.01f && Overlap(a, b, level.Vertices[r.B0], level.Vertices[r.B1]) >= ThresholdMinOverlap) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Longueur (XY, unites JK) du recouvrement du segment ab avec le segment cd, s'ils sont quasi colineaires (ecart perpendiculaire < 0,03) ; 0 sinon.</summary>
+    private static float Overlap(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+    {
+        float ex = d.X - c.X, ey = d.Y - c.Y, len = MathF.Sqrt(ex * ex + ey * ey);
+        if (len < 1e-6f) return 0f;
+        ex /= len; ey /= len;
+        float Perp(Vector3 p) => MathF.Abs((p.X - c.X) * -ey + (p.Y - c.Y) * ex);
+        if (Perp(a) > 0.03f || Perp(b) > 0.03f) return 0f;
+        float ta = (a.X - c.X) * ex + (a.Y - c.Y) * ey, tb = (b.X - c.X) * ex + (b.Y - c.Y) * ey;
+        return MathF.Max(0f, MathF.Min(MathF.Max(ta, tb), len) - MathF.Max(MathF.Min(ta, tb), 0f));
+    }
+
+    private sealed record Riser(int Sector, int T0, int T1, int B0, int B1, Vector3 Dir, float H, float ZBottom, float ZTop, List<int> LowerTreads, List<int> UpperTreads);
 
     private static float XyDistSq(Vector3 a, Vector3 b) => (a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y);
 

@@ -238,7 +238,7 @@ public static class JkSceneBuilder
             walk.AddRamp(r.A * scale, r.B * scale, r.C * scale, r.D * scale);
         }
         if (rampStats.Placed > 0 || rampStats.Steep > 0 || rampStats.Isolated > 0 || rampStats.Narrow > 0)
-            log.Warn("JK_STAIR_RAMP", $"{rampStats.Placed} stair riser(s) taller than {options.StairRampMinRiseJa:0.#} JA units got a walkable collision ramp (rendering unchanged); {rampStats.Isolated} isolated tall riser(s) (counters, ledges, crates) left blocking; {rampStats.Narrow} narrower than the player; {rampStats.Steep} too steep for a ramp.");
+            log.Warn("JK_STAIR_RAMP", $"{rampStats.Placed} stair riser(s) taller than {options.StairRampMinRiseJa:0.#} JA units got a walkable collision ramp (rendering unchanged; {rampStats.Thresholds} threshold riser(s) among them: an isolated step under a passage, leading to a landing); {rampStats.Isolated} isolated tall riser(s) (counters, ledges, crates) left blocking; {rampStats.Narrow} narrower than the player; {rampStats.Steep} too steep for a ramp.");
 
         // --- Scene ---
         var sceneMeshes = meshes.Select(m => m.ToSceneMesh()).ToList();

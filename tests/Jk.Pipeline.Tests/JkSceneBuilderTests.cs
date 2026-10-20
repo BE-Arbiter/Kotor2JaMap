@@ -337,6 +337,52 @@ public class JkSceneBuilderTests
         Assert.Empty(Ramps(0.1f, 2));
     }
 
+    // ---- Rampes : seuils de passage (revue du lot L2) ----
+
+    /// <summary>Portail franchissable (drapeau 0x2) : l'adjoin du niveau synthetique ; un adjoin ferme ou une fenetre est « solide » pour la rampe.</summary>
+    private static List<JkStairRamps.Ramp> ThresholdRamps(JklLevel level, bool portalPassable, out JkStairRamps.Stats stats) =>
+        JkStairRamps.Compute(level, s => s.Adjoin < 0 || !portalPassable, 0.041f, out stats);
+
+    [Theory]
+    [InlineData(0.07f)]
+    [InlineData(0.1f)]
+    public void StairRamp_IsolatedRiserUnderAPassage_WithALanding_GetsARamp(float h)
+    {
+        // Contremarche isolee (au-dessus de 0,055, sans serie) dont l'arete haute porte un passage franchissable et qui mene a un palier large : seuil de porte, pas un comptoir.
+        JklLevel level = JklReader.Read(StepsLevel(h, 1, 1f, landing: 1f, portal: true));
+        var ramps = ThresholdRamps(level, portalPassable: true, out JkStairRamps.Stats stats);
+        Assert.Single(ramps);
+        Assert.Equal(new JkStairRamps.Stats(1, 0, 0, 0, 1), stats);
+    }
+
+    [Fact]
+    public void StairRamp_IsolatedRiserUnderAPassage_WithAShortLanding_StaysBlocking()
+    {
+        // Meme passage mais le dessus est un comptoir (0,3 de profondeur) : pas de rampe.
+        JklLevel level = JklReader.Read(StepsLevel(0.1f, 1, 1f, landing: 0.3f, portal: true));
+        Assert.Empty(ThresholdRamps(level, portalPassable: true, out JkStairRamps.Stats stats));
+        Assert.Equal(new JkStairRamps.Stats(0, 0, 1, 0, 0), stats);
+    }
+
+    [Fact]
+    public void StairRamp_IsolatedRiser_WithANonPassablePortalOrNoPortal_StaysBlocking()
+    {
+        JklLevel window = JklReader.Read(StepsLevel(0.1f, 1, 1f, landing: 1f, portal: true));
+        Assert.Empty(ThresholdRamps(window, portalPassable: false, out JkStairRamps.Stats _));   // fenetre : ne se traverse pas
+        JklLevel none = JklReader.Read(StepsLevel(0.1f, 1, 1f, landing: 1f, portal: false));
+        Assert.Empty(ThresholdRamps(none, portalPassable: true, out JkStairRamps.Stats _));      // pas de passage : bar, rebord
+    }
+
+    [Fact]
+    public void StairRamp_ThresholdUnderAPassage_LogsTheCount()
+    {
+        JklLevel level = JklReader.Read(StepsLevel(0.1f, 1, 1f, landing: 1f, portal: true));
+        var log = new ImportLog();
+        JkSceneBuilder.Build(level, JkTemplates.FromLevels(null, level), SyntheticLevel.Files(), "threshold", log, null);
+        string msg = Assert.Single(log.Warnings, w => w.Code == "JK_STAIR_RAMP").Message;
+        Assert.Contains("1 threshold riser(s)", msg);
+    }
+
     [Fact]
     public void StairRamp_TwoStepsOf007_AreAStair()
     {
@@ -440,7 +486,7 @@ public class JkSceneBuilderTests
     /// <paramref name="steps"/> contremarches de hauteur <paramref name="h"/> : plancher k = x de k a k+1, z = k * h ; la contremarche j est en x = j.
     /// Les sommets sont partages entre contremarches et planchers comme dans un vrai niveau.
     /// </summary>
-    private static string StepsLevel(float h, int steps, float width)
+    private static string StepsLevel(float h, int steps, float width, float landing = 1f, bool portal = false)
     {
         string F(float v) => v.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
         var verts = new List<string> { "0 0 0", $"0 {F(width)} 0" };
@@ -450,7 +496,9 @@ public class JkSceneBuilderTests
             verts.Add($"{j} 0 {F((j - 1) * h)}"); verts.Add($"{j} {F(width)} {F((j - 1) * h)}");
             verts.Add($"{j} 0 {F(j * h)}"); verts.Add($"{j} {F(width)} {F(j * h)}");
         }
-        verts.Add($"{steps + 1} 0 {F(steps * h)}"); verts.Add($"{steps + 1} {F(width)} {F(steps * h)}");
+        verts.Add($"{F(steps + landing)} 0 {F(steps * h)}"); verts.Add($"{F(steps + landing)} {F(width)} {F(steps * h)}");
+        // Portail : mur vertical dans le plan de la premiere contremarche, pose sur son arete haute (passage au-dessus de la marche).
+        if (portal) { verts.Add($"1 0 {F(h + 0.5f)}"); verts.Add($"1 {F(width)} {F(h + 0.5f)}"); }
         static int bottom(int j) => 2 + 4 * (j - 1);
         static int top(int j) => 4 + 4 * (j - 1);
         int end = 2 + 4 * steps;
@@ -465,6 +513,8 @@ public class JkSceneBuilderTests
         {
             surfaces.Add($"{surfaces.Count}: 0 0x4 0x0 4 3 1 -1 0.0 4 {bottom(j)},0 {top(j)},1 {top(j) + 1},2 {bottom(j) + 1},3 0.5 0.5 0.5 0.5"); normals.Add($"{normals.Count}: -1 0 0");
         }
+        if (portal) { surfaces.Add($"{surfaces.Count}: 0 0x4 0x0 4 3 1 0 0.0 4 {top(1)},0 {end + 2},1 {end + 3},2 {top(1) + 1},3 0.5 0.5 0.5 0.5"); normals.Add($"{normals.Count}: -1 0 0"); }
+        string adjoinLine = portal ? "0: 0x7 -1 0" : "";
         return $@"SECTION: HEADER
 Version 1
 SECTION: MATERIALS
@@ -480,7 +530,8 @@ World texture vertices 4
 1: 8 0
 2: 8 8
 3: 0 8
-World adjoins 0
+World adjoins {(portal ? 1 : 0)}
+{adjoinLine}
 World surfaces {surfaces.Count}
 {string.Join("\n", surfaces)}
 #--- Surface normals ---

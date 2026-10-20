@@ -47,6 +47,14 @@ public static class JkMoverSpeed
 /// </summary>
 public static class MoverConverter
 {
+    /// <summary>Pose <paramref name="key"/> sans jamais ecraser une cle existante (la cible d'un mobile ne doit pas etre remplacee par un haut-parleur) ; faux si elle existe deja.</summary>
+    internal static bool TrySetKey(IDictionary<string, string> entity, string key, string value)
+    {
+        if (entity.ContainsKey(key)) return false;
+        entity[key] = value;
+        return true;
+    }
+
     /// <summary>Rotation (degres) en dessous de laquelle l'ecart d'orientation entre images est du bruit d'editeur (0,1 a 0,8 degre observes sur les portes).</summary>
     private const float MinRotationDegrees = 2f;
 
@@ -122,7 +130,7 @@ public static class MoverConverter
         private readonly List<(string Name, string Path, Vector3 At, bool Stop)> _speakers = [];
         private readonly Dictionary<string, SoundAsset> _soundAssets = new(StringComparer.Ordinal);
         /// <summary>Things qui ont des sons (les pieces qui partagent un haut-parleur y comptent), trains muets, boucles non jouees, boucles jouees une fois, things dont le COG joue des sons.</summary>
-        private readonly SortedSet<int> _withSounds = [], _silentTrains = [], _loopsDropped = [], _loopsAsStart = [], _cogSounds = [];
+        private readonly SortedSet<int> _withSounds = [], _silentTrains = [], _loopsDropped = [], _loopsAsStart = [], _cogSounds = [], _keyConflicts = [];
         private int _startSpeakers, _stopSpeakers;
 
         public Builder(JkPreparedScene p, IReadOnlyDictionary<int, JkMd3> models, float scale, int first, ImportLog log, Func<int, MoverSoundSet?>? sounds)
@@ -155,16 +163,24 @@ public static class MoverConverter
             _withSounds.Add(id);
             if (set.StartFromLoop) _loopsAsStart.Add(id);
             if (set.DropsMovingLoop) _loopsDropped.Add(id);
-            if (set.Start is not null && Speaker(set.Start, at, stop: false, out string startName))
+            if (set.Start is not null)
             {
-                entity["target"] = startName;   // g_mover.cpp, Use_BinaryMover_Go : G_UseTargets(ent) quand le mobile part
-                _startSpeakers++;
+                if (entity.ContainsKey("target")) _keyConflicts.Add(id);   // le mobile a deja une cible : on ne l'ecrase pas
+                else if (Speaker(set.Start, at, stop: false, out string startName))
+                {
+                    TrySetKey(entity, "target", startName);   // g_mover.cpp, Use_BinaryMover_Go : G_UseTargets(ent) quand le mobile part
+                    _startSpeakers++;
+                }
             }
-            if (set.Stop is not null && Speaker(set.Stop, at, stop: true, out string stopName))
+            if (set.Stop is not null)
             {
-                entity["opentarget"] = stopName;   // Reached_BinaryMover : arrivee en position ouverte...
-                entity["closetarget"] = stopName;  // ... puis en position fermee
-                _stopSpeakers++;
+                if (entity.ContainsKey("opentarget") || entity.ContainsKey("closetarget")) _keyConflicts.Add(id);
+                else if (Speaker(set.Stop, at, stop: true, out string stopName))
+                {
+                    TrySetKey(entity, "opentarget", stopName);   // Reached_BinaryMover : arrivee en position ouverte...
+                    TrySetKey(entity, "closetarget", stopName);  // ... puis en position fermee
+                    _stopSpeakers++;
+                }
             }
         }
 
@@ -548,6 +564,8 @@ public static class MoverConverter
                 parts.Add($"{_loopsDropped.Count} mover(s) have a looping 'moving' sound that is not played (nothing tells a JA door when its closing movement starts, so a loop could not be stopped)");
             if (_silentTrains.Count > 0)
                 parts.Add($"{_silentTrains.Count} train(s) are silent (a JA train replays its noise loop without ever stopping, and its target key is the next path corner): things {List(_silentTrains)}");
+            if (_keyConflicts.Count > 0)
+                parts.Add($"{_keyConflicts.Count} mover(s) already have a target / opentarget / closetarget key, which is not overwritten, so their start or stop sound is dropped: things {List(_keyConflicts)}");
             int cog = _cogSounds.Count;
             if (cog > 0)
                 parts.Add($"{cog} mover(s) have sounds played by their COG (switch clicks, beeps, alarms), which are not the mover's own sounds and are not converted");

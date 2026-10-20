@@ -119,6 +119,17 @@ public sealed class MoverSoundTests : IDisposable
     }
 
     [Fact]
+    public void SoundKeys_NeverOverwriteAnExistingKey()
+    {
+        // Garde de WireSounds : une cle target / opentarget / closetarget deja posee (autre cible du mobile) n'est pas ecrasee, le son est abandonne (et journalise).
+        var entity = new Dictionary<string, string> { ["target"] = "other" };
+        Assert.False(MoverConverter.TrySetKey(entity, "target", "jksnd0"));
+        Assert.Equal("other", entity["target"]);
+        Assert.True(MoverConverter.TrySetKey(entity, "opentarget", "jksnd1"));
+        Assert.Equal("jksnd1", entity["opentarget"]);
+    }
+
+    [Fact]
     public void OnlyAStartSound_NoStopKeys()
     {
         var set = new MoverSoundSet("03wood_door.snd", Start, null, StartFromLoop: false, DropsMovingLoop: false);
