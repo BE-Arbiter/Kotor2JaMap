@@ -193,3 +193,18 @@ les deux se lisent sans erreur et avec des comptes declares exacts (sommets, fac
 - Plus longue animation : 411 images (`macamera.key`) ; le MD3 le plus gros produit (`tk.3do` + `tkidle.key`, 283 images) fait environ 1 Mo.
 - Animation entierement constante : une seule image. Rotation pure (un seul noeud mobile, position fixe, axe et angle constants entre images) : aucun cas dans les `.key` de `Res2.gob` ; les objets
   qui tournent dans les niveaux le font par vitesse angulaire de gabarit ou par COG (taches 9 et 10).
+
+## Constats de la tache 8 (COG : lecture et classement des comportements)
+
+Code : `Jk.Core/Cog` (`CogReader`, `CogScript`, `CogBinding`/`BoundCog`), `Jk.Pipeline/Movers` (`CogClassifier`, `MoverBehavior`). Catalogue complet :
+`docs/superpowers/plans/jk/cog-catalogue.md` (354 fichiers COG distincts, 1 436 instances sur les 34 niveaux).
+
+- **Syntaxe [donnees]** : sections `symbols ... end` et `code ... end`. Symbole : `type nom[=defaut] [local] [nolink] [desc=..] [mask=0x..] [linkid=N]`. Etiquettes `message:` (dont `activate:`, sans « d », dans
+  `00_door` : la casse et la graphie du nom viennent du symbole `message` declare) et sous-routines appelees par `call nom;`. Une etiquette sans `return` tombe dans la suivante (`crossed:` puis `activate:` de
+  `00_elev_switch`). `switch` est aussi un nom de variable (`00_elevcall`). Les verbes sont insensibles a la casse (`movetoframe`, `MoveToFrame`).
+- **Verbes de mouvement [donnees]** : `MoveToFrame` dans 133 fichiers ; `JumpToFrame` / `SkipToFrame` (portes de tuyaux, contrepoids) ; `RotatePivot` (9 fichiers : `09_pipedoor*`, `03_paddlepool`...) ;
+  `SetThingRotVel` (ventilateurs) ; `SetThingVel` / `SetThingPos` / `StopThing` (poussees, drapeaux CTF).
+- **Declencheurs [donnees]** : `activate` / `activated` (porte utilisee, interrupteur), `crossed` (adjoin), `entered` (secteur), `touched`, `killed` (acteur mort : `07_yun`, `08_irpuzzle`...), `damaged`,
+  `pulse` / `timer` (suite), `userN` (message envoye par un autre COG). Les chaines `crossed -> SetTimer -> timer -> MoveToFrame` sont frequentes (`16a_calamity`).
+- **Acteurs [donnees]** : `00_AIFramePatrol` / `00_AIFrameMove` deplacent un acteur le long de ses images (`AISetMoveFrame`) : acteurs ignores, donc pas d'element mobile.
+- **COG absent [donnees]** : `17a_Stream.cog` (niveau `m_boss17`) est cite mais absent de `JK1MP.GOB` et de `Res2.gob`.

@@ -3,6 +3,7 @@ using System.Text;
 using Jk.Core;
 using Jk.Core.Gob;
 using Jk.Core.Jkl;
+using Jk.Pipeline.Movers;
 
 namespace Kotor2Ja.Cli.Commands;
 
@@ -77,8 +78,26 @@ public static class JkDumpLevelCommand
                      .OrderByDescending(g => g.Count()).ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
             output.WriteLine($"  {g.Key,-28} {g.Count()}");
 
+        WriteCogBehaviors(jkl, level, jkDir, output);
+
         if (templates.Unresolved.Count > 0) output.WriteLine("JK_TEMPLATE_UNRESOLVED: " + string.Join(", ", templates.Unresolved));
         if (jkl.SkippedSections.Count > 0) output.WriteLine("Skipped unknown sections: " + string.Join(", ", jkl.SkippedSections));
         return 0;
+    }
+
+    /// <summary>Liste des COG avec le comportement reconnu (tache 8) : un bloc par instance, puis le bilan.</summary>
+    private static void WriteCogBehaviors(JklLevel jkl, JkLevelRef level, string jkDir, TextWriter output)
+    {
+        using JkFileSystem fs = JkFileSystem.ForEpisode(jkDir, level.EpisodeGob);
+        LevelMovers report = CogClassifier.ClassifyLevel(jkl, f => fs.TryRead(@"cog\" + f) is { } b ? Encoding.Latin1.GetString(b) : null);
+        output.WriteLine("COG behaviors:");
+        foreach (ClassifiedCog c in report.Cogs)
+        {
+            string text = c.Behaviors.Count == 0 ? "no mover" : string.Join("; ", c.Behaviors.Select(b => b.Describe()));
+            output.WriteLine($"  #{c.Instance.Index} {c.Instance.CogFile}: {text}");
+        }
+        foreach (MoverBehavior b in report.Unclaimed) output.WriteLine("  (no COG) " + b.Describe());
+        if (report.MissingScripts.Count > 0) output.WriteLine("JK_COG_MISSING: " + string.Join(", ", report.MissingScripts));
+        output.WriteLine($"Movers: {report.Movers.Count} (approximate {report.All.Count(b => b is Approximate)}, unsupported {report.All.Count(b => b is Unsupported)})");
     }
 }
