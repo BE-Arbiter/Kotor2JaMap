@@ -223,7 +223,7 @@ internal static class JkThingAnimations
 /// <item><c>item</c> : objet JA de <see cref="JkPickups"/>, sinon le modele JK en decor + <c>JK_ITEM_NO_EQUIVALENT</c> ; les drapeaux de CTF donnent aussi <c>team_CTF_*flag</c>.</item>
 /// <item>Decors (<c>cog</c>, <c>debris</c>, <c>weapon</c> pose...) : <c>misc_model_static</c> ; modele anime (un .key joue par un COG) : <c>misc_model_breakable</c> en AUTOANIMATE
 /// (EF_ANIM_ALLFAST : boucle sur toutes les images, 10 par seconde) ; rotation pure ou vitesse angulaire (<c>angvel</c>) : <c>func_rotating</c> + <c>model2</c>.
-/// Collision (<c>collide=3</c>, pas de mouvement) : triangles du MD3 ; jamais pour un objet destructible (<c>JK_EXPLOSIVE_STATIC</c>).</item>
+/// Collision (<c>collide=3</c>, pas de mouvement) : triangles du MD3 ; jamais pour un objet destructible (<c>JK_EXPLOSIVE_STATIC</c>) ni pour une chose qui tourne (ventilateur : traversable, meme pose sans tourner).</item>
 /// <item>Lumieres (<c>light</c>) : entite <c>light</c>. Particules et sprites : <c>JK_PARTICLE_SKIPPED</c> / <c>JK_SPRITE_SKIPPED</c> (aucun dans les 34 niveaux).
 /// Things crees par les COG en jeu : <c>JK_RUNTIME_THING</c>.</item>
 /// </list>
@@ -338,6 +338,7 @@ public static class JkThingConverter
 
             // Rotation : pure (cle) ou vitesse angulaire du gabarit ; jamais pour un objet a ramasser (ils tournent d'eux-memes dans JA).
             (int Flag, float Speed, bool Exact)? spin = isItem ? null : SpinOf(md3, r);
+            bool isSpinner = spin is not null; // un ventilateur (ou toute chose qui tourne) ne bloque jamais, meme pose sans tourner
             if (spin is not null && md3.ModelScale > 1)
             {
                 log.Warn("JK_ROTATION_APPROX", $"Thing {t.Index} ({t.Template}): the spinning model is {md3.ModelScale} times too large for a func_rotating (no model scale); it is placed without spinning.");
@@ -411,9 +412,9 @@ public static class JkThingConverter
             decor++;
             if (destructible) explosives++;
 
-            // Collision de face (collide=3) : les triangles du modele, sauf s'il bouge, s'anime, ou se detruit.
+            // Collision de face (collide=3) : les triangles du modele, sauf s'il bouge, s'anime, tourne (ventilateur : traversable) ou se detruit.
             bool moves = (Float(r, "numframes") ?? Num(t.Params, "numframes")) > 1;
-            if (!isItem && !destructible && !moves && Int(r, "collide") == 3)
+            if (!isItem && !destructible && !moves && !isSpinner && Int(r, "collide") == 3)
             {
                 IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C)> tris = pool.CollisionTriangles(md3);
                 if (tris.Count == 0) continue;

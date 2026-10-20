@@ -82,7 +82,9 @@ public static class JkObjects
         ConvertedEntities sounds = ConvertSectorSounds(prepared, fs, opt, log);
         var (mobile, mobileSubs) = MoverConverter.Convert(movers.All, prepared, moverModels, opt.Scale, subs.Items.Count + 1, log);
         foreach (SubModelInput sub in mobileSubs) subs.Add(sub);
-        return (things.Merge(volumes).Merge(sounds).Merge(mobile), subs.Items);
+        // Zones secretes : leurs declencheurs prennent les derniers sous-modeles (apres les mobiles, dont les indices sont deja fixes).
+        ConvertedEntities secrets = JkSecrets.Convert(prepared, fs, opt, log, subs);
+        return (things.Merge(volumes).Merge(sounds).Merge(mobile).Merge(secrets), subs.Items);
     }
 
     /// <summary>Crochet <see cref="SceneObjects"/> d'une scene JK (voir <c>PipelineSteps.Import</c> et <c>KotorWorkflowSteps.UseScene</c>) ; <paramref name="fs"/> doit rester ouvert tant que l'etape Importer peut tourner.</summary>

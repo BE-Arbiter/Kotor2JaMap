@@ -59,12 +59,14 @@ La colonne « Perte » dit ce qui manque en jeu quand le code apparaît. Variabl
 | `JK_ACTOR_SKIPPED` | avertissement | Acteurs (ennemis, PNJ, boss) non placés : cette version n'a pas d'ennemis. | tous les ennemis |
 | `JK_ITEM_NO_EQUIVALENT` | avertissement | Objets sans équivalent JA, placés comme modèles seuls. | l'effet de ramassage |
 | `JK_EXPLOSIVE_STATIC` | avertissement | Objets explosifs ou cassables (barils, caisses) placés en modèles statiques, sans collision. | la destruction |
-| `JK_DECOR_COLLISION` | info | Décors solides (`collide=3`) avec collision par les faces de leur modèle. | aucune |
+| `JK_DECOR_COLLISION` | info | Décors solides (`collide=3`) avec collision par les faces de leur modèle. Les ventilateurs (choses qui tournent : `angvel`, rotation pure) n'en ont jamais, même posés sans tourner. | aucune |
 | `JK_MISC_MODEL_LIMIT` | avertissement | Plus de `misc_model_static` que le moteur n'en accepte : modèles en trop non placés. | ces modèles |
 | `JK_PARTICLE_SKIPPED` | avertissement | Particules non converties (aucune dans les 34 niveaux). | les particules |
 | `JK_SPRITE_SKIPPED` | avertissement | Sprites non convertis (aucun dans les 34 niveaux). | les sprites |
-| `JK_ROTATION_APPROX` | avertissement | Rotation qui ne suit pas un axe du modèle, ou modèle trop grand pour un `func_rotating` : axe le plus proche, ou sans rotation. | la rotation exacte |
+| `JK_ROTATION_APPROX` | avertissement | Rotation qui ne suit pas un axe du modèle, ou modèle trop grand pour un `func_rotating` : axe le plus proche, ou sans rotation. Le modèle reste visible et traversable. | la rotation exacte |
 | `JK_RUNTIME_THING` | avertissement | Scripts qui créent des choses en cours de jeu (explosions, débris, bonus, ennemis) : non placées. | ces apparitions |
+| `JK_SECRET_AREAS` | info | Zones secretes (`00_SecretAreas.cog`, secteurs lies `secret1`..`secret20`) converties : un `trigger_multiple` non solide par secteur (joueur seul, une fois) qui vise un unique `target_secret` (`count` = total du niveau : compteur « secrets found » de JA, son et « Secret Area! »). Texte et son JK remplaces par ceux de JA. | l'étoile de Force de fin de niveau (tous les secrets trouvés) |
+| `JK_SECRET_SKIPPED` | avertissement | Zones secretes non posées : secteur absent du niveau, secteur dégénéré ou plus de sous-modèle disponible. | ces zones |
 | `JK_START_MULTI_SKIPPED` | info | Départs multijoueur d'un niveau solo non placés. | aucune |
 | `JK_CTF_TEAMS` | info | Départs de capture du drapeau par équipe (équipe du drapeau le plus proche). | aucune |
 | `JK_SECTOR_SOUND` | info | Secteurs avec son : haut-parleurs en boucle placés au centre des secteurs voisins fusionnés. | aucune |

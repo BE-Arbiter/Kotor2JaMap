@@ -16,10 +16,12 @@ using Xunit;
 namespace Jk.Pipeline.Tests;
 
 /// <summary>Objets du niveau (tache 7) : departs, objets a ramasser, decors, mobiles de rotation, sons, volumes d'eau et de blessure.</summary>
-public sealed class JkThingConverterTests : IDisposable
+public sealed partial class JkThingConverterTests : IDisposable
 {
     private const string JkDir = @"C:\Program Files (x86)\Steam\steamapps\common\Star Wars Jedi Knight";
     private const float K = JkWorldScale.MetresPerJkUnit * ExportOptions.DefaultScale; // 344 unites JA par unite JK
+
+    private const int SpinStartOn = 1; // drapeau START_ON de func_rotating
 
     private readonly List<string> _dirs = [];
 
@@ -444,6 +446,44 @@ public sealed class JkThingConverterTests : IDisposable
         SubModelInput sub = Assert.Single(subModels);
         Assert.NotEqual(BspContents.Solid, sub.Contents & BspContents.Solid);
         Assert.Single(sub.Brushes);
+    }
+
+    [Fact]
+    public void SpinningFan_NeverGetsFaceCollision()
+    {
+        // Un ventilateur est traversable : meme avec collide=3 (collision de face pour un decor ordinaire), il n'ajoute aucun triangle solide.
+        var level = new SyntheticLevel
+        {
+            ExtraTemplates = ["fan0 none type=cog collide=3 move=physics angvel=(400.000000/0.000000/0.000000) model3d=cube.3do"],
+            ExtraThings = ["1: fan0 fan0 1.5 0.5 0.3 0 0 0 1"],
+        };
+        using Env e = Make(level);
+        var (converted, _) = Run(e);
+
+        Assert.Single(Of(converted, "func_rotating"));
+        Assert.Empty(converted.ExtraSolid);
+        Assert.DoesNotContain(e.Log.Warnings, w => w.Code == "JK_DECOR_COLLISION");
+    }
+
+    [Fact]
+    public void SpinningFan_TooLargeToSpin_StaysVisibleWithoutCollision()
+    {
+        // Un modele de 100 unites JK est divise (modelscale) : un func_rotating ne sait pas l'agrandir, le ventilateur est donc pose sans tourner.
+        // Il ne doit pas pour autant devenir un obstacle : visible (misc_model_static), sans collision de face.
+        string big = Cube3do.Replace("1.0", "100.0");
+        var level = new SyntheticLevel
+        {
+            ExtraTemplates = ["fanbig none type=cog collide=3 move=physics angvel=(0.000000/360.000000/0.000000) model3d=bigcube.3do"],
+            ExtraThings = ["1: fanbig fanbig 1.5 0.5 0.3 0 0 0 1"],
+        };
+        using Env e = Make(level, JkLevelKind.SinglePlayer, (@"3do\bigcube.3do", Text(big)));
+        var (converted, _) = Run(e);
+
+        var model = Assert.Single(Of(converted, "misc_model_static"));
+        Assert.True(int.Parse(model["modelscale"]) > 1);
+        Assert.Empty(Of(converted, "func_rotating"));
+        Assert.Empty(converted.ExtraSolid);
+        Assert.Contains(e.Log.Warnings, w => w.Code == "JK_ROTATION_APPROX");
     }
 
     [Fact]
@@ -935,5 +975,38 @@ public sealed class JkThingConverterTests : IDisposable
             summary.AppendLine($"{level.Name}: {converted.Entities.Count} entities, {converted.Models.Count} md3, {subModels.Count} sub-models, {converted.Sounds.Count} sounds");
         }
         Assert.NotEmpty(summary.ToString());
+    }
+
+    [SkippableFact]
+    public void RealFans_AreSpinningTraversableAndVisible()
+    {
+        Skip.IfNot(Directory.Exists(JkDir), "Jedi Knight is not installed.");
+        int fans = 0;
+        foreach (JkLevelRef level in JkInstall.ListLevels(JkDir))
+        {
+            using JkFileSystem fs = JkFileSystem.ForEpisode(JkDir, level.EpisodeGob);
+            var log = new ImportLog();
+            JkPreparedScene prepared = JkSceneBuilder.Build(fs, level, log);
+            var opt = new ExportOptions("", "", Path.GetTempPath(), Game: KotorGame.JediKnight);
+            var (converted, subModels) = JkObjects.Convert(prepared, fs, opt, log);
+
+            foreach (var fan in converted.Entities.Where(x => x["classname"] == "func_rotating" && x["model2"].Contains("/fan", StringComparison.Ordinal)))
+            {
+                fans++;
+                // Visible et anime : modele + rotation en marche. Traversable : sous-modele sans contenu, aucun triangle solide dans sa boite.
+                Assert.True((int.Parse(fan["spawnflags"]) & SpinStartOn) != 0);
+                SubModelInput sub = subModels[int.Parse(fan["model"][1..]) - 1];
+                Assert.Equal(BspContents.None, sub.Contents);
+                var (lo, hi) = BrushBounds.FromPlanes(sub.Brushes[0])!.Value;
+                string[] o = fan["origin"].Split(' ');
+                var origin = new Vector3(float.Parse(o[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(o[1], System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(o[2], System.Globalization.CultureInfo.InvariantCulture));
+                Assert.DoesNotContain(converted.ExtraSolid, t => new[] { t.A, t.B, t.C }.Any(p => p.X >= origin.X + lo.X && p.X <= origin.X + hi.X
+                    && p.Y >= origin.Y + lo.Y && p.Y <= origin.Y + hi.Y && p.Z >= origin.Z + lo.Z && p.Z <= origin.Z + hi.Z));
+            }
+            // Aucun ventilateur ne doit rester un decor fixe : tous les modeles « fan* » sont des func_rotating.
+            Assert.DoesNotContain(converted.Entities, x => x["classname"] == "misc_model_static" && x["model"].Contains("/fan", StringComparison.Ordinal));
+        }
+        Assert.Equal(13, fans); // 01narshadda 4, 10cargo 1, 16a et 16b 2 chacun, m5 1, c3 3
     }
 }
