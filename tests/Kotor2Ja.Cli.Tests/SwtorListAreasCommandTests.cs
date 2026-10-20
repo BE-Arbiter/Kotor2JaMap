@@ -4,6 +4,7 @@ using static Swtor.Core.Tests.SyntheticArea;
 
 namespace Kotor2Ja.Cli.Tests;
 
+[Collection("ConsoleRedirect")]
 public class SwtorListAreasCommandTests : IDisposable
 {
     private readonly string _root = WriteRoot(("4611686000000000001", "war_planworking", ["_everywhere_", "room_01"]), ("4611686000000000002", "tat_main", ["main"]));

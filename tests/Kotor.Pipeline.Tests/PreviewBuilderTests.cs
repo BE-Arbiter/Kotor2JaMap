@@ -63,6 +63,8 @@ public sealed class PreviewBuilderTests : IDisposable
     [InlineData(KotorGame.Kotor2, false, "wall")]
     [InlineData(KotorGame.Swtor, false, "wall")]
     [InlineData(KotorGame.Swtor, true, "wall")]
+    [InlineData(KotorGame.JediKnight, false, "wall")]
+    [InlineData(KotorGame.JediKnight, true, "wall")]
     public void KeyOf_strips_the_game_prefix(KotorGame game, bool lightmap, string name)
     {
         string rel = (lightmap ? ShaderNames.LightmapPrefixFor(game) : ShaderNames.PrefixFor(game)) + name + ".tga";

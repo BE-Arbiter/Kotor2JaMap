@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Text;
 using Jk.Core;
+using Jk.Core.Cog;
 using Jk.Core.Gob;
 using Jk.Core.Jkl;
 using Jk.Core.Models;
@@ -171,16 +172,16 @@ internal sealed class JkModelPool
 /// <summary>Animations <c>.key</c> jouees en boucle par les COG : thing -> fichier .key (appel <c>PlayKey(thing, cle, ...)</c> d'une instance ou du COG attache au gabarit).</summary>
 internal static class JkThingAnimations
 {
-    public static Dictionary<int, string> Find(JkPreparedScene prepared, Func<string, CogLite?> script)
+    public static Dictionary<int, string> Find(JkPreparedScene prepared, Func<string, CogScript?> script)
     {
         var result = new Dictionary<int, string>();
         // Instances de COG du niveau : le thing et la cle viennent des valeurs de l'instance (ou des valeurs par defaut du script).
         foreach (JklCogInstance inst in prepared.Level.Cogs)
         {
-            CogLite? cog = script(inst.CogFile);
+            CogScript? cog = script(inst.CogFile);
             if (cog is null) continue;
             IReadOnlyDictionary<string, string> values = cog.Bind(inst);
-            foreach (CogCall call in cog.AllCalls())
+            foreach (CogCallSite call in cog.AllCalls())
             {
                 if (!call.Function.Equals("PlayKey", StringComparison.OrdinalIgnoreCase) || call.Args.Length < 2) continue;
                 if (int.TryParse(Value(call.Args[0], values), NumberStyles.Integer, CultureInfo.InvariantCulture, out int thing) && thing >= 0
@@ -192,11 +193,11 @@ internal static class JkThingAnimations
         foreach (JklThing t in prepared.Level.Things)
         {
             if (!prepared.Templates.Resolve(t.Template).TryGetValue("cog", out string? file) || result.ContainsKey(t.Index)) continue;
-            CogLite? cog = script(file);
+            CogScript? cog = script(file);
             if (cog is null) continue;
             var defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (CogSymbol s in cog.Symbols) if (s.Default is not null) defaults[s.Name] = s.Default;
-            foreach (CogCall call in cog.AllCalls())
+            foreach (CogCallSite call in cog.AllCalls())
                 if (call.Function.Equals("PlayKey", StringComparison.OrdinalIgnoreCase) && call.Args.Length >= 2
                     && cog.Symbols.Any(s => s.Type == "thing" && s.Default is null && s.Name.Equals(call.Args[0].Trim(), StringComparison.OrdinalIgnoreCase))
                     && Value(call.Args[1], defaults) is { } key && key.EndsWith(".key", StringComparison.OrdinalIgnoreCase))
@@ -256,13 +257,13 @@ public static class JkThingConverter
         JklLevel level = prepared.Level;
         float k = JkWorldScale.MetresPerJkUnit * opt.Scale;
         var pool = sharedPool ?? new JkModelPool(fs, prepared, opt, log);
-        var scripts = new Dictionary<string, CogLite?>(StringComparer.OrdinalIgnoreCase);
-        CogLite? Script(string file)
+        var scripts = new Dictionary<string, CogScript?>(StringComparer.OrdinalIgnoreCase);
+        CogScript? Script(string file)
         {
-            if (!scripts.TryGetValue(file, out CogLite? s))
+            if (!scripts.TryGetValue(file, out CogScript? s))
             {
                 byte[]? raw = fs.TryRead(@"cog\" + file);
-                scripts[file] = s = raw is null ? null : CogLite.Parse(Encoding.Latin1.GetString(raw));
+                scripts[file] = s = raw is null ? null : CogReader.Read(Encoding.Latin1.GetString(raw));
             }
             return s;
         }
@@ -539,7 +540,7 @@ public static class JkThingConverter
         r.TryGetValue("model3d", out string? m) && !string.IsNullOrWhiteSpace(m) && !m.Equals("none", StringComparison.OrdinalIgnoreCase) ? m : null;
 
     /// <summary>Vrai si le COG attache au gabarit gere le message <c>damaged</c> (baril, caisse, reservoir : detruit par les tirs, JK l'explose).</summary>
-    private static bool IsDestructible(IReadOnlyDictionary<string, string> r, Func<string, CogLite?> script, SortedSet<string> attached)
+    private static bool IsDestructible(IReadOnlyDictionary<string, string> r, Func<string, CogScript?> script, SortedSet<string> attached)
     {
         if (!r.TryGetValue("cog", out string? file) || string.IsNullOrWhiteSpace(file)) return false;
         attached.Add(file);
@@ -547,7 +548,7 @@ public static class JkThingConverter
     }
 
     /// <summary>Scripts qui creent des things en jeu (<c>CreateThing</c>) : instances du niveau et COG attaches aux decors.</summary>
-    private static void RuntimeThings(JklLevel level, Func<string, CogLite?> script, SortedSet<string> attached, ImportLog log)
+    private static void RuntimeThings(JklLevel level, Func<string, CogScript?> script, SortedSet<string> attached, ImportLog log)
     {
         var creators = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string file in level.Cogs.Select(c => c.CogFile).Concat(attached).Distinct(StringComparer.OrdinalIgnoreCase))

@@ -27,6 +27,9 @@ public sealed class CogScript
 
     public IReadOnlyList<CogSymbol> Symbols { get; }
 
+    /// <summary>Code des sections <c>code</c> sans commentaires, une instruction par ligne (pour les recherches de texte).</summary>
+    public string Code { get; internal set; } = "";
+
     /// <summary>Anomalies de lecture (script tronque ou mal forme) ; vide pour un script correct. Le script est quand meme lu au mieux.</summary>
     public IReadOnlyList<string> Warnings { get; internal set; } = [];
 

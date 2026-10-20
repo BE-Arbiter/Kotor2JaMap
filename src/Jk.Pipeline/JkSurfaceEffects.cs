@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 using System.Text;
+using Jk.Core.Cog;
 using Jk.Core.Jkl;
 using Jk.Core.Text;
 using Kotor.Core;
@@ -42,11 +43,13 @@ internal sealed class JkLevelEffects
     /// <summary>Surfaces qui blessent ou tuent au contact, et secteurs qui blessent leurs occupants.</summary>
     public HashSet<int> HazardSurfaces { get; } = [];
     public HashSet<int> HazardSectors { get; } = [];
+    /// <summary>Adjoins bloquants dans le fichier que des COG peuvent ouvrir (<c>SetAdjoinFlags</c> avec le bit de passage) : rendus franchissables.</summary>
+    public HashSet<int> OpenedAdjoins { get; } = [];
 }
 
 /// <summary>
 /// Effets de surface d'un niveau JK : eau, zones qui blessent ou tuent, textures qui defilent ou s'animent, derive du ciel.
-/// Les drapeaux de secteur viennent du fichier ; les effets de COG viennent d'une lecture minimale des scripts (<see cref="CogLite"/>) :
+/// Les drapeaux de secteur viennent du fichier ; les effets de COG viennent d'une lecture minimale des scripts (<see cref="CogReader"/>) :
 /// seuls les appels du message <c>startup</c> comptent, les mouvements declenches par evenement sont ceux de la tache 8.
 /// </summary>
 public static class JkSurfaceEffects
@@ -103,34 +106,43 @@ public static class JkSurfaceEffects
         if (water > 0)
             log.Warn("JK_WATER_VOLUME", $"{water} underwater sector(s) found: the scene converts the water look (translucent surface, tint); the swimmable volume (water contents) is created with the placed objects (JK_WATER_BRUSH), without underwater fog.");
 
-        if (readCog is null) return result;
+        int thrustSectors = level.Sectors.Count(s => s.Thrust != Vector3.Zero), thrustInstances = 0;
+        var thrustScripts = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (readCog is null) { LogThrust(log, thrustSectors, 0, thrustScripts); return result; }
 
-        var scripts = new Dictionary<string, CogLite?>(StringComparer.OrdinalIgnoreCase);
+        var scripts = new Dictionary<string, CogScript?>(StringComparer.OrdinalIgnoreCase);
         int deferred = 0, heal = 0;
         var unresolvedDamage = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenHazard = new HashSet<(JkVolumeKind, int, int)>();
+        var adjoinCogs = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (JklCogInstance inst in level.Cogs)
         {
-            if (!scripts.TryGetValue(inst.CogFile, out CogLite? script))
+            if (!scripts.TryGetValue(inst.CogFile, out CogScript? script))
             {
                 string? text = readCog(inst.CogFile);
-                scripts[inst.CogFile] = script = text is null ? null : CogLite.Parse(text);
+                scripts[inst.CogFile] = script = text is null ? null : CogReader.Read(text);
             }
             if (script is null) continue;
             IReadOnlyDictionary<string, string> values = script.Bind(inst);
+            if (ReadOpenedAdjoins(level, script, values, result)) adjoinCogs.Add(inst.CogFile);
+            if (script.AllCalls().Any(c => c.Function.Equals("SectorThrust", StringComparison.OrdinalIgnoreCase) || c.Function.Equals("SetSectorThrust", StringComparison.OrdinalIgnoreCase))) { thrustInstances++; thrustScripts.Add(inst.CogFile); }
 
-            IReadOnlyList<CogCall> startup = script.StartupCalls();
+            IReadOnlyList<CogCallSite> startup = script.StartupCalls();
             ReadStartupEffects(level, script, values, startup, result);
             deferred += script.AllCalls().Count(IsEffectCall) - startup.Count(IsEffectCall);
 
-            if (script.Code.Contains("damagething(", StringComparison.OrdinalIgnoreCase))
+            if (script.CodeContains("damagething("))
             {
                 if (!ReadHazards(level, script, values, sectorOfSurface, result, seenHazard, ref heal)) unresolvedDamage.Add(inst.CogFile);
             }
-            else if (script.Code.Contains("healthing(", StringComparison.OrdinalIgnoreCase) && script.Code.Contains("firstthinginsector(", StringComparison.OrdinalIgnoreCase))
+            else if (script.CodeContains("healthing(") && script.CodeContains("firstthinginsector("))
                 heal += script.Symbols.Count(s => s.Type == "sector" && !s.Local && values.TryGetValue(s.Name, out string? v) && v != "-1");
         }
 
+        LogThrust(log, thrustSectors, thrustInstances, thrustScripts);
+        if (result.OpenedAdjoins.Count > 0)
+            log.Warn("JK_ADJOIN_COG_OPENED", $"{result.OpenedAdjoins.Count} adjoin(s) blocked in the level file can be opened by COG scripts (force fields, grates, breakable glass, doors without a moving part): they are made passable so that no way stays closed for good; the barrier stays visible but no longer blocks. Scripts: "
+                + string.Join(", ", adjoinCogs.Take(12)) + (adjoinCogs.Count > 12 ? ", ..." : "."));
         int hurt = result.Volumes.Count(v => v.Kind == JkVolumeKind.Hurt), kill = result.Volumes.Count(v => v.Kind == JkVolumeKind.Kill);
         if (hurt + kill > 0)
             log.Warn("JK_HURT_VOLUME", $"{hurt} hurting and {kill} killing zone(s) (sectors or touched surfaces) become trigger_hurt volumes.");
@@ -143,15 +155,15 @@ public static class JkSurfaceEffects
         return result;
     }
 
-    private static bool IsEffectCall(CogCall c) => c.Function.ToLowerInvariant() is "slidewall" or "slidesurface" or "surfaceanim" or "materialanim";
+    private static bool IsEffectCall(CogCallSite c) => c.Function.ToLowerInvariant() is "slidewall" or "slidesurface" or "surfaceanim" or "materialanim";
 
     // ---- effets au demarrage ----
 
-    private static void ReadStartupEffects(JklLevel level, CogLite script, IReadOnlyDictionary<string, string> values, IReadOnlyList<CogCall> calls, JkLevelEffects result)
+    private static void ReadStartupEffects(JklLevel level, CogScript script, IReadOnlyDictionary<string, string> values, IReadOnlyList<CogCallSite> calls, JkLevelEffects result)
     {
         var stopped = new HashSet<int>();
         var started = new List<int>();
-        foreach (CogCall call in calls)
+        foreach (CogCallSite call in calls)
         {
             switch (call.Function.ToLowerInvariant())
             {
@@ -211,13 +223,51 @@ public static class JkSurfaceEffects
         }
     }
 
+    /// <summary>La poussee de secteur (vent, ventilateurs, geysers : <c>THRUST</c> du secteur, <c>SetSectorThrust</c> des COG) n'est pas convertie : un seul message avec les comptes.</summary>
+    private static void LogThrust(ImportLog log, int sectors, int instances, SortedSet<string> scripts)
+    {
+        if (sectors == 0 && instances == 0) return;
+        log.Warn("JK_SECTOR_THRUST_SKIPPED", $"{sectors} sector(s) carry a THRUST vector and {instances} COG instance(s) ({scripts.Count} script(s)) set a sector thrust at run time (wind, fans, geysers, lifts): "
+            + "the push is not converted (no push zone yet), the sectors stay walkable and still."
+            + (scripts.Count > 0 ? " Scripts: " + string.Join(", ", scripts.Take(12)) + (scripts.Count > 12 ? ", ..." : ".") : ""));
+    }
+
+    // ---- adjoins ouverts par des COG ----
+
+    /// <summary>Bit « franchissable » d'un adjoin (voir <c>jk-formats.md</c>).</summary>
+    private const uint AdjoinMoveBit = 0x2;
+
+    /// <summary>
+    /// Cherche les <c>SetAdjoinFlags(surface, drapeaux)</c> qui peuvent ouvrir (bit 0x2, ou drapeaux illisibles par prudence) un adjoin bloquant dans le fichier.
+    /// Tous les messages comptent (interrupteur, degats, entree dans un secteur) : un COG qui ne deplace rien ne peut sinon jamais ouvrir le passage.
+    /// Renvoie vrai si ce script ouvre au moins un nouvel adjoin.
+    /// </summary>
+    private static bool ReadOpenedAdjoins(JklLevel level, CogScript script, IReadOnlyDictionary<string, string> values, JkLevelEffects result)
+    {
+        bool any = false;
+        foreach (CogCallSite call in script.AllCalls())
+        {
+            if (!call.Function.Equals("SetAdjoinFlags", StringComparison.OrdinalIgnoreCase) || call.Args.Length < 2) continue;
+            uint? flags = Flags(Resolve(call.Args[1], values));
+            if (flags is { } f && (f & AdjoinMoveBit) == 0) continue;
+            foreach (string? s in ResolveList(call.Args[0], script, values))
+            {
+                if (Index(s) is not (>= 0 and int surface) || surface >= level.Surfaces.Count) continue;
+                int adjoin = level.Surfaces[surface].Adjoin;
+                if (adjoin < 0 || adjoin >= level.Adjoins.Count || (level.Adjoins[adjoin].Flags & AdjoinMoveBit) != 0) continue;
+                if (result.OpenedAdjoins.Add(adjoin)) any = true;
+            }
+        }
+        return any;
+    }
+
     // ---- zones qui blessent ----
 
     /// <summary>Lit un script qui appelle <c>DamageThing</c> ; faux si aucun secteur ni aucune surface n'est converti : script declenche par evenement sans zone designee, ou zones non liees (cas a journaliser).</summary>
-    private static bool ReadHazards(JklLevel level, CogLite script, IReadOnlyDictionary<string, string> values, int[] sectorOfSurface, JkLevelEffects result,
+    private static bool ReadHazards(JklLevel level, CogScript script, IReadOnlyDictionary<string, string> values, int[] sectorOfSurface, JkLevelEffects result,
         HashSet<(JkVolumeKind, int, int)> seen, ref int heal)
     {
-        CogCall? damageCall = script.AllCalls().FirstOrDefault(c => c.Function.Equals("DamageThing", StringComparison.OrdinalIgnoreCase));
+        CogCallSite? damageCall = script.AllCalls().FirstOrDefault(c => c.Function.Equals("DamageThing", StringComparison.OrdinalIgnoreCase));
         float amount = 10f;
         if (damageCall is { Args.Length: >= 2 })
         {
@@ -227,12 +277,12 @@ public static class JkSurfaceEffects
         }
         // Intervalle entre deux impulsions : argument du premier SetPulse du script (valeur du symbole ou nombre), sinon une seconde.
         float interval = 1f;
-        CogCall? pulse = script.AllCalls().FirstOrDefault(c => c.Function.Equals("SetPulse", StringComparison.OrdinalIgnoreCase) && c.Args.Length >= 1 && Number(Resolve(c.Args[0], values)) is > 0f);
+        CogCallSite? pulse = script.AllCalls().FirstOrDefault(c => c.Function.Equals("SetPulse", StringComparison.OrdinalIgnoreCase) && c.Args.Length >= 1 && Number(Resolve(c.Args[0], values)) is > 0f);
         if (pulse is not null) interval = Number(Resolve(pulse.Args[0], values))!.Value;
 
         bool found = false;
         // Secteurs : le script regarde ce qui s'y trouve a chaque impulsion (FirstThingInSector), ou compare le secteur du joueur a sa liste (GetThingSector).
-        bool watchesSectors = script.Code.Contains("firstthinginsector(", StringComparison.OrdinalIgnoreCase) || script.Code.Contains("getthingsector(", StringComparison.OrdinalIgnoreCase);
+        bool watchesSectors = script.CodeContains("firstthinginsector(") || script.CodeContains("getthingsector(");
         if (watchesSectors)
             foreach (CogSymbol sym in script.Symbols.Where(s => s.Type == "sector" && !s.Local))
             {
@@ -316,12 +366,12 @@ public static class JkSurfaceEffects
     }
 
     /// <summary>Valeurs d'un argument : un acces <c>nom[i]</c> parcourt la famille de symboles <c>nom, nom1...</c> (null = symbole sans valeur) ; sinon une seule valeur.</summary>
-    private static List<string?> ResolveList(string expr, CogLite script, IReadOnlyDictionary<string, string> values)
+    private static List<string?> ResolveList(string expr, CogScript script, IReadOnlyDictionary<string, string> values)
     {
         expr = expr.Trim();
         int open = expr.IndexOf('[');
         if (open > 0 && expr.EndsWith(']'))
-            return script.Family(expr[..open].Trim()).Select(n => values.TryGetValue(n, out string? v) ? v : null).ToList();
+            return script.Family(expr[..open].Trim()).Select(n => values.TryGetValue(n.Name, out string? v) ? v : null).ToList();
         return [Resolve(expr, values)];
     }
 

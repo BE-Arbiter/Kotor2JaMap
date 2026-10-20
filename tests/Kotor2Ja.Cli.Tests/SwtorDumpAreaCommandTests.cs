@@ -5,6 +5,7 @@ using static Swtor.Core.Tests.SyntheticArea;
 
 namespace Kotor2Ja.Cli.Tests;
 
+[Collection("ConsoleRedirect")]
 public class SwtorDumpAreaCommandTests
 {
     [Fact]

@@ -6,6 +6,7 @@ using Kotor2Ja.Cli.Commands;
 
 namespace Kotor2Ja.Cli.Tests;
 
+[Collection("ConsoleRedirect")]
 public class JkGameOptionTests
 {
     private const string JkDir = @"C:\Program Files (x86)\Steam\steamapps\common\Star Wars Jedi Knight";

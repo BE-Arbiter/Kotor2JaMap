@@ -157,7 +157,7 @@ public static class JkSceneBuilder
             bool reversed = surf.Normal != Vector3.Zero && Vector3.Dot(normal, surf.Normal) < 0f;
             if (reversed) normal = -normal;
 
-            bool isPassable = IsPassableAdjoin(level, surf);
+            bool isPassable = IsPassableAdjoin(level, surf, fx.OpenedAdjoins);
             if (isPassable) passable++;
             else
             {
@@ -230,7 +230,7 @@ public static class JkSceneBuilder
 
         // Rampes de collision sur les contremarches trop hautes pour le pas de JA.
         float minRise = options.StairRampMinRiseJa / JkWorldScale.JaUnitsPerJkUnit;
-        List<JkStairRamps.Ramp> stairRamps = JkStairRamps.Compute(level, s => !IsPassableAdjoin(level, s), minRise, out int steepSkipped);
+        List<JkStairRamps.Ramp> stairRamps = JkStairRamps.Compute(level, s => !IsPassableAdjoin(level, s, fx.OpenedAdjoins), minRise, out int steepSkipped);
         foreach (JkStairRamps.Ramp r in stairRamps)
         {
             string room = roomNames[group[r.Sector]];
@@ -567,8 +567,9 @@ public static class JkSceneBuilder
 
     // ---- geometrie ----
 
-    private static bool IsPassableAdjoin(JklLevel level, JklSurface s) =>
-        s.Adjoin >= 0 && s.Adjoin < level.Adjoins.Count && (level.Adjoins[s.Adjoin].Flags & AdjoinMove) != 0;
+    /// <summary>Adjoin franchissable : bit de passage dans le fichier, ou ouvert par un COG sans mouvement (<paramref name="opened"/>).</summary>
+    private static bool IsPassableAdjoin(JklLevel level, JklSurface s, IReadOnlySet<int> opened) =>
+        s.Adjoin >= 0 && s.Adjoin < level.Adjoins.Count && ((level.Adjoins[s.Adjoin].Flags & AdjoinMove) != 0 || opened.Contains(s.Adjoin));
 
     /// <summary>Normale du polygone (methode de Newell), unitaire ; nulle si le polygone est degenere.</summary>
     internal static Vector3 PolygonNormal(IReadOnlyList<Vector3> v)

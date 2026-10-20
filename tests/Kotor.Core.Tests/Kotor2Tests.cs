@@ -27,6 +27,7 @@ public sealed class Kotor2Tests
         Assert.Equal("textures/kotor/", ShaderNames.Prefix);
         Assert.Equal("wall", ShaderNames.StripPrefix("textures/kotor2/wall"));
         Assert.Equal("wall", ShaderNames.StripPrefix("textures/kotor/wall"));
+        Assert.Equal("wall", ShaderNames.StripPrefix("textures/jk/wall"));
     }
 
     private static string FakeInstall()

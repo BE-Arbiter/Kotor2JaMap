@@ -6,9 +6,6 @@ using Jk.Core.Jkl;
 
 namespace Jk.Pipeline.Movers;
 
-// Alias dans l espace de noms : CogLite (Jk.Pipeline) declare ses propres CogSymbol et CogCall internes.
-using CogSymbol = Jk.Core.Cog.CogSymbol;
-using CogCallSite = Jk.Core.Cog.CogCallSite;
 
 /// <summary>Instance de COG du niveau et comportements deduits.</summary>
 public sealed record ClassifiedCog(JklCogInstance Instance, IReadOnlyList<MoverBehavior> Behaviors);

@@ -2,7 +2,7 @@ namespace Jk.Pipeline;
 
 /// <summary>
 /// Objets a ramasser de Jedi Knight -> classe d'objet JA (spec §5.6). La cle est le nom du gabarit du thing (celui de la ligne <c>THINGS</c>) ; la table
-/// couvre les 49 gabarits de type <c>item</c> reellement presents dans les 34 niveaux (liste produite par <c>jk-dump-level</c>, voir le rapport T7).
+/// couvre les 49 gabarits de type <c>item</c> reellement presents dans les 34 niveaux (liste relevee en parcourant les gabarits des 34 niveaux avec le lecteur de niveau, voir le rapport T7 ; <c>jk-dump-level</c> ne donne que les comptes par type de thing).
 /// Les classes JA citees existent dans le jeu solo de SWGL (OpenJK-SWGL <c>code/game/bg_misc.cpp</c>, <c>g_items.cpp</c>).
 /// <list type="bullet">
 /// <item>Armes : pistolet Bryar -> <c>weapon_bryar_pistol</c> (le pistolet de Greedo donne le meme objet JK, <c>pow_bryar.cog</c>), fusil de stormtrooper ->

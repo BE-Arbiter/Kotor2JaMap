@@ -1,5 +1,6 @@
 using System.Numerics;
 using Jk.Core;
+using Jk.Core.Cog;
 using Jk.Core.Gob;
 using Jk.Core.Jkl;
 using Kotor.Core;
@@ -486,24 +487,24 @@ public class JkSurfaceEffectsTests
         Assert.True(FloorMesh(lit).Hints.IsNone);
     }
 
-    // ---- lecteur de COG minimal ----
+    // ---- lecture des COG (CogReader) ----
 
     [Fact]
-    public void CogLite_BindsNonLocalSymbolsInOrder_AndFindsStartupCalls()
+    public void CogReader_BindsNonLocalSymbolsInOrder_AndFindsStartupCalls()
     {
-        CogLite script = CogLite.Parse(ConveyorCog);
+        CogScript script = CogReader.Read(ConveyorCog);
         Assert.Equal(["vec0", "speed", "convey0", "convey1"], script.Symbols.Where(s => !s.Local && s.Type != "message").Select(s => s.Name));
         var inst = new JklCogInstance(0, "00_conveyor.cog", ["(1.0/0.0/0.0)", "2.0", "5", "-1"]);
         IReadOnlyDictionary<string, string> values = script.Bind(inst);
         Assert.Equal("5", values["convey0"]);
         Assert.Equal("(1.0/0.0/0.0)", values["vec0"]);
 
-        CogCall call = Assert.Single(script.StartupCalls(), c => c.Function.Equals("slidewall", StringComparison.OrdinalIgnoreCase));
+        CogCallSite call = Assert.Single(script.StartupCalls(), c => c.Function.Equals("slidewall", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(["convey0[cnt]", "vec0", "speed"], call.Args);
     }
 
     [Fact]
-    public void CogLite_FollowsCallToAnotherMessage_AndSharedLabels()
+    public void CogReader_FollowsCallToAnotherMessage_AndSharedLabels()
     {
         const string text = """
             symbols
@@ -523,8 +524,8 @@ public class JkSurfaceEffectsTests
             touched:
             end
             """;
-        CogLite script = CogLite.Parse(text);
-        CogCall call = Assert.Single(script.StartupCalls());
+        CogScript script = CogReader.Read(text);
+        CogCallSite call = Assert.Single(script.StartupCalls());
         Assert.Equal("materialanim", call.Function, ignoreCase: true);
         // Valeur par defaut d'un symbole local.
         Assert.Equal("00tfuel.mat", script.Bind(new JklCogInstance(0, "x.cog", ["7.5"]))["animmat"]);

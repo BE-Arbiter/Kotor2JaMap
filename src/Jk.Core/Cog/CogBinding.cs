@@ -119,7 +119,10 @@ public static class CogBinding
     /// Valeurs des symboles pour une instance : les symboles ni <c>local</c> ni <c>message</c>, dans l'ordre de declaration (les <c>nolink</c> comptent),
     /// prennent les valeurs de l'instance ; un symbole <c>local</c> ou sans valeur (instance trop courte) garde sa valeur par defaut, s'il en a une.
     /// </summary>
-    public static BoundCog Bind(CogScript script, JklCogInstance instance, JklLevel level)
+    public static BoundCog Bind(CogScript script, JklCogInstance instance, JklLevel level) => Bind(script, instance);
+
+    /// <summary>Comme <see cref="Bind(CogScript, JklCogInstance, JklLevel)"/> : la liaison ne depend pas du niveau.</summary>
+    public static BoundCog Bind(CogScript script, JklCogInstance instance)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         int k = 0;

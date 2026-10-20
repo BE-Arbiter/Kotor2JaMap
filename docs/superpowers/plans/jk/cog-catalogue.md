@@ -1,6 +1,6 @@
 # Catalogue des COG des 34 niveaux Jedi Knight (tâche 8)
 
-Date : 2026-10-20. Généré par le classifieur (`CogClassifier.ClassifyLevel`, `src/Jk.Pipeline/Movers`) sur les 34 niveaux installés ; la commande
+Date : 2026-10-20 (régénéré après les correctifs finaux T12 : comptes par fichier et par type recalculés sur les 34 niveaux, identiques au calcul d’origine malgré le changement de `Delay`). Généré par le classifieur (`CogClassifier.ClassifyLevel`, `src/Jk.Pipeline/Movers`) sur les 34 niveaux installés ; la commande
 `kotor2ja jk-dump-level <niveau>` donne la même liste par niveau (instances numérotées, comportement retenu).
 
 ## Méthode
@@ -104,7 +104,7 @@ Triés par nombre d'instances. Colonne comportement : nombre de comportements pr
 | `10_FFieldswitch.cog` | 3 | 1 | SurfaceCelSwitch x3 |  |
 | `10_sectorthrust.cog` | 3 | 1 | no mover: sector thrust (wind, push) |  |
 | `14_oopstroop.cog` | 3 | 2 | TwoStopLift x3 |  |
-| `17a_Stream.cog` | 3 | 3 | no mover: surface or sky effect (T5) | **MISSING from GOB** for `m_boss17` only (1 of the 3 instances: not in `JK1MP.GOB` nor `Res2.gob`, journal `JK_COG_MISSING`); the other 2 instances (2 other levels) read the script normally |
+| `17a_Stream.cog` | 3 | 3 | **MISSING** in `m_boss17` (1 instance), no mover elsewhere: surface or sky effect (T5) | **MISSING from GOB** for `m_boss17` only (1 of the 3 instances: not in `JK1MP.GOB` nor `Res2.gob`, journal `JK_COG_MISSING`); the other 2 instances (2 other levels) read the script normally |
 | `CTF_DISPLAYSCORE.COG` | 3 | 3 | SurfaceCelSwitch x18 |  |
 | `CTF_ICONSCLIENT.COG` | 3 | 3 | no mover: no visible movement |  |
 | `CTF_MAIN.cog` | 3 | 3 | SurfaceCelSwitch x21 |  |

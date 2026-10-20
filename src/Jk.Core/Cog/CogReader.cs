@@ -37,7 +37,7 @@ public static class CogReader
 
         var messageNames = new HashSet<string>(symbols.Where(s => s.Type == "message").Select(s => s.Name), StringComparer.OrdinalIgnoreCase);
         if (section != "") warnings.Add($"section '{section}' is not closed by 'end' (the script looks truncated)");
-        return new CogScript(symbols, SplitHandlers(code.ToString(), messageNames, warnings)) { Warnings = warnings };
+        return new CogScript(symbols, SplitHandlers(code.ToString(), messageNames, warnings)) { Warnings = warnings, Code = code.ToString() };
     }
 
     /// <summary>

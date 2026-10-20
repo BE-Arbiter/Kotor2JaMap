@@ -4,6 +4,7 @@ using Kotor2Ja.Cli.Commands;
 
 namespace Kotor2Ja.Cli.Tests;
 
+[Collection("ConsoleRedirect")]
 public class GameOptionTests
 {
     private static string Config(string json)

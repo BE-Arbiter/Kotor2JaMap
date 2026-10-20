@@ -178,10 +178,11 @@ The application and the command line tool also convert the levels of *Star Wars 
 - **Levels**: the 34 levels, grouped in the tree under `Jedi Knight` as `Single player` (25), `Multiplayer` (6) and `CTF` (3). Names come from the game (`episode.jk` and its string table), else the file name. Levels are converted one at a time (no assembly).
 - **Output**: `jk_<level>.pk3` (for example `jk_01narshadda.pk3`), with assets under `textures/jk/`, `models/jk/` and `sound/jk/`.
 - **Converted**: geometry with its textures, animated and scrolling textures, sky, water, lava and killing zones, JK lighting, placed objects with their models, pick-ups (weapons, ammunition, health, shields) as Jedi Academy items, start points, sector sounds, and moving things (doors, lifts, bridges, traps, switches) as moving Jedi Academy entities.
-- **Not converted**: enemies and NPCs (no actors: the log has `JK_ACTOR_SKIPPED` with their number). Approximations and skipped details are listed by code (`JK_*`) in the log and in `<map>.journal.txt`.
+- **Not converted / known limits**: enemies and NPCs (no actors: the log has `JK_ACTOR_SKIPPED` with their number); sector thrust (wind, fans, geysers: `00_sectorthrust`, 115 instances in 11 levels, logged as `JK_SECTOR_THRUST_SKIPPED`); water is visible and swimmable as a volume but has no underwater fog; door and lift rotations are not animated (a rotating part is rebuilt as a translation or stays put, `JK_COG_APPROX`); particles and sprites (`JK_PARTICLE_SKIPPED`, `JK_SPRITE_SKIPPED`; `JK_PARTICLE_APPROX` and `JK_COG_REVEAL` from the design are not implemented); things created by scripts while the game runs (`JK_RUNTIME_THING`). Barriers that scripts can open without moving anything (force fields, grates, breakable glass) are walkable from the start (`JK_ADJOIN_COG_OPENED`). The converted levels have not been verified in game yet.
+- **Log codes**: approximations and skipped details are listed by code (`JK_*`) in the log and in `<map>.journal.txt`; every code, its level and its meaning are in [`docs/superpowers/specs/jk-log-codes.md`](docs/superpowers/specs/jk-log-codes.md).
 - **Command line**: `list-modules --game jk` and `export-ja <level> --game jk` (`--kotor <folder>` gives the Jedi Knight folder). Application: `Kotor2Ja.App --game jk --module 01narshadda --run-to export --screenshot out.png`.
 
-## What is converted
+## What is converted (KOTOR)
 
 - **World geometry**: room meshes with their textures and lightmaps, vertex lighting from light nodes, sky, fog, walkmesh-based collisions and the spawn point.
 - **Placed objects** (placeables): converted to MD3 models placed with `misc_model_static`, with their collision when a walkmesh exists.
