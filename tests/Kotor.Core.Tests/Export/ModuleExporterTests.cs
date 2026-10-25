@@ -224,107 +224,21 @@ public sealed class ModuleExporterTests : IDisposable
     }
 
     [Fact]
-    public void Export_writes_the_textured_edit_map_next_to_the_work_files_and_not_in_the_pk3()
+    public void Export_puts_the_single_textured_map_in_the_pk3()
     {
         var scene = Scene([Quad("t", "l")], ["t", "l"]);
         var r = ModuleExporter.Export(scene, "emap", Opt(), new ImportLog());
         Assert.True(r.Ok, r.Error);
 
-        string edit = Path.Combine(_root, "work", "emap", "edit", "base");
-        string map = File.ReadAllText(Path.Combine(edit, "maps", "emap.map"));
-        Assert.Contains("\"_kotor_visual\" \"1\"", map);
+        using var z = ZipFile.OpenRead(r.Pk3Path!);
+        using var pk3Map = new StreamReader(z.GetEntry("maps/emap.map")!.Open());
+        string map = pk3Map.ReadToEnd();
+        Assert.Equal(File.ReadAllText(Path.Combine(_root, "work", "emap", "pk3", "maps", "emap.map")), map);
+        Assert.DoesNotContain("_kotor_visual", map);
+        Assert.DoesNotContain("func_group", map);
         Assert.Contains(" kotor/t ", map);                  // nom sans « textures/ » comme l'attendent Radiant et q3map2
         Assert.DoesNotContain("__l", map);
-        Assert.True(File.Exists(Path.Combine(edit, "textures", "kotor", "t.tga")));
-        Assert.True(File.Exists(Path.Combine(edit, "textures", "common", "caulk.tga")));
-        Assert.True(File.Exists(Path.Combine(edit, "shaders", "emap.shader")));
-
-        using var z = ZipFile.OpenRead(r.Pk3Path!);
-        Assert.DoesNotContain(z.Entries, e => e.FullName.Contains("edit", StringComparison.Ordinal));
-        using var pk3Map = new StreamReader(z.GetEntry("maps/emap.map")!.Open());
-        string light = pk3Map.ReadToEnd();
-        Assert.DoesNotContain("_kotor_visual", light);       // le .map du pk3 reste la collision seule
-        Assert.Equal(File.ReadAllText(Path.Combine(_root, "work", "emap", "pk3", "maps", "emap.map")), light);
-    }
-
-    [Fact]
-    public void Map_visuals_off_writes_no_edit_folder_and_leaves_the_bsp_and_pk3_map_byte_identical()
-    {
-        var scene = Scene([Quad("t", "l")], ["t", "l"]);
-        string bsp = Path.Combine(_root, "work", "mv", "pk3", "maps", "mv.bsp");
-        string map = Path.ChangeExtension(bsp, ".map");
-
-        Assert.True(ModuleExporter.Export(scene, "mv", Opt(), new ImportLog()).Ok);
-        byte[] bspOn = File.ReadAllBytes(bsp), mapOn = File.ReadAllBytes(map);
-        Assert.True(Directory.Exists(Path.Combine(_root, "work", "mv", "edit")));
-
-        Assert.True(ModuleExporter.Export(scene, "mv", Opt() with { MapVisuals = false }, new ImportLog()).Ok);
-        Assert.Equal(bspOn, File.ReadAllBytes(bsp));
-        Assert.Equal(mapOn, File.ReadAllBytes(map));
-        // off ne touche a rien dans edit : ni suppression, ni sauvegarde, .map inchange.
-        string editMap = Path.Combine(_root, "work", "mv", "edit", "base", "maps", "mv.map");
-        Assert.True(File.Exists(editMap));
-        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(editMap)!, "*.bak"));
-    }
-
-    [Fact]
-    public void Map_visuals_off_leaves_the_user_edited_map_untouched()
-    {
-        var scene = Scene([Quad("t", "l")], ["t", "l"]);
-        Assert.True(ModuleExporter.Export(scene, "mo", Opt(), new ImportLog()).Ok);
-        string editMap = Path.Combine(_root, "work", "mo", "edit", "base", "maps", "mo.map");
-        File.WriteAllText(editMap, "// edited by the user");
-        Assert.True(ModuleExporter.Export(scene, "mo", Opt() with { MapVisuals = false }, new ImportLog()).Ok);
-        Assert.Equal("// edited by the user", File.ReadAllText(editMap));
-    }
-
-    [Fact]
-    public void Reexport_backs_up_the_existing_edit_map_instead_of_deleting_it_and_caps_the_backups()
-    {
-        var scene = Scene([Quad("t", "l")], ["t", "l"]);
-        string maps = Path.Combine(_root, "work", "rb", "edit", "base", "maps");
-        Assert.True(ModuleExporter.Export(scene, "rb", Opt(), new ImportLog()).Ok);
-        File.WriteAllText(Path.Combine(maps, "rb.map"), "// edited by the user");
-
-        Assert.True(ModuleExporter.Export(scene, "rb", Opt(), new ImportLog()).Ok);
-        var baks = Directory.GetFiles(maps, "rb.*.map.bak");
-        Assert.Single(baks);
-        Assert.Equal("// edited by the user", File.ReadAllText(baks[0]));
-        Assert.Contains("_kotor_visual", File.ReadAllText(Path.Combine(maps, "rb.map")));
-
-        for (int i = 0; i < PipelineSteps.MaxEditBackups + 3; i++)
-            Assert.True(ModuleExporter.Export(scene, "rb", Opt(), new ImportLog()).Ok);
-        Assert.Equal(PipelineSteps.MaxEditBackups, Directory.GetFiles(maps, "rb.*.map.bak").Length);
-    }
-
-    [Fact]
-    public void Locked_edit_map_gives_a_warning_and_the_export_still_succeeds()
-    {
-        var scene = Scene([Quad("t", "l")], ["t", "l"]);
-        Assert.True(ModuleExporter.Export(scene, "lk", Opt(), new ImportLog()).Ok);
-        string editMap = Path.Combine(_root, "work", "lk", "edit", "base", "maps", "lk.map");
-        var log = new ImportLog();
-        ExportResult r;
-        using (new FileStream(editMap, FileMode.Open, FileAccess.Read, FileShare.None)) // l'editeur verrouille le fichier
-            r = ModuleExporter.Export(scene, "lk", Opt(), log);
-        Assert.True(r.Ok, r.Error);
-        Assert.True(File.Exists(r.Pk3Path));
-        Assert.Contains(log.Warnings, e => e.Code == "MAP_VISUAL_WRITE_FAILED");
-        Assert.DoesNotContain(log.Warnings, e => e.Code == "EXPORT_IO_ERROR");
-    }
-
-    [Fact]
-    public void Unusable_edit_folder_gives_a_warning_and_the_export_still_succeeds()
-    {
-        var scene = Scene([Quad("t", "l")], ["t", "l"]);
-        string mapDir = Path.Combine(_root, "work", "ed");
-        Directory.CreateDirectory(mapDir);
-        File.WriteAllText(Path.Combine(mapDir, "edit"), "not a folder"); // « edit » est un fichier : aucun dossier possible
-        var log = new ImportLog();
-        var r = ModuleExporter.Export(scene, "ed", Opt(), log);
-        Assert.True(r.Ok, r.Error);
-        Assert.Contains(log.Warnings, e => e.Code == "MAP_VISUAL_WRITE_FAILED");
-        Assert.True(File.Exists(r.Pk3Path));
+        Assert.False(Directory.Exists(Path.Combine(_root, "work", "emap", "edit")));
     }
 
     [SkippableFact]

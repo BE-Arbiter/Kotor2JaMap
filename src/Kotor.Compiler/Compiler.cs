@@ -84,7 +84,6 @@ public static class Compiler
                 subModels.Add(new BspSubModel(brushesOfModel, input.SubModels[sm].Shader, input.SubModels[sm].Contents));
             }
             using var ms = new MemoryStream();
-            IReadOnlyList<Brush> finalBrushes = [];
             ImportLog iterLog;
             List<string> iterWarnings;
             for (int attempt = 0; ; attempt++)
@@ -98,7 +97,6 @@ public static class Compiler
                     IReadOnlyList<Brush> brushes = BrushBuilder.FromPolygons(solidPolys, log: solidPolys.Count == 0 ? null : IterWarn);
                     brushes = brushes.Concat(walkBrushes.Take(walkKeep)).ToList();
                     BspTree tree = BspTree.Build(brushes, limits, roomBoxes);
-                    finalBrushes = brushes;
 
                     // Surfaces de rendu.
                     var surfaces = new List<RenderSurface>();
@@ -147,9 +145,8 @@ public static class Compiler
             }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(bspPath))!);
             File.WriteAllBytes(bspPath, ms.ToArray());
-            // Le .map source accompagne le .bsp (meme dossier, donc dans le pk3).
-            File.WriteAllText(Path.ChangeExtension(bspPath, ".map"), MapWriter.Write(input.Entities, finalBrushes, subModels), new UTF8Encoding(false));
-            if (input.VisualMapPath is { Length: > 0 } editMap) WriteEditMap(input, editMap, finalBrushes, subModels, log);
+            // L'unique .map accompagne le .bsp (meme dossier, donc dans le pk3), toujours.
+            WriteMap(input, Path.ChangeExtension(bspPath, ".map"), subModels, log);
         }
         catch (BspLimitException ex) { error = ex.Message; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException)
@@ -162,19 +159,18 @@ public static class Compiler
     }
 
     /// <summary>
-    /// <c>.map</c> d'edition : celui du pk3 (entites, collision, portes) plus la geometrie visible texturee dans un <c>func_group</c>.
-    /// Ecrit apres le BSP et le <c>.map</c> du pk3, qu'il ne modifie jamais ; une erreur d'ecriture est un avertissement, pas un echec.
+    /// L'unique <c>.map</c> : entites, portes et geometrie texturee du worldspawn (a la fois visible et solide, sans couche de collision).
+    /// Ecrit apres le BSP, qu'il ne modifie jamais ; une erreur d'ecriture est un avertissement, pas un echec.
     /// </summary>
-    private static void WriteEditMap(CompileInput input, string path, IReadOnlyList<Brush> brushes, IReadOnlyList<BspSubModel> subModels, ImportLog log)
+    private static void WriteMap(CompileInput input, string path, IReadOnlyList<BspSubModel> subModels, ImportLog log)
     {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-            VisualMapStats? st;
+            VisualMapStats st;
             using (var w = new StreamWriter(path, false, new UTF8Encoding(false), 1 << 16) { NewLine = "\n" })
-                st = MapWriter.Write(w, input.Entities, brushes, subModels, input.Surfaces);
-            if (st is null) return;
-            log.Info($"Edit map: {st.Brushes} visual brushes, {st.Textures.Count} textures, {st.DegenerateTriangles} degenerate triangle(s) skipped, max texture mapping error {st.MaxUvError:0.0000} of a texture.");
+                st = MapWriter.Write(w, input.Entities, subModels, input.Surfaces);
+            log.Info($"Edit map:{st.Brushes} visual brushes, {st.Textures.Count} textures, {st.DegenerateTriangles} degenerate triangle(s) skipped, max texture mapping error {st.MaxUvError:0.0000} of a texture.");
             if (st.CappedTriangles > 0)
                 log.Warn("MAP_VISUAL_CAPPED", $"Edit map: {st.CappedTriangles} smallest render triangle(s) left out ({st.Brushes} visual brushes kept, limit {VisualMapWriter.DefaultMaxBrushes}).");
             if (st.InexactFaces > 0)

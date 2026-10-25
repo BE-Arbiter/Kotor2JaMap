@@ -69,7 +69,7 @@ public class WorldScaleTests
         var layout = AreaLayout.Load(Path.Combine(root!, "world", "areas", ShipAreaId));
         var source = new SwtorAssetsModelSource(new SwtorAssets(root));
         ModuleScene inRooms = SwtorSceneBuilder.Build(layout, source, "war_planworking", new SwtorBuildOptions { StaticModelMinTriangles = 0 }, new ImportLog()).Scene;
-        ModuleScene split = SwtorSceneBuilder.Build(layout, source, "war_planworking", null, new ImportLog()).Scene;
+        ModuleScene split = SwtorSceneBuilder.Build(layout, source, "war_planworking", new SwtorBuildOptions { StaticModelMinTriangles = 200 }, new ImportLog()).Scene;
         Assert.Empty(inRooms.ModelInstances);
         Assert.NotEmpty(split.ModelInstances);
 
@@ -143,6 +143,26 @@ public class WorldScaleTests
     }
 
     [SkippableFact]
+    public void WarPlanworking_decor_stays_brushes_by_default_no_md3()
+    {
+        string? root = TestEnv.SwtorAssetsDir;
+        Skip.If(root is null || !Directory.Exists(Path.Combine(root, "world", "areas", ShipAreaId)), "SWTOR assets not available");
+        string tmp = Path.Combine(Path.GetTempPath(), "swtor_nomd3_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var opt = new ExportOptions("", Path.Combine(tmp, "base"), Path.Combine(tmp, "work"), Game: Kotor.Core.KotorGame.Swtor);
+            Directory.CreateDirectory(opt.JaBaseDir);
+            var r = SwtorExporter.Export(Path.Combine(root!, "world", "areas", ShipAreaId), new SwtorAreaSpec(ShipAreaId, []), null, new SwtorAssets(root), opt, null, new ImportLog());
+            Assert.True(r.Export.Ok, r.Export.Error);
+            Assert.DoesNotContain("misc_model_static", r.Bsp!.Entities);
+            string stage = Path.Combine(opt.WorkDir, r.MapName, "pk3");
+            Assert.Empty(Directory.GetFiles(stage, "*.md3", SearchOption.AllDirectories));
+            Assert.True(File.Exists(Path.Combine(stage, "maps", r.MapName + ".map")));
+        }
+        finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
+    }
+
+    [SkippableFact]
     public void WarPlanworking_heavy_models_become_misc_model_static_within_the_engine_limit()
     {
         string? root = TestEnv.SwtorAssetsDir;
@@ -153,7 +173,7 @@ public class WorldScaleTests
             var opt = new ExportOptions("", Path.Combine(tmp, "base"), Path.Combine(tmp, "work"), Game: Kotor.Core.KotorGame.Swtor);
             Directory.CreateDirectory(opt.JaBaseDir);
             var log = new ImportLog();
-            var r = SwtorExporter.Export(Path.Combine(root!, "world", "areas", ShipAreaId), new SwtorAreaSpec(ShipAreaId, []), null, new SwtorAssets(root), opt, null, log);
+            var r = SwtorExporter.Export(Path.Combine(root!, "world", "areas", ShipAreaId), new SwtorAreaSpec(ShipAreaId, []), null, new SwtorAssets(root), opt, new SwtorBuildOptions { StaticModelMinTriangles = 200 }, log);
             Assert.True(r.Export.Ok, r.Export.Error);
             string ents = r.Bsp!.Entities;
             var blocks = System.Text.RegularExpressions.Regex.Matches(ents, @"\{[^}]*\}").Select(x => x.Value).Where(b => b.Contains("\"misc_model_static\"")).ToList();

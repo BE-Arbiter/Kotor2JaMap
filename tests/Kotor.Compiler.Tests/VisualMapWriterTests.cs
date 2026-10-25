@@ -8,7 +8,7 @@ using BspCompiler = Kotor.Compiler.Compiler;
 namespace Kotor.Compiler.Tests;
 
 /// <summary>
-/// .map d'edition : geometrie visible texturee (un prisme fin par triangle de rendu) dans un func_group « _kotor_visual ».
+/// .map d'edition : geometrie visible texturee (un prisme fin par triangle de rendu) dans le worldspawn (a la fois visible et solide, pas de couche de collision a part).
 /// Le lecteur de .map et la formule de projection de texture ci-dessous sont des reecritures independantes de celles de q3map2 / Radiant.
 /// </summary>
 public sealed class VisualMapWriterTests : IDisposable
@@ -76,7 +76,10 @@ public sealed class VisualMapWriterTests : IDisposable
         return ents;
     }
 
-    private static Ent Visual(string map) => Parse(map).Single(e => e.Keys.GetValueOrDefault("_kotor_visual") == "1");
+    private static Ent Visual(string map) => Parse(map).Single(e => e.Keys.GetValueOrDefault("classname") == "worldspawn");
+
+    /// <summary>La sortie brute de VisualMapWriter (des brushes seuls) dans un worldspawn, pour le lecteur.</summary>
+    private static string InWorld(StringWriter sw) => "{\n\"classname\" \"worldspawn\"\n" + sw + "}\n";
 
     /// <summary>Sommets du brush (intersections de trois plans, gardees si dans tous les demi-espaces) ; verifie qu'il est borne et convexe.</summary>
     private static List<Vector3> Vertices(List<Face> brush)
@@ -172,7 +175,7 @@ public sealed class VisualMapWriterTests : IDisposable
     private static string Write(params SurfaceInput[] surfaces)
     {
         var sw = new StringWriter { NewLine = "\n" };
-        MapWriter.Write(sw, TestScenes.Entities(), [], [], surfaces);
+        MapWriter.Write(sw, TestScenes.Entities(), [], surfaces);
         return sw.ToString();
     }
 
@@ -183,7 +186,7 @@ public sealed class VisualMapWriterTests : IDisposable
             shader: "textures/kotor/floor__lm01", tex: "textures/kotor/floor"));
         Ent e = Visual(map);
 
-        Assert.Equal("func_group", e.Keys["classname"]);
+        Assert.Equal("worldspawn", e.Keys["classname"]);
         Assert.Equal(2, e.Brushes.Count);
         foreach (var b in e.Brushes)
         {
@@ -196,33 +199,26 @@ public sealed class VisualMapWriterTests : IDisposable
         var all = e.Brushes.SelectMany(Vertices).ToList();
         Assert.Equal(0f, all.Max(v => v.Z), 0.01f);
         Assert.Equal(-VisualMapWriter.DefaultThickness, all.Min(v => v.Z), 0.01f);
-        Assert.Equal(0f, all.Min(v => v.X), 0.01f); Assert.Equal(100f, all.Max(v => v.X), 0.01f);
-        Assert.Equal(0f, all.Min(v => v.Y), 0.01f); Assert.Equal(100f, all.Max(v => v.Y), 0.01f);
+        // Au niveau de la surface le prisme couvre exactement le triangle ; plus bas les flancs s'evasent (voir FlankFlare).
+        var top = all.Where(v => v.Z > -0.01f).ToList();
+        Assert.Equal(0f, top.Min(v => v.X), 0.01f); Assert.Equal(100f, top.Max(v => v.X), 0.01f);
+        Assert.Equal(0f, top.Min(v => v.Y), 0.01f); Assert.Equal(100f, top.Max(v => v.Y), 0.01f);
+        Assert.InRange(all.Min(v => v.X), -2f, 0.01f);
         Assert.All(e.Brushes, b => Assert.True(b.Single(f => f.Shader == "kotor/floor").Normal.Z > 0.999f));
     }
 
     [Fact]
-    public void VisualGroup_IsSeparateFromCollision_AndMarked()
+    public void Geometry_IsInTheWorldspawn_WithNoSeparateCollisionLayer()
     {
         string map = Write(Wall([new(0, 0, 0), new(100, 0, 0), new(100, 100, 0), new(0, 100, 0)], [new(0, 0), new(1, 0), new(1, 1), new(0, 1)]));
         var ents = Parse(map);
-        Assert.Equal(TestScenes.Entities().Count + 1, ents.Count);
+        Assert.Equal(TestScenes.Entities().Count, ents.Count);
         Assert.Equal("worldspawn", ents[0].Keys["classname"]);
-        Assert.Empty(ents[0].Brushes); // aucune geometrie visible dans le worldspawn (pas de doublon a la recompilation)
-        Assert.Single(ents, e => e.Keys.ContainsKey("_kotor_visual"));
-        Assert.Contains("_kotor_visual", map);
-    }
-
-    [Fact]
-    public void WithoutVisualSurfaces_MapIsByteIdenticalToTheCollisionOnlyMap()
-    {
-        var planes = SubModelTests.BoxPlanes(new(0, 0, 0), new(10, 10, 10));
-        var brushes = new[] { new Brush(planes, new(0, 0, 0), new(10, 10, 10)) };
-        string before = MapWriter.Write(TestScenes.Entities(), brushes, []);
-        var sw = new StringWriter { NewLine = "\n" };
-        MapWriter.Write(sw, TestScenes.Entities(), brushes, [], null);
-        Assert.Equal(before, sw.ToString());
-        Assert.DoesNotContain("_kotor_visual", before);
+        Assert.Equal(2, ents[0].Brushes.Count);
+        Assert.DoesNotContain(ents, e => e.Keys["classname"] == "func_group");
+        Assert.DoesNotContain("_kotor_visual", map);
+        // Les seuls brushes sont les prismes : chacun porte la texture de la surface (pas de brush caulk plein).
+        Assert.All(ents[0].Brushes, b => Assert.Contains(b, f => f.Shader != "common/caulk"));
     }
 
     [Theory]
@@ -342,11 +338,9 @@ public sealed class VisualMapWriterTests : IDisposable
         };
         var door = new BspSubModel([new Brush(SubModelTests.BoxPlanes(new(0, 0, 0), new(10, 10, 10)), new(0, 0, 0), new(10, 10, 10))], "textures/system/clip");
         var sw = new StringWriter { NewLine = "\n" };
-        MapWriter.Write(sw, ents, [], [door], []);
+        MapWriter.Write(sw, ents, [door], []);
         Assert.Contains(" system/clip ", sw.ToString());
         Assert.DoesNotContain("textures/", sw.ToString());
-        // Sans geometrie visible demandee, le .map du pk3 garde le nom complet.
-        Assert.Contains(" textures/system/clip ", MapWriter.Write(ents, [], [door]));
     }
 
     [Fact]
@@ -367,9 +361,9 @@ public sealed class VisualMapWriterTests : IDisposable
 
         Assert.Equal(100, st.Brushes);
         Assert.Equal(200, st.CappedTriangles);
-        Assert.Equal(100, Parse(sw.ToString()).Single().Brushes.Count);
+        Assert.Equal(100, Parse(InWorld(sw)).Single().Brushes.Count);
         // Ce sont les 100 plus grands (x >= 200 * 400) qui restent.
-        Assert.All(Parse(sw.ToString()).Single().Brushes, b => Assert.True(Vertices(b).Min(v => v.X) >= 200 * 400 - 1));
+        Assert.All(Parse(InWorld(sw)).Single().Brushes, b => Assert.True(Vertices(b).Min(v => v.X) >= 200 * 400 - 1));
     }
 
     [Fact]
@@ -382,36 +376,25 @@ public sealed class VisualMapWriterTests : IDisposable
         Assert.True(st.MaxUvError < 0.002);
     }
 
-    // ---- compilateur : le BSP et le .map du pk3 ne changent pas ----
+    // ---- compilateur : le BSP ne change pas, un seul .map ----
 
     private string BspPath => Path.Combine(_dir, "m.bsp");
 
     [Fact]
-    public void Compile_WithVisualMap_LeavesBspAndPk3MapUnchanged_AndWritesTheEditMap()
+    public void Compile_AlwaysWritesTheSingleMapNextToTheBsp()
     {
         var input = TestScenes.Input(sky: "textures/skies/test");
         Assert.True(BspCompiler.Compile(input, BspPath, Limits.Swgl, new ImportLog()).Ok);
-        byte[] bsp0 = File.ReadAllBytes(BspPath);
-        string map0 = File.ReadAllText(Path.ChangeExtension(BspPath, ".map"));
-
-        string edit = Path.Combine(_dir, "edit", "maps", "m.map");
-        var withVisual = input with { VisualMapPath = edit };
-        Assert.True(BspCompiler.Compile(withVisual, BspPath, Limits.Swgl, new ImportLog()).Ok);
-
-        Assert.Equal(bsp0, File.ReadAllBytes(BspPath));
-        Assert.Equal(map0, File.ReadAllText(Path.ChangeExtension(BspPath, ".map")));
-        Assert.DoesNotContain("_kotor_visual", map0);
-        string editMap = File.ReadAllText(edit);
-        Assert.Contains("_kotor_visual", editMap);
-        Assert.Contains("common/caulk", editMap); Assert.DoesNotContain("textures/", editMap); // noms sans « textures/ » : Radiant et q3map2 l ajoutent
-        Assert.StartsWith(map0.Replace("textures/", "").TrimEnd(), editMap); // = le .map du pk3 (noms de texture sans prefixe) + le func_group visuel
-        Assert.Equal(2, Visual(editMap).Brushes.Count);
+        string map = File.ReadAllText(Path.ChangeExtension(BspPath, ".map"));
+        Assert.DoesNotContain("_kotor_visual", map);
+        Assert.DoesNotContain("textures/", map); // noms sans « textures/ » : Radiant et q3map2 l ajoutent
+        Assert.Equal(2, Visual(map).Brushes.Count);
     }
 
     [Fact]
-    public void Compile_BspHashStaysTheGoldenOne_WhenAVisualMapIsRequested()
+    public void Compile_BspHashStaysTheGoldenOne()
     {
-        var input = TestScenes.Input(sky: "textures/skies/test") with { VisualMapPath = Path.Combine(_dir, "e.map") };
+        var input = TestScenes.Input(sky: "textures/skies/test");
         Assert.True(BspCompiler.Compile(input, BspPath, Limits.Swgl, new ImportLog()).Ok);
         string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(BspPath)));
         Assert.Equal("73E8A0E8F017D36ADD7B09505FE4108DB714105FC8DEAD0F4C0E6CC29E7FC390", hash);

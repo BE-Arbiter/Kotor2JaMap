@@ -15,8 +15,8 @@ public sealed record VisualMapStats(int Brushes, int DegenerateTriangles, int Ca
     IReadOnlyCollection<string> Textures);
 
 /// <summary>
-/// Ecrit, dans le <c>.map</c> d'edition, la geometrie VISIBLE de la carte : un prisme fin par triangle de rendu, range dans une entite
-/// <c>func_group</c> portant la cle <c>_kotor_visual</c> "1" (separee de la collision, qui reste dans le worldspawn). La face qui porte la
+/// Ecrit, dans le worldspawn du <c>.map</c>, la geometrie de la carte : un prisme fin par triangle de rendu. Ces brushes sont a la fois
+/// le visible et le solide (comme dans une carte Jedi Academy : pas de couche de collision a part). La face qui porte la
 /// surface a sa position exacte et la texture de base ; les autres faces sont <c>caulk</c>. Pour une surface double face, les deux grandes
 /// faces portent la texture.
 /// <para>
@@ -30,6 +30,9 @@ public static class VisualMapWriter
     /// <summary>Epaisseur du prisme sous la surface (unites JA). La face visible reste dans le plan exact de la surface.</summary>
     public const float DefaultThickness = 2f;
 
+    /// <summary>Evasement (unites JA) des flancs au fond du prisme : ils ne sont ainsi jamais coplanaires avec la surface d'un voisin perpendiculaire.</summary>
+    public const float FlankFlare = 0.5f;
+
     /// <summary>Plafond de brushes visuels (un editeur ne tient pas un nombre illimite de brushes) ; les plus petits triangles sont retires d'abord.</summary>
     public const int DefaultMaxBrushes = 300_000;
 
@@ -41,8 +44,6 @@ public static class VisualMapWriter
 
     /// <summary>Plus petite hauteur (unites JA) d'un triangle : en dessous c'est une aiguille que l'arrondi a 4 decimales du .map degenere.</summary>
     private const float MinAltitude = 0.05f;
-
-    public const string GroupKey = "_kotor_visual";
 
     // TextureAxisFromPlane de q3map2 : pour chacune des six normales (sol, plafond, mur ouest, est, sud, nord), indices des deux coordonnees
     // conservees (s, t). Les axes de base sont toujours s = +coordonnee s, t = -coordonnee t.
@@ -83,8 +84,7 @@ public static class VisualMapWriter
             tris = tris.Where((_, i) => keep.Contains(i)).ToList();
         }
 
-        w.Write("// Visual geometry for editing only: one thin textured prism per render triangle. The collision brushes are in the worldspawn.\n");
-        w.Write("{\n\"classname\" \"func_group\"\n\"" + GroupKey + "\" \"1\"\n");
+        w.Write("// World geometry: one thin textured prism per render triangle. It is what is seen and what is solid, there is no separate collision layer.\n");
         var textures = new SortedSet<string>(StringComparer.Ordinal);
         var sb = new StringBuilder(1024);
         double maxErr = 0;
@@ -100,7 +100,6 @@ public static class VisualMapWriter
             maxErr = Math.Max(maxErr, err);
             if (err > UvTolerance) inexact++;
         }
-        w.Write("}\n");
         return new VisualMapStats(tris.Count, degenerate, capped, maxErr, inexact, textures);
     }
 
@@ -139,12 +138,26 @@ public static class VisualMapWriter
         // Face arriere : texturee seulement si la surface est double face.
         if (s.DoubleSided) err = Math.Max(err, AppendFace(sb, c2, a2, b2, tex, Fit(a2, b2, c2, ta, tb, tc, -n, size, out string? back), back));
         else AppendCaulk(sb, c2, a2, b2);
-        // Trois flancs, normale vers l'exterieur : (p - n t), p, q.
-        AppendCaulk(sb, a2, a, b);
-        AppendCaulk(sb, b2, b, c);
-        AppendCaulk(sb, c2, c, a);
+        // Trois flancs, normale vers l'exterieur : (p - n t + evasement), p, q. Evases vers l'exterieur en profondeur : un flanc
+        // exactement perpendiculaire serait dans le plan de la face texturee d'un mur ou d'un sol voisin (z-fighting caulk/texture).
+        AppendCaulk(sb, Flare(a2, a, b, c), a, b);
+        AppendCaulk(sb, Flare(b2, b, c, a), b, c);
+        AppendCaulk(sb, Flare(c2, c, a, b), c, a);
         sb.Append("}\n");
         return err;
+    }
+
+    /// <summary>Point bas <paramref name="below"/> de l'arete (p, q), decale dans le plan du triangle, perpendiculairement a l'arete et en s'eloignant du sommet oppose <paramref name="r"/>.</summary>
+    private static Vector3 Flare(Vector3 below, Vector3 p, Vector3 q, Vector3 r)
+    {
+        Vector3 e = q - p;
+        float len = e.Length();
+        if (!(len > 0f)) return below;
+        e /= len;
+        Vector3 toR = r - p;
+        Vector3 perp = toR - e * Vector3.Dot(toR, e);
+        float pl = perp.Length();
+        return pl > 0f ? below - perp / pl * FlankFlare : below;
     }
 
     private static double AppendFace(StringBuilder sb, Vector3 p0, Vector3 p1, Vector3 p2, string tex, double err, string? texdef)

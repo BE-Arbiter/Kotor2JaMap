@@ -101,7 +101,6 @@ Options of `export-ja`:
 - `--lightmap-brightness <n>` lightmap brightness multiplier.
 - `--bsp-limits swgl|vanilla` BSP limits profile.
 - `--config <file>` JSON configuration file.
-- `--map-visuals on|off` (default `on`) writes the textured editing map described in Editing the map; `off` skips it.
 
 Exit code 0 means success, 1 invalid arguments or a failed export, 2 game folder or module not found. For `export-obj`, exit code 1 also means that the module produced no triangle.
 
@@ -136,37 +135,18 @@ The first example, `end_m01aa,end_m01ab`, gives the map `end_m01aa_2` (about 1.2
 
 Limits: transitions made by triggers (not doors) are not used to place modules. Some modules contain their own copy of the rooms around the transition door (an airlock, a decorative locked door); these copies are kept and can overlap the other module or block the way. The assembled map must still fit the BSP limits: the `swgl` profile allows 2,097,152 leaf surfaces (the engine allocates them from the file), `vanilla` keeps 131,072. Larger assemblies fail with a `BSP limit exceeded` message and nothing is written.
 
-## Editing the map
+## The map file
 
-Every export also writes a `.map` that shows the whole map, textured, in a map editor (NetRadiant, GtkRadiant). It is written under the work folder, never into the `.pk3`:
-
-```
-<workDir>\<map>\edit\base\maps\<map>.map      the map to open
-<workDir>\<map>\edit\base\textures\...        copy of the textures (plus a grey textures/common/caulk.tga)
-<workDir>\<map>\edit\base\shaders\<map>.shader copy of the map shaders
-```
-
-The `.map` inside the `.pk3` (`maps/<map>.map`) is unchanged: collision brushes (`caulk` / `clip`) and entities only, so it stays small. The editing map is that file plus the visible geometry.
-
-How to open it (NetRadiant, game `Jedi Academy`):
-
-1. Set the engine path to `<workDir>\<map>\edit` (the folder that contains `base`), so the editor finds `base\textures` and `base\shaders`. To keep your usual engine path instead, add `<workDir>\<map>\edit\base` as an extra resource path.
-2. Open `<workDir>\<map>\edit\base\maps\<map>.map`.
+Every `.pk3` contains its `.map` (`maps/<map>.map`, a copy stays in `<workDir>\<map>\pk3\maps`). There is a single `.map`, and no separate collision layer: like a Jedi Academy map, its brushes are both what you see and what is solid (so a collision-only invisible wall has no brush). It opens in a map editor (NetRadiant, GtkRadiant, game `Jedi Academy`) with the textures of the `.pk3` (`<workDir>\<map>\pk3	extures`) and its shader (`shaders`) available to the editor.
 
 What it contains:
 
-- The `worldspawn` and the entities of the `.pk3` map, with the collision brushes as before (`common/caulk`, doors as sub-model entities).
-- One `func_group` with the key `_kotor_visual` `1`: one thin prism per rendered triangle (2 units thick behind the surface). The face on the surface itself carries the real texture of the surface (for example `jk/01wbolts`: the base texture, not the lightmap shader, which an editor cannot show), the other faces are `caulk`. Double sided surfaces (foliage, grates, glass) are textured on both big faces. Texture names are written without the `textures/` prefix, as Radiant and `q3map2` expect.
-- Texture mapping uses the classic Quake 3 `.map` format (the only one that every Jedi Academy editor setup reads). It is an axial projection with rotation, scale and shift worked out from the UV of each triangle, so planar mapping (walls, floors, ceilings, signs) is reproduced exactly. Curved meshes (rocks, trees, river beds) have skewed UV that this format cannot hold: the mapping is then a best fit (on `danm14aa`, 29,348 of 38,785 triangles are off by more than 0.2% of a texture, 7,700 of them by more than 5%; on `jk_01narshadda` 108 of 7,852), and the log reports the count as `MAP_VISUAL_UV_APPROX`. Surfaces at exactly 45 degrees may choose the other projection axis in the editor.
+- The entities (spawns, doors as sub-model entities with their own brushes).
+- In the `worldspawn`: one thin prism per rendered triangle (2 units thick behind the surface). The face on the surface itself carries the real texture of the surface (the base texture, not the lightmap shader, which an editor cannot show), the other faces are `caulk`. Double sided surfaces (foliage, grates, glass) are textured on both big faces. Texture names are written without the `textures/` prefix, as Radiant and `q3map2` expect. At most 300,000 brushes are written; beyond that the smallest triangles are left out (`MAP_VISUAL_CAPPED`).
+- Texture mapping uses the classic Quake 3 `.map` format. Planar mapping (walls, floors, ceilings) is reproduced exactly; curved meshes have skewed UV that this format cannot hold, the mapping is then a best fit (`MAP_VISUAL_UV_APPROX`).
 - Models (`misc_model_static` and so on) stay entities with their `model` key; their geometry is not drawn in the editor.
 
-Sizes (examples): `jk_01narshadda` 7.5 MB, about 97,000 lines, 7,852 visual brushes using 103 textures (the `.pk3` map is 2.9 MB); KOTOR `danm14aa` 49.5 MB, 565,000 lines, 38,785 visual brushes using 20 textures (the `.pk3` map is 25.7 MB). The editing folder also holds a copy of the textures (16 MB and 66 MB). At most 300,000 visual brushes are written; beyond that the smallest triangles are left out (`MAP_VISUAL_CAPPED`).
-
-Compiling the editing map with `q3map2` gives textured visible geometry plus the collision brushes; it is meant for editing and looking, not as a replacement for the converter (lightmaps, vertex lighting, doors, sky box and visibility are not rebuilt). The BSP and the `.pk3` do not depend on this file: with `--map-visuals off` they are byte-for-byte the same.
-
-**The editing map is regenerated at every export.** The previous `<map>.map` is not overwritten silently: it is renamed `<map>.<yyyyMMdd-HHmmss>.map.bak` in the same folder (the 5 most recent backups are kept). Changes you make in the editor must therefore be saved somewhere else (or taken back from the `.bak`), not left in `edit\base\maps`. If the old file cannot be backed up (locked by the editor or by Explorer) or the `edit` folder cannot be written, the export still succeeds and logs the warning `MAP_VISUAL_WRITE_FAILED`; the `.bsp` and the `.pk3` never depend on it. With `--map-visuals off` nothing in `edit` is created, changed or deleted.
-
-Recompiling the editing map: the `_kotor_visual` group duplicates the geometry the `.bsp` already draws, so compiling the file as it is doubles the visible surfaces. Delete that group first, or compile only the collision and the entities. Also, `q3map2` crashes (segfault) in `-meta` on these maps, so a recompilation is not guaranteed to work.
+The `.map` is regenerated at every export, and the staging folder `<workDir>\<map>\pk3` is rebuilt: keep your editor changes somewhere else. The `.bsp` does not depend on the `.map`. `q3map2` crashes (segfault) in `-meta` on these maps, so a recompilation is not guaranteed to work.
 
 ## Configuration
 

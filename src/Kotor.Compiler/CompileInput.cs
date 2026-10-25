@@ -39,10 +39,4 @@ public sealed record CompileInput(string MapName, IReadOnlyList<IReadOnlyDiction
 
     /// <summary>Boites ou un spectateur peut se trouver, par piece (unites JA, voir <see cref="Compiler.ViewBox"/>). Une piece sans boite n a pas de cluster : ses surfaces sont toujours visibles (ciel, pieces sans walkmesh). Null : boites deduites des surfaces de chaque piece.</summary>
     public IReadOnlyList<RoomBox>? RoomViewBoxes { get; init; }
-
-    /// <summary>
-    /// Chemin du <c>.map</c> d'edition (collision + entites + geometrie visible texturee). Null par defaut : seul le <c>.map</c> de collision,
-    /// a cote du <c>.bsp</c>, est ecrit. Ne change ni le BSP ni ce <c>.map</c>.
-    /// </summary>
-    public string? VisualMapPath { get; init; }
 }

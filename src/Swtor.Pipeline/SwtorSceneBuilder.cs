@@ -59,8 +59,8 @@ public sealed record SwtorBuildOptions
     /// <summary>Triangles de rendu au plus pour tout le terrain de la zone ; 0 = aucune limite (pleine resolution, 0,2 unite par cellule) : le PVS par room evite de tout dessiner, le budget BSP ne s applique pas au sol. Sinon le pas de la grille est choisi pour tenir dedans.</summary>
     public int TerrainMaxTriangles { get; init; } = 0;
 
-    /// <summary>Triangles de rendu au moins pour qu'un modele place sorte du BSP en MD3 + misc_model_static (voir <see cref="SceneModel"/>) ; 0 = tout reste dans le BSP.</summary>
-    public int StaticModelMinTriangles { get; init; } = 200;
+    /// <summary>Triangles de rendu au moins pour qu'un modele place sorte du BSP en MD3 + misc_model_static (voir <see cref="SceneModel"/>) ; 0 (defaut) = tout reste dans le BSP, donc en brushes dans le .map (decor, vaisseaux).</summary>
+    public int StaticModelMinTriangles { get; init; } = 0;
 }
 
 /// <summary>Comptes de la construction, pour le rapport et les tests.</summary>
